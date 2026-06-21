@@ -32,6 +32,12 @@ GREEN  <- "#3fb950"
 RED    <- "#f85149"
 GRAY   <- "#8b949e"
 
+placeholder_msg <- function(msg = "Загрузите данные и нажмите «Анализировать»") {
+  div(style = "text-align:center;padding:60px 20px;color:#555;",
+    tags$i(class = "fas fa-chart-line fa-3x", style = "display:block;margin-bottom:14px;color:#30363d;"),
+    p(style = "font-size:1rem;", msg))
+}
+
 ui <- page_navbar(
   title = div(
     style = "display:flex;align-items:center;gap:10px;",
@@ -128,7 +134,8 @@ server <- function(input, output, session) {
   output$coin_filter_ui <- renderUI({
     df <- raw_data(); req(df)
     selectInput("sel_coins", "Монеты:", choices = unique(df$symbol),
-                selected = unique(df$symbol), multiple = TRUE, selectize = TRUE)
+                selected = unique(df$symbol), multiple = TRUE, selectize = FALSE,
+                size = min(8, length(unique(df$symbol))))
   })
 
   output$date_filter_ui <- renderUI({
@@ -165,31 +172,42 @@ server <- function(input, output, session) {
   })
 
   # ── Wide-format helpers ───────────────────────────────────────────────────────
+  # values_fn = mean handles duplicate symbol+date rows; result is always numeric
   price_wide <- eventReactive(input$analyze, {
     df <- filtered_data(); req(df)
-    pw <- df |> select(symbol, date, price) |>
-      pivot_wider(names_from = symbol, values_from = price) |>
+    pw <- df |>
+      select(symbol, date, price) |>
+      pivot_wider(names_from = symbol, values_from = price, values_fn = mean) |>
       arrange(date)
     dates <- pw$date
-    mat   <- as.data.frame(pw[, -1])
+    mat   <- as.data.frame(lapply(pw[, -1, drop = FALSE], as.numeric))
     rownames(mat) <- as.character(dates)
     mat
   })
 
   returns_wide <- eventReactive(input$analyze, {
     pw <- price_wide(); req(pw)
-    as.data.frame(apply(pw, 2, function(x) {
-      xf <- na.approx(x, na.rm = FALSE)
+    as.data.frame(lapply(pw, function(x) {
+      xf <- na.approx(as.numeric(x), na.rm = FALSE)
       c(NA, diff(log(xf)))
     }))
   })
 
   # ── CORRELATIONS ─────────────────────────────────────────────────────────────
   corr_matrix <- reactive({
-    cor(price_wide(),   use = "pairwise.complete.obs")
+    pw <- price_wide()
+    validate(need(ncol(pw) >= 2, "Нужно выбрать минимум 2 монеты"))
+    m <- as.matrix(pw)
+    storage.mode(m) <- "double"
+    cor(m, use = "pairwise.complete.obs")
   })
+
   ret_corr_matrix <- reactive({
-    cor(returns_wide(), use = "pairwise.complete.obs")
+    rw <- returns_wide()
+    validate(need(ncol(rw) >= 2, "Нужно выбрать минимум 2 монеты"))
+    m <- as.matrix(rw)
+    storage.mode(m) <- "double"
+    cor(m, use = "pairwise.complete.obs")
   })
 
   output$corr_ui <- renderUI({
@@ -232,14 +250,14 @@ server <- function(input, output, session) {
                                          bg = "#161b22")
 
   output$top_corr_table <- renderDT({
-    cm  <- corr_matrix();   req(cm)
+    cm  <- corr_matrix()
     rcm <- ret_corr_matrix()
     pairs <- which(upper.tri(cm), arr.ind = TRUE)
     df <- data.frame(
-      "Монета A"            = rownames(cm)[pairs[,1]],
-      "Монета B"            = colnames(cm)[pairs[,2]],
-      "Корр. цен"           = round(cm[pairs], 3),
-      "Корр. доходн."       = round(rcm[pairs], 3),
+      "Монета A"      = rownames(cm)[pairs[,1]],
+      "Монета B"      = colnames(cm)[pairs[,2]],
+      "Корр. цен"     = round(cm[pairs], 3),
+      "Корр. доходн." = round(rcm[pairs], 3),
       stringsAsFactors = FALSE, check.names = FALSE
     )
     df[["Сила"]]       <- ifelse(abs(df[["Корр. цен"]]) > 0.8, "Сильная",
@@ -275,7 +293,8 @@ server <- function(input, output, session) {
     if (length(coins) < 2) return(p("Нужно ≥ 2 монеты"))
     pairs <- combn(coins, 2, simplify = FALSE)
     nms   <- sapply(pairs, paste, collapse = " / ")
-    selectInput("sel_pair", "Пара монет:", choices = setNames(seq_along(pairs), nms), selected = 1)
+    selectInput("sel_pair", "Пара монет:", choices = setNames(seq_along(pairs), nms),
+                selected = 1, selectize = FALSE)
   })
 
   sel_pair_coins <- reactive({
@@ -289,13 +308,14 @@ server <- function(input, output, session) {
     pw <- price_wide(); req(pw, input$roll_w)
     pair <- sel_pair_coins(); req(pair)
     dates <- as.Date(rownames(pw))
-    x <- pw[[pair[1]]]; y <- pw[[pair[2]]]
+    x <- as.numeric(pw[[pair[1]]]); y <- as.numeric(pw[[pair[2]]])
     w <- input$roll_w
     rc <- rollapply(data.frame(x = x, y = y), width = w,
                     FUN = function(m) cor(m[,1], m[,2], use = "complete.obs"),
                     by.column = FALSE, align = "right", fill = NA)
     df <- data.frame(date = dates, corr = as.numeric(rc))
     df <- df[!is.na(df$corr), ]
+    validate(need(nrow(df) > 0, "Недостаточно данных для выбранного окна"))
     ggplot(df, aes(date, corr)) +
       geom_hline(yintercept = c(-0.7, 0, 0.7), linetype = c("dashed","solid","dashed"),
                  color = c(RED, GRAY, GREEN), linewidth = 0.6) +
@@ -339,7 +359,8 @@ server <- function(input, output, session) {
           selectInput("cycle_type", "Тип анализа:",
             choices = c("Автокорреляция (ACF)"    = "acf",
                         "Спектр (Фурье/FFT)"       = "fft",
-                        "Сезонная декомпозиция"    = "decomp")),
+                        "Сезонная декомпозиция"    = "decomp"),
+            selectize = FALSE),
           sliderInput("max_lag", "Макс. лаг (дней):", 7, 120, 60)
         ))
       ),
@@ -350,7 +371,7 @@ server <- function(input, output, session) {
 
   output$cycle_coin_ui <- renderUI({
     df <- filtered_data(); req(df)
-    selectInput("cycle_coin", "Монета:", choices = unique(df$symbol))
+    selectInput("cycle_coin", "Монета:", choices = unique(df$symbol), selectize = FALSE)
   })
 
   coin_ts <- reactive({
@@ -360,13 +381,15 @@ server <- function(input, output, session) {
   })
 
   output$cycle_plot <- renderPlot({
-    ts_df <- coin_ts(); req(ts_df, nrow(ts_df) > 20, input$cycle_type)
+    ts_df <- coin_ts()
+    validate(need(nrow(ts_df) > 20, "Недостаточно данных (нужно > 20 точек)"),
+             need(!is.null(input$cycle_type), ""))
     x <- ts_df$centered
 
     if (input$cycle_type == "acf") {
       max_lag <- min(input$max_lag, floor(length(x) / 3))
       acf_res <- acf(x, lag.max = max_lag, plot = FALSE, na.action = na.pass)
-      ci <- qnorm(0.975) / sqrt(length(x))
+      ci <- qnorm(0.975) / sqrt(sum(!is.na(x)))
       df <- data.frame(lag = as.numeric(acf_res$lag)[-1],
                        acf = as.numeric(acf_res$acf)[-1])
       df$sig <- abs(df$acf) > ci
@@ -382,12 +405,14 @@ server <- function(input, output, session) {
 
     } else if (input$cycle_type == "fft") {
       xc <- x[!is.na(x)]
+      validate(need(length(xc) >= 10, "Слишком мало данных для FFT"))
       n  <- length(xc)
       ft <- fft(xc)
       power   <- Mod(ft[2:(n %/% 2 + 1)])^2
       periods <- n / (1:(n %/% 2))
       df <- data.frame(period = periods, power = power)
       df <- df[df$period >= 2 & df$period <= input$max_lag, ]
+      validate(need(nrow(df) > 0, "Нет периодов в выбранном диапазоне"))
       top5 <- head(df[order(-df$power), ], 5)
       ggplot(df, aes(period, power)) +
         geom_line(color = ORANGE, linewidth = 0.8) +
@@ -403,14 +428,10 @@ server <- function(input, output, session) {
       xf <- na.approx(x, na.rm = FALSE)
       xf[is.na(xf)] <- mean(xf, na.rm = TRUE)
       freq <- 7
-      if (length(xf) < freq * 2) {
-        return(ggplot() + annotate("text", x = 0.5, y = 0.5,
-          label = "Недостаточно данных (нужно > 14 точек)",
-          color = "#adbac7", size = 6) + dark_theme)
-      }
+      validate(need(length(xf) >= freq * 2, "Недостаточно данных (нужно > 14 точек)"))
       ts_obj <- ts(xf, frequency = freq)
       dec <- tryCatch(decompose(ts_obj), error = function(e) NULL)
-      req(!is.null(dec))
+      validate(need(!is.null(dec), "Не удалось выполнить декомпозицию"))
       dates <- ts_df$date
       long <- bind_rows(
         data.frame(date = dates, value = as.numeric(dec$x),        component = "Данные"),
@@ -435,8 +456,10 @@ server <- function(input, output, session) {
     coins <- unique(df$symbol)
     res <- lapply(coins, function(coin) {
       s <- df |> filter(symbol == coin) |> arrange(date) |> pull(price)
-      lp <- log(s); xc <- lp - mean(lp, na.rm = TRUE)
-      if (length(xc) < 20) return(NULL)
+      s <- as.numeric(s)
+      lp <- log(s[s > 0 & !is.na(s)])
+      if (length(lp) < 20) return(NULL)
+      xc <- lp - mean(lp)
       ml <- min(60, floor(length(xc) / 3))
       ar <- tryCatch(acf(xc, lag.max = ml, plot = FALSE, na.action = na.pass), error = function(e) NULL)
       if (is.null(ar)) return(NULL)
@@ -444,7 +467,6 @@ server <- function(input, output, session) {
       ci <- qnorm(0.975) / sqrt(length(xc))
       sig <- lv[abs(av) > ci]
       peak <- if (length(sig) > 0) sig[which.max(abs(av[abs(av) > ci]))] else NA
-      # FFT dominant period
       xf   <- na.approx(xc, na.rm = FALSE); xf[is.na(xf)] <- 0
       n    <- length(xf)
       pw   <- Mod(fft(xf)[2:(n %/% 2 + 1)])^2
@@ -452,17 +474,18 @@ server <- function(input, output, session) {
       valid <- pers >= 2 & pers <= 90
       dom_period <- if (any(valid)) round(pers[valid][which.max(pw[valid])]) else NA
       data.frame(
-        "Монета"          = coin,
-        "Записей"         = length(xc),
-        "Осн. цикл ACF"   = ifelse(is.na(peak), "Нет", paste(round(peak), "дн.")),
-        "Осн. цикл FFT"   = ifelse(is.na(dom_period), "Нет", paste(dom_period, "дн.")),
-        "Значимых лагов"  = length(sig),
-        "Цикличность"     = ifelse(length(sig) > 3, "Высокая",
-                             ifelse(length(sig) > 0, "Умеренная", "Нет")),
+        "Монета"         = coin,
+        "Записей"        = length(xc),
+        "Осн. цикл ACF"  = ifelse(is.na(peak), "Нет", paste(round(peak), "дн.")),
+        "Осн. цикл FFT"  = ifelse(is.na(dom_period), "Нет", paste(dom_period, "дн.")),
+        "Значимых лагов" = length(sig),
+        "Цикличность"    = ifelse(length(sig) > 3, "Высокая",
+                            ifelse(length(sig) > 0, "Умеренная", "Нет")),
         stringsAsFactors = FALSE, check.names = FALSE
       )
     })
     res <- do.call(rbind, Filter(Negate(is.null), res))
+    validate(need(!is.null(res) && nrow(res) > 0, "Нет данных для анализа"))
     datatable(res, options = list(pageLength = 20, dom = "tip"),
               style = "bootstrap5", class = "table-dark table-sm", rownames = FALSE)
   })
@@ -494,7 +517,8 @@ server <- function(input, output, session) {
     if (length(coins) < 2) return(p("Нужно ≥ 2 монеты"))
     pairs <- combn(coins, 2, simplify = FALSE)
     nms   <- sapply(pairs, paste, collapse = " → ")
-    selectInput("lag_pair", "Пара A → B:", choices = setNames(seq_along(pairs), nms))
+    selectInput("lag_pair", "Пара A → B:", choices = setNames(seq_along(pairs), nms),
+                selectize = FALSE)
   })
 
   output$ccf_plot <- renderPlot({
@@ -502,67 +526,59 @@ server <- function(input, output, session) {
     coins <- colnames(pw)
     pairs <- combn(coins, 2, simplify = FALSE)
     pair  <- pairs[[as.integer(input$lag_pair)]]
-    rw    <- returns_wide(); req(rw)
-    xr <- rw[[pair[1]]]; yr <- rw[[pair[2]]]
-    valid <- !is.na(xr) & !is.na(yr); xr <- xr[valid]; yr <- yr[valid]
-    req(length(xr) > 10)
-    cr  <- tryCatch(ccf(xr, yr, lag.max = input$max_ccf, plot = FALSE), error = function(e) NULL)
-    req(!is.null(cr))
-    ci  <- qnorm(0.975) / sqrt(length(xr))
-    df  <- data.frame(lag = as.numeric(cr$lag), ccf = as.numeric(cr$acf))
-    best_i <- which.max(abs(df$ccf))
-    best_lag <- df$lag[best_i]; best_val <- df$ccf[best_i]
-    direction <- if (best_lag > 0) paste0(pair[1], " опережает ", pair[2], " на ", best_lag, " дн.")
-      else if (best_lag < 0) paste0(pair[2], " опережает ", pair[1], " на ", abs(best_lag), " дн.")
-      else "Движутся синхронно"
-    df$col <- case_when(
-      df$lag == best_lag ~ "white",
-      df$lag > 0 ~ ORANGE,
-      TRUE ~ BLUE
-    )
+    x <- as.numeric(pw[[pair[1]]]); y <- as.numeric(pw[[pair[2]]])
+    xr <- c(NA, diff(log(na.approx(x, na.rm = FALSE))))
+    yr <- c(NA, diff(log(na.approx(y, na.rm = FALSE))))
+    ok <- !is.na(xr) & !is.na(yr)
+    validate(need(sum(ok) > input$max_ccf * 2, "Недостаточно данных для CCF"))
+    cc  <- ccf(xr[ok], yr[ok], lag.max = input$max_ccf, plot = FALSE)
+    ci  <- qnorm(0.975) / sqrt(sum(ok))
+    df  <- data.frame(lag = as.numeric(cc$lag), ccf = as.numeric(cc$acf))
     df$sig <- abs(df$ccf) > ci
-    ggplot(df, aes(lag, ccf, fill = col, alpha = sig)) +
+    best <- df$lag[which.max(abs(df$ccf))]
+    ggplot(df, aes(lag, ccf, fill = sig)) +
       geom_col(width = 0.8) +
       geom_hline(yintercept = c(-ci, ci), linetype = "dashed", color = GREEN, linewidth = 0.7) +
       geom_hline(yintercept = 0, color = GRAY, linewidth = 0.4) +
-      geom_vline(xintercept = best_lag, color = "white", linetype = "dotted", linewidth = 0.8) +
-      scale_fill_identity() +
-      scale_alpha_manual(values = c("TRUE" = 1, "FALSE" = 0.3), guide = "none") +
-      labs(title = paste("CCF:", pair[1], "↔", pair[2]),
-           subtitle = direction,
-           x = paste0("Лаг (< 0: ", pair[2], " ведёт   > 0: ", pair[1], " ведёт)"),
-           y = "Кросс-корреляция") +
+      geom_vline(xintercept = best, color = ORANGE, linetype = "dotted", linewidth = 0.9) +
+      scale_fill_manual(values = c("TRUE" = ORANGE, "FALSE" = "#30363d"), guide = "none") +
+      annotate("text", x = best, y = max(abs(df$ccf)) * 0.9,
+               label = paste("Оптим. лаг:", best, "дн."),
+               color = ORANGE, size = 4, hjust = ifelse(best >= 0, -0.1, 1.1)) +
+      labs(title = paste("CCF:", pair[1], "→", pair[2]),
+           subtitle = paste("Лаг > 0 →", pair[1], "опережает |  Лаг < 0 →", pair[2], "опережает"),
+           x = "Лаг (дни)", y = "Кросс-корреляция") +
       dark_theme
   }, bg = "#161b22")
 
   output$lead_lag_table <- renderDT({
-    pw <- price_wide(); req(pw)
-    rw <- returns_wide(); req(rw)
+    pw <- price_wide(); req(pw, input$max_ccf)
+    validate(need(ncol(pw) >= 2, "Нужно выбрать минимум 2 монеты"))
     coins <- colnames(pw)
-    if (length(coins) < 2) return(NULL)
-    mat <- matrix(NA, length(coins), length(coins), dimnames = list(coins, coins))
-    for (i in seq_along(coins)) for (j in seq_along(coins)) {
-      if (i == j) next
-      xr <- rw[[coins[i]]]; yr <- rw[[coins[j]]]
-      v  <- !is.na(xr) & !is.na(yr); xr <- xr[v]; yr <- yr[v]
-      if (length(xr) < 10) next
-      cr <- tryCatch(ccf(xr, yr, lag.max = 20, plot = FALSE), error = function(e) NULL)
-      if (!is.null(cr)) mat[i,j] <- as.numeric(cr$lag)[which.max(abs(as.numeric(cr$acf)))]
-    }
-    df_out <- as.data.frame(mat)
-    datatable(df_out, options = list(pageLength = 20, dom = "t"),
+    returns_mat <- as.data.frame(lapply(pw, function(x) {
+      c(NA, diff(log(na.approx(as.numeric(x), na.rm = FALSE))))
+    }))
+    grid <- expand.grid(A = coins, B = coins, stringsAsFactors = FALSE)
+    grid <- grid[grid$A != grid$B, ]
+    lags <- mapply(function(a, b) {
+      xa <- returns_mat[[a]]; xb <- returns_mat[[b]]
+      ok <- !is.na(xa) & !is.na(xb)
+      if (sum(ok) < input$max_ccf * 2 + 5) return(NA)
+      cc <- tryCatch(ccf(xa[ok], xb[ok], lag.max = input$max_ccf, plot = FALSE), error = function(e) NULL)
+      if (is.null(cc)) return(NA)
+      cc$lag[which.max(abs(cc$acf))]
+    }, grid$A, grid$B)
+    grid$lag <- as.numeric(lags)
+    mat <- tidyr::pivot_wider(grid, names_from = B, values_from = lag)
+    rn  <- mat$A; mat <- as.data.frame(mat[, -1])
+    rownames(mat) <- rn
+    datatable(round(mat, 0),
+              options = list(pageLength = 20, dom = "tip", scrollX = TRUE),
               style = "bootstrap5", class = "table-dark table-sm") |>
-      formatStyle(colnames(df_out),
-        background = styleInterval(c(-5, 0, 5), c("#1a3a6b","#0d1117","#0d1117","#1a2d1a")),
-        color      = styleInterval(c(-0.5, 0.5), c(BLUE, "#e6edf3", ORANGE)))
+      formatStyle(coins,
+        backgroundColor = styleInterval(c(-5, -1, 1, 5),
+          c("#1a3a6b","#1a3a6b40","#16212a","#f7931a40","#7a4500")))
   })
-
-  # ── Helpers ───────────────────────────────────────────────────────────────────
-  placeholder_msg <- function() {
-    div(style = "text-align:center;padding:60px;color:#555;",
-        icon("chart-simple", style = "font-size:3rem;display:block;margin-bottom:15px;color:#30363d;"),
-        p(style = "font-size:1rem;", "Загрузите CSV и нажмите «Анализировать»"))
-  }
 }
 
-shinyApp(ui = ui, server = server)
+shinyApp(ui, server)
