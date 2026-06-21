@@ -1,0 +1,21 @@
+kind = "web"
+previewPath = "/"
+title = "CryptoAnalyzer"
+version = "1.0.0"
+id = "artifacts/crypto-analyzer"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19086
+
+[services.development]
+run = "bash /home/runner/workspace/artifacts/crypto-analyzer/run.sh"
+
+[services.env]
+PORT = "19086"
