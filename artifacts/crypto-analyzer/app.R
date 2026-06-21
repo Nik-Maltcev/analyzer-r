@@ -194,59 +194,112 @@ server <- function(input, output, session) {
   })
 
   # ── CORRELATIONS ─────────────────────────────────────────────────────────────
+
+  # Full corr matrices (all coins) — used only for the top-pairs table
   corr_matrix <- reactive({
     pw <- price_wide()
     validate(need(ncol(pw) >= 2, "Нужно выбрать минимум 2 монеты"))
-    m <- as.matrix(pw)
-    storage.mode(m) <- "double"
+    m <- as.matrix(pw); storage.mode(m) <- "double"
     cor(m, use = "pairwise.complete.obs")
   })
-
   ret_corr_matrix <- reactive({
     rw <- returns_wide()
     validate(need(ncol(rw) >= 2, "Нужно выбрать минимум 2 монеты"))
-    m <- as.matrix(rw)
-    storage.mode(m) <- "double"
+    m <- as.matrix(rw); storage.mode(m) <- "double"
+    cor(m, use = "pairwise.complete.obs")
+  })
+
+  # Top-N subset for heatmap (by price variance — most volatile = most interesting)
+  heatmap_wide <- reactive({
+    pw <- price_wide(); req(pw, input$heatmap_n)
+    n  <- min(as.integer(input$heatmap_n), ncol(pw))
+    if (ncol(pw) <= n) return(pw)
+    vars <- sapply(pw, function(x) var(as.numeric(x), na.rm = TRUE))
+    top  <- names(sort(vars, decreasing = TRUE))[seq_len(n)]
+    pw[, top, drop = FALSE]
+  })
+  heatmap_corr <- reactive({
+    hw <- heatmap_wide()
+    validate(need(ncol(hw) >= 2, "Нужно ≥ 2 монеты"))
+    m <- as.matrix(hw); storage.mode(m) <- "double"
+    cor(m, use = "pairwise.complete.obs")
+  })
+  heatmap_ret_corr <- reactive({
+    hw  <- heatmap_wide(); req(hw)
+    rw  <- as.data.frame(lapply(hw, function(x) {
+      xf <- na.approx(as.numeric(x), na.rm = FALSE); c(NA, diff(log(xf)))
+    }))
+    validate(need(ncol(rw) >= 2, "Нужно ≥ 2 монеты"))
+    m <- as.matrix(rw); storage.mode(m) <- "double"
     cor(m, use = "pairwise.complete.obs")
   })
 
   output$corr_ui <- renderUI({
     if (!isTruthy(input$analyze)) return(placeholder_msg())
+    n_total <- ncol(price_wide())
+    n_def   <- min(n_total, 15L)
+    h_px    <- paste0(max(460, n_def * 32), "px")
     tagList(
+      card(card_header(icon("sliders"), " Настройки тепловой карты"),
+        card_body(
+          sliderInput("heatmap_n",
+            paste0("Монет на карте (топ по волатильности, всего: ", n_total, "):"),
+            min = 2, max = min(n_total, 40), value = n_def, step = 1, ticks = FALSE)
+        )
+      ),
       layout_columns(col_widths = c(6, 6),
         card(card_header("Корреляция цен"),
-             card_body(plotOutput("price_corr_plot", height = "420px"))),
+             card_body(uiOutput("price_corr_container"))),
         card(card_header("Корреляция логарифмических доходностей"),
-             card_body(plotOutput("return_corr_plot", height = "420px")))
+             card_body(uiOutput("return_corr_container")))
       ),
-      card(card_header("Топ зависимостей"),
+      card(card_header("Топ зависимостей (все монеты)"),
            card_body(DTOutput("top_corr_table")))
     )
   })
 
+  # Dynamic plot containers — height grows with N
+  output$price_corr_container <- renderUI({
+    n <- as.integer(input$heatmap_n)
+    plotOutput("price_corr_plot", height = paste0(max(460, n * 32), "px"))
+  })
+  output$return_corr_container <- renderUI({
+    n <- as.integer(input$heatmap_n)
+    plotOutput("return_corr_plot", height = paste0(max(460, n * 32), "px"))
+  })
+
   make_heatmap <- function(cm, title) {
-    n <- ncol(cm)
-    coins <- colnames(cm)
-    df <- expand.grid(A = coins, B = coins, stringsAsFactors = FALSE)
+    n     <- ncol(cm)
+    coins <- substr(colnames(cm), 1, 10)   # truncate long names
+    colnames(cm) <- rownames(cm) <- coins
+    df    <- expand.grid(A = coins, B = coins, stringsAsFactors = FALSE)
     df$val <- as.vector(cm)
-    df$A <- factor(df$A, levels = coins)
-    df$B <- factor(df$B, levels = rev(coins))
-    ggplot(df, aes(A, B, fill = val)) +
-      geom_tile(color = "#0d1117", linewidth = 0.5) +
-      geom_text(aes(label = round(val, 2)),
-                color = ifelse(abs(df$val) > 0.5, "white", "#adbac7"),
-                size = max(2.5, 10 / n)) +
+    df$A  <- factor(df$A, levels = coins)
+    df$B  <- factor(df$B, levels = rev(coins))
+    ax_sz <- max(6, 13 - n * 0.25)         # axis font shrinks as n grows
+
+    p <- ggplot(df, aes(A, B, fill = val)) +
+      geom_tile(color = "#0d1117", linewidth = 0.4) +
       scale_fill_gradient2(low = "#1a3a6b", mid = "#161b22", high = "#f7931a",
                            midpoint = 0, limits = c(-1, 1), name = "Корр.") +
       labs(title = title, x = NULL, y = NULL) +
       dark_theme +
-      theme(axis.text.x = element_text(angle = 45, hjust = 1, color = "#adbac7"),
+      theme(axis.text.x = element_text(angle = 45, hjust = 1,
+                                        color = "#adbac7", size = ax_sz),
+            axis.text.y = element_text(color = "#adbac7", size = ax_sz),
             plot.margin = margin(10, 10, 10, 10))
+
+    if (n <= 15) {                          # show values only when readable
+      p <- p + geom_text(aes(label = round(val, 2)),
+                          color = ifelse(abs(df$val) > 0.5, "white", "#adbac7"),
+                          size  = max(2.2, 9 / n))
+    }
+    p
   }
 
-  output$price_corr_plot  <- renderPlot({ make_heatmap(corr_matrix(),     "Корреляция цен") },
+  output$price_corr_plot  <- renderPlot({ make_heatmap(heatmap_corr(),     "Корреляция цен") },
                                          bg = "#161b22")
-  output$return_corr_plot <- renderPlot({ make_heatmap(ret_corr_matrix(), "Корреляция доходностей") },
+  output$return_corr_plot <- renderPlot({ make_heatmap(heatmap_ret_corr(), "Корреляция доходностей") },
                                          bg = "#161b22")
 
   output$top_corr_table <- renderDT({
