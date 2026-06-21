@@ -399,6 +399,22 @@ server <- function(input, output, session) {
   lead_lag_pairs <- eventReactive(input$analyze, {
     rw <- returns_wide(); req(rw)
     validate(need(ncol(rw) >= 2, "Нужно минимум 2 монеты"))
+
+    # Exclude low-volatility coins (stablecoins, gold tokens, etc.)
+    # Weekly vol < 1% means the coin barely moves — any lag signal is noise
+    weekly_vol <- sapply(rw, function(x) {
+      x <- x[!is.na(x)]
+      if (length(x) < 7) return(0)
+      sd(x, na.rm = TRUE) * sqrt(7) * 100  # annualized weekly vol in %
+    })
+    volatile_coins <- names(weekly_vol[weekly_vol >= 1])
+    excluded <- setdiff(colnames(rw), volatile_coins)
+
+    rw <- rw[, volatile_coins, drop = FALSE]
+    validate(need(ncol(rw) >= 2,
+      paste0("После фильтрации осталось меньше 2 монет с достаточной волатильностью. ",
+             "Исключены: ", paste(excluded, collapse = ", "))))
+
     coins <- colnames(rw)
     pairs <- combn(coins, 2, simplify = FALSE)
     res <- lapply(pairs, function(p) {
