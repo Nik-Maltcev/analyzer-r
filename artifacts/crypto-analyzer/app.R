@@ -192,6 +192,11 @@ ui <- page_navbar(
   # ── TAB 5: Кто ведёт? ────────────────────────────────────────────────────
   nav_panel("🏁 Кто ведёт?",
     uiOutput("leader_ui")
+  ),
+
+  # ── TAB 6: Сигналы ──────────────────────────────────────────────────────
+  nav_panel("🚦 Сигналы",
+    uiOutput("signals_ui")
   )
 )
 
@@ -1125,6 +1130,189 @@ server <- function(input, output, session) {
     )
     datatable(out, rownames = FALSE,
               options = list(pageLength = 20, dom = "tip", scrollX = TRUE),
+              style = "bootstrap5", class = "table-dark table-sm")
+  })
+
+  # ── ТАБ: Сигналы ──────────────────────────────────────────────────────────
+  output$signals_ui <- renderUI({
+    if (!isTruthy(input$analyze)) return(placeholder_msg("Загрузите CSV и нажмите «Анализировать»"))
+    tagList(
+      card(
+        card_header("🚦 Торговые сигналы на завтра"),
+        card_body(
+          p(style = "color:#8b949e;font-size:0.85rem;",
+            "Сигналы формируются на основе Z-score спреда коинтегрированных пар. ",
+            "Вход при |Z| > 2, выход при |Z| < 0.5. Прогноз — AR(1) модель."),
+          uiOutput("signals_active"),
+          hr(),
+          tags$h6(style = "color:#e6edf3;margin-top:16px;", "📋 Все пары — сводная таблица"),
+          DTOutput("signals_table")
+        )
+      )
+    )
+  })
+
+  signals_data <- eventReactive(input$analyze, {
+    pw <- price_wide(); req(pw)
+    pc <- pairs_coint(); req(pc)
+    # Only process pairs with decent correlation
+    good <- pc[!is.na(pc$corr) & abs(pc$corr) >= 0.4, ]
+    if (nrow(good) == 0) return(data.frame())
+
+    n_good <- nrow(good)
+    results <- vector("list", n_good)
+
+    withProgress(message = "Сигналы: расчёт прогнозов...", value = 0, {
+      for (i in seq_len(n_good)) {
+        r  <- good[i, ]
+        pa <- as.numeric(pw[[r$A]]); pb <- as.numeric(pw[[r$B]])
+        ok <- !is.na(pa) & !is.na(pb) & pa > 0 & pb > 0
+
+        if (sum(ok) < 30) { results[[i]] <- NULL; next }
+
+        hr <- if (!is.na(r$hedge_ratio)) r$hedge_ratio else 1
+        spread <- log(pa[ok]) - hr * log(pb[ok])
+        mn  <- mean(spread, na.rm = TRUE)
+        sd1 <- sd(spread, na.rm = TRUE)
+        if (is.na(sd1) || sd1 == 0) { results[[i]] <- NULL; next }
+
+        zscore <- (spread - mn) / sd1
+        z_now  <- tail(zscore, 1)
+
+        # AR(1) forecast
+        fc <- tryCatch({
+          z_clean <- zscore[!is.na(zscore)]
+          n_z  <- length(z_clean)
+          if (n_z < 20) stop("too few")
+          zy   <- z_clean[-1]
+          zx   <- z_clean[-n_z]
+          arft <- lm(zy ~ zx)
+          cf   <- coef(arft)
+          z_hat <- cf[1] + cf[2] * tail(z_clean, 1)
+          sigma <- sd(residuals(arft), na.rm = TRUE)
+          list(z_hat = as.numeric(z_hat), sigma = sigma, ar_b = as.numeric(cf[2]))
+        }, error = function(e) NULL)
+
+        z_hat <- if (!is.null(fc)) fc$z_hat else z_now
+
+        # Signal logic
+        if (z_now >= 2 || z_hat >= 2) {
+          signal <- paste0("Шорт ", r$A, " / Лонг ", r$B)
+          signal_type <- "short_a"
+        } else if (z_now <= -2 || z_hat <= -2) {
+          signal <- paste0("Лонг ", r$A, " / Шорт ", r$B)
+          signal_type <- "long_a"
+        } else {
+          signal <- "Ждать"
+          signal_type <- "wait"
+        }
+
+        # Strength
+        strength <- if (r$is_coint && abs(z_now) >= 2) "Сильный"
+                    else if (abs(z_hat) >= 2) "Прогнозный"
+                    else if (abs(z_now) >= 1.5) "Формируется"
+                    else "Нет"
+
+        results[[i]] <- data.frame(
+          A = r$A, B = r$B,
+          z_now = round(z_now, 2),
+          z_forecast = round(z_hat, 2),
+          signal = signal,
+          signal_type = signal_type,
+          strength = strength,
+          is_coint = r$is_coint,
+          halflife = r$halflife,
+          corr = round(abs(r$corr) * 100),
+          stringsAsFactors = FALSE
+        )
+
+        if (i %% 20 == 0 || i == n_good) {
+          incProgress(20 / n_good, detail = paste0(i, " / ", n_good, " пар"))
+        }
+      }
+    })
+    do.call(rbind, Filter(Negate(is.null), results))
+  })
+
+  output$signals_active <- renderUI({
+    df <- signals_data(); req(df)
+    active <- df[df$signal_type != "wait", ]
+    active <- active[order(-abs(active$z_now)), ]
+
+    if (nrow(active) == 0) {
+      return(div(style = "text-align:center;padding:30px;color:#8b949e;",
+        tags$i(class = "fas fa-check-circle fa-2x",
+               style = "display:block;margin-bottom:10px;color:#3fb950;"),
+        p("Нет активных сигналов. Все пары в нейтральной зоне.")))
+    }
+
+    top <- head(active, 12)
+    rows <- lapply(seq_len(nrow(top)), function(i) {
+      r <- top[i, ]
+      is_short <- r$signal_type == "short_a"
+      sig_col  <- if (is_short) RED else GREEN
+      sig_icon <- if (is_short) "📉" else "📈"
+      str_col  <- switch(r$strength,
+        "Сильный"     = GREEN,
+        "Прогнозный"  = ORANGE,
+        "Формируется" = BLUE,
+        GRAY)
+
+      tags$div(style = paste0(
+        "border:1px solid ", sig_col, ";border-radius:10px;padding:14px 16px;",
+        "margin-bottom:10px;background:", BG, ";"),
+        layout_columns(col_widths = c(6, 3, 3),
+          div(
+            tags$span(style = paste0("font-size:1.05rem;font-weight:700;color:", sig_col, ";"),
+              sig_icon, " ", r$signal),
+            tags$br(),
+            tags$span(style = "font-size:0.82rem;color:#8b949e;",
+              paste0("Корр: ", r$corr, "% | ",
+                     if (r$is_coint) "✓ Коинтегр." else "Нет коинтегр.",
+                     if (!is.na(r$halflife)) paste0(" | HL: ", r$halflife, "д") else ""))
+          ),
+          div(style = "text-align:center;",
+            tags$div(style = "font-size:0.75rem;color:#8b949e;", "Z сейчас"),
+            tags$div(style = paste0("font-size:1.4rem;font-weight:800;color:",
+                                    if (abs(r$z_now) >= 2) RED else ORANGE, ";"),
+              r$z_now)
+          ),
+          div(style = "text-align:center;",
+            tags$div(style = "font-size:0.75rem;color:#8b949e;", "Z завтра"),
+            tags$div(style = paste0("font-size:1.4rem;font-weight:800;color:",
+                                    if (abs(r$z_forecast) >= 2) RED else ORANGE, ";"),
+              r$z_forecast),
+            badge(r$strength, str_col)
+          )
+        )
+      )
+    })
+
+    tagList(
+      tags$h6(style = "color:#e6edf3;margin-bottom:12px;",
+        paste0("🔔 Активные сигналы: ", nrow(active), " пар")),
+      tagList(rows),
+      if (nrow(active) > 12)
+        p(style = "color:#8b949e;font-size:0.82rem;",
+          paste0("Показаны топ-12 из ", nrow(active), ". Полный список в таблице ниже."))
+    )
+  })
+
+  output$signals_table <- renderDT({
+    df <- signals_data(); req(df)
+    out <- data.frame(
+      "Пара"        = paste0(df$A, " / ", df$B),
+      "Z сейчас"    = df$z_now,
+      "Z прогноз"   = df$z_forecast,
+      "Сигнал"      = df$signal,
+      "Сила"        = df$strength,
+      "Коинтегр."   = ifelse(df$is_coint, "✅", "—"),
+      "Корреляция"  = paste0(df$corr, "%"),
+      stringsAsFactors = FALSE, check.names = FALSE
+    )
+    datatable(out, rownames = FALSE,
+              options = list(pageLength = 25, dom = "tip", scrollX = TRUE,
+                             order = list(list(1, "desc"))),
               style = "bootstrap5", class = "table-dark table-sm")
   })
 }
