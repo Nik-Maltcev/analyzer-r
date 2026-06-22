@@ -80,7 +80,8 @@ badge <- function(txt, col) {
 # Returns: list(halflife, pval_approx, is_cointegrated)
 engle_granger <- function(pa, pb, max_lag = 2) {
   ok <- !is.na(pa) & !is.na(pb) & pa > 0 & pb > 0
-  if (sum(ok) < 60) return(list(halflife = NA, score = NA, is_coint = FALSE))
+  if (sum(ok) < 60) return(list(halflife = NA, score = NA, is_coint = FALSE,
+                                t_stat = NA, hedge_ratio = NA))
   la <- log(pa[ok]); lb <- log(pb[ok])
 
   # Step 1: OLS regression, get residuals (the "spread")
