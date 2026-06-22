@@ -472,7 +472,14 @@ server <- function(input, output, session) {
         )
       ),
       card(
-        card_header("Все пары — детальная таблица"),
+        card_header(
+          layout_columns(col_widths = c(8, 4),
+            "Все пары — детальная таблица",
+            div(style = "text-align:right;",
+              downloadButton("dl_pairs_csv", "⬇ Скачать все пары (CSV)",
+                             class = "btn-sm btn-secondary"))
+          )
+        ),
         card_body(
           p(style = "color:#8b949e;font-size:0.82rem;",
             "Полупериод: за сколько дней спред возвращается к среднему. 5–30 дней — лучший диапазон для трейдинга."),
@@ -480,7 +487,14 @@ server <- function(input, output, session) {
         )
       ),
       card(
-        card_header("📉 График спреда для выбранной пары"),
+        card_header(
+          layout_columns(col_widths = c(8, 4),
+            "📉 График спреда для выбранной пары",
+            div(style = "text-align:right;",
+              downloadButton("dl_spread_csv", "⬇ Скачать Z-score (CSV)",
+                             class = "btn-sm btn-secondary"))
+          )
+        ),
         card_body(
           uiOutput("spread_pair_selector"),
           plotOutput("spread_chart", height = "360px"),
@@ -586,6 +600,43 @@ server <- function(input, output, session) {
                              order = list(list(5, "desc"))),
               style = "bootstrap5", class = "table-dark table-sm")
   })
+
+  output$dl_pairs_csv <- downloadHandler(
+    filename = function() paste0("pairs_analysis_", Sys.Date(), ".csv"),
+    content  = function(file) {
+      df <- pairs_coint(); req(df)
+      out <- data.frame(
+        ticker_a         = df$A,
+        ticker_b         = df$B,
+        correlation_pct  = round(abs(df$corr) * 100, 1),
+        cointegrated     = ifelse(df$is_coint, "yes", "no"),
+        halflife_days    = ifelse(is.na(df$halflife), NA_integer_, df$halflife),
+        hedge_ratio      = round(df$hedge_ratio, 4),
+        adf_t_stat       = round(df$t_stat, 3),
+        score            = round(df$score, 3),
+        stringsAsFactors = FALSE
+      )
+      write.csv(out, file, row.names = FALSE)
+    }
+  )
+
+  output$dl_spread_csv <- downloadHandler(
+    filename = function() {
+      ta <- if (isTruthy(input$spread_ticker_a)) input$spread_ticker_a else "A"
+      tb <- if (isTruthy(input$spread_ticker_b)) input$spread_ticker_b else "B"
+      paste0("spread_zscore_", ta, "_", tb, "_", Sys.Date(), ".csv")
+    },
+    content = function(file) {
+      s <- spread_data(); req(s)
+      out <- data.frame(
+        date            = s$dates,
+        spread_log      = round(s$spread,  6),
+        zscore          = round(s$zscore,  4),
+        stringsAsFactors = FALSE
+      )
+      write.csv(out, file, row.names = FALSE)
+    }
+  )
 
   output$spread_pair_selector <- renderUI({
     df <- pairs_coint(); req(df)
