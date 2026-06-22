@@ -500,6 +500,10 @@ server <- function(input, output, session) {
           plotOutput("spread_chart", height = "360px"),
           uiOutput("spread_explanation")
         )
+      ),
+      card(
+        card_header("📊 Исторические сигналы и ожидаемый P&L"),
+        card_body(uiOutput("backtest_ui"))
       )
     )
   })
@@ -637,6 +641,166 @@ server <- function(input, output, session) {
       write.csv(out, file, row.names = FALSE)
     }
   )
+
+  # ── Backtest ──────────────────────────────────────────────────────────────
+  backtest_trades <- reactive({
+    s <- spread_data(); req(s)
+    z      <- s$zscore
+    dates  <- s$dates
+    spread <- s$spread
+    n      <- length(z)
+    entry_z  <- 2.0   # entry threshold
+    exit_z   <- 0.5   # close threshold
+    stop_z   <- 3.5   # stop-loss threshold
+
+    trades <- list()
+    in_trade <- FALSE
+    entry_idx <- NA; entry_dir <- NA; entry_spread <- NA
+
+    for (i in seq_len(n)) {
+      zi <- z[i]; req(!is.na(zi))
+      if (is.na(zi)) next
+      if (!in_trade) {
+        if (zi >=  entry_z) { in_trade <- TRUE; entry_dir <- -1; entry_idx <- i; entry_spread <- spread[i] }
+        if (zi <= -entry_z) { in_trade <- TRUE; entry_dir <-  1; entry_idx <- i; entry_spread <- spread[i] }
+      } else {
+        # Stop-loss check
+        hit_stop <- (entry_dir == -1 && zi >= stop_z) || (entry_dir == 1 && zi <= -stop_z)
+        # Take profit check
+        hit_tp   <- abs(zi) <= exit_z
+        if (hit_stop || hit_tp) {
+          pnl_log  <- entry_dir * (spread[i] - entry_spread)  # profit in log-return terms
+          pnl_pct  <- (exp(pnl_log) - 1) * 100               # convert to %
+          hold     <- as.integer(dates[i] - dates[entry_idx])
+          trades[[length(trades) + 1]] <- data.frame(
+            entry_date   = format(dates[entry_idx], "%Y-%m-%d"),
+            exit_date    = format(dates[i],          "%Y-%m-%d"),
+            direction    = if (entry_dir == -1) paste0("Шорт ", s$row$A, " / Лонг ", s$row$B)
+                           else                  paste0("Лонг ", s$row$A, " / Шорт ", s$row$B),
+            entry_z      = round(z[entry_idx], 2),
+            exit_z       = round(zi, 2),
+            hold_days    = hold,
+            pnl_pct      = round(pnl_pct, 2),
+            result       = if (hit_stop) "Стоп-лосс" else "Тейк-профит",
+            stringsAsFactors = FALSE
+          )
+          in_trade <- FALSE
+        }
+      }
+    }
+    if (length(trades) == 0) return(data.frame())
+    do.call(rbind, trades)
+  })
+
+  output$backtest_ui <- renderUI({
+    s <- spread_data(); req(s)
+    z_now <- tail(s$zscore, 1)
+
+    # Current signal block
+    entry_z <- 2.0; exit_z <- 0.5
+    if (!is.na(z_now) && abs(z_now) >= entry_z) {
+      dir_txt <- if (z_now > 0) paste0("Шорт ", s$row$A, " / Лонг ", s$row$B)
+                 else            paste0("Лонг ", s$row$A, " / Шорт ", s$row$B)
+      entry_block <- div(style = paste0(
+        "padding:14px 18px;border-radius:10px;border:2px solid ", GREEN,
+        ";background:#0f2a1a;margin-bottom:16px;"),
+        tags$b(style = paste0("color:", GREEN, ";font-size:1rem;"), "🟢 АКТИВНЫЙ СИГНАЛ ВХОДА"),
+        tags$br(),
+        tags$span(style = "color:#e6edf3;", dir_txt),
+        tags$br(),
+        tags$span(style = "color:#8b949e;font-size:0.85rem;",
+          paste0("Текущий Z = ", round(z_now, 2),
+                 " | Выходить когда |Z| < ", exit_z))
+      )
+    } else if (!is.na(z_now) && abs(z_now) >= 1.0) {
+      entry_block <- div(style = paste0(
+        "padding:14px 18px;border-radius:10px;border:2px solid ", ORANGE,
+        ";background:#1a1400;margin-bottom:16px;"),
+        tags$b(style = paste0("color:", ORANGE, ";"), "🟡 Сигнала нет — наблюдать"),
+        tags$br(),
+        tags$span(style = "color:#8b949e;font-size:0.85rem;",
+          paste0("Z = ", round(z_now, 2), " — ждём пересечения ±2.0 для входа"))
+      )
+    } else {
+      entry_block <- div(style = paste0(
+        "padding:14px 18px;border-radius:10px;border:1px solid ", BORDER,
+        ";background:", BG, ";margin-bottom:16px;"),
+        tags$b(style = "color:#8b949e;", "⚪ Спред у нормы — позиций нет"),
+        tags$br(),
+        tags$span(style = "color:#8b949e;font-size:0.85rem;",
+          paste0("Z = ", round(z_now, 2), " (нужно ≥ ±2.0 для входа)"))
+      )
+    }
+
+    # Stats block
+    tr <- backtest_trades()
+    if (nrow(tr) == 0) {
+      stats_block <- p(style = "color:#555;", "Не было сигналов с |Z| ≥ 2.0 за выбранный период.")
+    } else {
+      wins    <- tr[tr$pnl_pct > 0, ]
+      losses  <- tr[tr$pnl_pct <= 0, ]
+      avg_win  <- if (nrow(wins)   > 0) mean(wins$pnl_pct)   else 0
+      avg_loss <- if (nrow(losses) > 0) mean(losses$pnl_pct) else 0
+      win_rate <- round(nrow(wins) / nrow(tr) * 100)
+      avg_hold <- round(mean(tr$hold_days))
+      avg_pnl  <- round(mean(tr$pnl_pct), 2)
+      stat_col <- if (avg_pnl > 0) GREEN else RED
+
+      stats_block <- tagList(
+        layout_columns(col_widths = c(3,3,3,3),
+          div(style = paste0("text-align:center;padding:12px;border-radius:8px;border:1px solid ",
+                             BORDER, ";background:", BG, ";"),
+            div(style = "font-size:0.8rem;color:#8b949e;", "Всего сделок"),
+            div(style = "font-size:1.5rem;font-weight:700;color:#e6edf3;", nrow(tr))
+          ),
+          div(style = paste0("text-align:center;padding:12px;border-radius:8px;border:1px solid ",
+                             BORDER, ";background:", BG, ";"),
+            div(style = "font-size:0.8rem;color:#8b949e;", "Прибыльных"),
+            div(style = paste0("font-size:1.5rem;font-weight:700;color:",
+                               if (win_rate >= 50) GREEN else RED, ";"), paste0(win_rate, "%"))
+          ),
+          div(style = paste0("text-align:center;padding:12px;border-radius:8px;border:1px solid ",
+                             BORDER, ";background:", BG, ";"),
+            div(style = "font-size:0.8rem;color:#8b949e;", "Средний P&L"),
+            div(style = paste0("font-size:1.5rem;font-weight:700;color:", stat_col, ";"),
+              paste0(if (avg_pnl > 0) "+" else "", avg_pnl, "%"))
+          ),
+          div(style = paste0("text-align:center;padding:12px;border-radius:8px;border:1px solid ",
+                             BORDER, ";background:", BG, ";"),
+            div(style = "font-size:0.8rem;color:#8b949e;", "Ср. удержание"),
+            div(style = "font-size:1.5rem;font-weight:700;color:#e6edf3;",
+              paste0(avg_hold, " дн."))
+          )
+        ),
+        br(),
+        p(style = "color:#8b949e;font-size:0.82rem;",
+          paste0("Прибыльные сделки: средний +", round(avg_win, 1), "% | ",
+                 "Убыточные: средний ", round(avg_loss, 1), "% | ",
+                 "Вход: |Z| ≥ 2.0, выход: |Z| < 0.5 или стоп |Z| ≥ 3.5")),
+        br(),
+        # Last trades table
+        tags$b(style = "color:#adbac7;", "Последние сделки:"),
+        br(), br(),
+        DTOutput("trades_table")
+      )
+    }
+
+    tagList(entry_block, stats_block)
+  })
+
+  output$trades_table <- renderDT({
+    tr <- backtest_trades(); req(nrow(tr) > 0)
+    out <- tr[, c("entry_date","exit_date","direction","entry_z","exit_z","hold_days","pnl_pct","result")]
+    colnames(out) <- c("Вход (дата)","Выход (дата)","Направление","Z входа","Z выхода",
+                       "Дней","P&L %","Итог")
+    datatable(out, rownames = FALSE,
+              options = list(pageLength = 10, dom = "tip", scrollX = TRUE,
+                             order = list(list(0, "desc"))),
+              style = "bootstrap5", class = "table-dark table-sm") |>
+      formatStyle("P&L %",
+        color = styleInterval(0, c("#f85149", "#3fb950")),
+        fontWeight = "bold")
+  })
 
   output$spread_pair_selector <- renderUI({
     df <- pairs_coint(); req(df)
