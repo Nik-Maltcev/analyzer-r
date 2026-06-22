@@ -1,0 +1,10 @@
+.config/
+.canvas/
+.agents/
+.git/
+.replit
+replit.nix
+replit.md
+agent.md
+node_modules/
+*.nix
