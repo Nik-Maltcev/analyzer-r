@@ -5,6 +5,7 @@ library(tidyr)
 library(ggplot2)
 library(zoo)
 library(DT)
+library(jsonlite)
 
 options(shiny.maxRequestSize = 50 * 1024^2)
 
@@ -223,18 +224,58 @@ ui <- page_navbar(
   nav_panel("📂 Данные",
     layout_columns(col_widths = c(4, 8),
       card(
-        card_header("Загрузить CSV"),
+        card_header("Источник данных"),
         card_body(
-          fileInput("file", NULL, accept = ".csv",
-            buttonLabel = "Выбрать файл",
-            placeholder = "ticker, date, close…"),
-          p(style = "font-size:0.8rem;color:#8b949e;margin-top:-6px;",
-            "Нужны колонки: ticker/symbol + date + close/price. Разделитель определяется автоматически."),
+          # Market type switcher
+          radioButtons("market_type", NULL,
+            choices = c("Crypto" = "crypto", "Акции/ETF" = "stocks", "Forex" = "forex"),
+            selected = "crypto", inline = TRUE),
+
+          # API section
+          tags$details(
+            tags$summary(style = "cursor:pointer;color:#58a6ff;font-size:0.85rem;font-weight:600;margin-bottom:10px;",
+              "API настройки (Twelve Data)"),
+            textInput("api_key", NULL, placeholder = "Вставьте API ключ Twelve Data",
+                      value = Sys.getenv("TWELVEDATA_API_KEY", "")),
+            p(style = "font-size:0.75rem;color:#484f58;margin-top:-6px;",
+              tags$a(href = "https://twelvedata.com/pricing", target = "_blank",
+                     style = "color:#58a6ff;", "Получить бесплатный ключ"),
+              " — 800 запросов/день")
+          ),
+
           hr(),
+
+          # Preset tickers based on market type
+          uiOutput("preset_tickers_ui"),
+
+          hr(),
+
+          # Fetch button
+          actionButton("fetch_api", "Загрузить данные (3 года)",
+            class = "btn-primary w-100", icon = icon("download")),
+
+          hr(),
+
+          # CSV fallback
+          tags$details(
+            tags$summary(style = "cursor:pointer;color:#8b949e;font-size:0.82rem;",
+              "Или загрузить свой CSV"),
+            div(style = "margin-top:10px;",
+              fileInput("file", NULL, accept = ".csv",
+                buttonLabel = "Выбрать файл",
+                placeholder = "ticker, date, close…"),
+              p(style = "font-size:0.75rem;color:#484f58;margin-top:-6px;",
+                "Колонки: ticker/symbol + date + close/price")
+            )
+          ),
+
+          hr(),
+
+          # Filters (shown after data loaded)
           uiOutput("date_filter_ui"),
           uiOutput("ticker_filter_ui"),
           hr(),
-          actionButton("analyze", "Анализировать →",
+          actionButton("analyze", "Анализировать",
             class = "btn-primary w-100", icon = icon("play"))
         )
       ),
@@ -274,8 +315,142 @@ ui <- page_navbar(
 # ── Server ───────────────────────────────────────────────────────────────────
 server <- function(input, output, session) {
 
-  # ── Загрузка и нормализация формата ──────────────────────────────────────
-  raw_data <- reactive({
+  # ── Пресеты тикеров ─────────────────────────────────────────────────────
+  presets <- list(
+    crypto = c("BTC/USD", "ETH/USD", "BNB/USD", "SOL/USD", "XRP/USD",
+               "ADA/USD", "DOGE/USD", "AVAX/USD", "DOT/USD", "MATIC/USD",
+               "LINK/USD", "UNI/USD", "ATOM/USD", "LTC/USD", "FIL/USD"),
+    stocks = c("AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META",
+               "JPM", "V", "UNH", "SPY", "QQQ", "IWM", "DIA", "VTI"),
+    forex  = c("EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "AUD/USD",
+               "USD/CAD", "NZD/USD", "EUR/GBP", "EUR/JPY", "GBP/JPY",
+               "AUD/JPY", "EUR/CHF", "USD/MXN", "USD/TRY", "EUR/AUD")
+  )
+
+  output$preset_tickers_ui <- renderUI({
+    mt <- input$market_type
+    lbl <- switch(mt,
+      crypto = "Крипто-пары",
+      stocks = "Акции / ETF",
+      forex  = "Валютные пары"
+    )
+    choices <- presets[[mt]]
+    tagList(
+      selectInput("api_tickers", lbl,
+                  choices = choices, selected = choices[1:min(8, length(choices))],
+                  multiple = TRUE, selectize = FALSE,
+                  size = min(8, length(choices))),
+      p(style = "font-size:0.75rem;color:#484f58;margin-top:-4px;",
+        paste0("Выбрано: ", min(8, length(choices)), " / ", length(choices),
+               ". Можно добавить свои через запятую в поле ниже.")),
+      textInput("custom_tickers", NULL,
+                placeholder = switch(mt,
+                  crypto = "Доп. тикеры: NEAR/USD, APT/USD…",
+                  stocks = "Доп. тикеры: AMD, NFLX, BA…",
+                  forex  = "Доп. тикеры: USD/SGD, EUR/NOK…"))
+    )
+  })
+
+  # ── Twelve Data API fetch ────────────────────────────────────────────────
+  api_data <- reactiveVal(NULL)
+
+  observeEvent(input$fetch_api, {
+    req(input$api_key)
+    if (nchar(trimws(input$api_key)) < 10) {
+      showNotification("Введите API ключ Twelve Data (раскройте 'API настройки')", type = "error")
+      return()
+    }
+
+    # Collect tickers
+    tickers <- input$api_tickers
+    custom  <- trimws(unlist(strsplit(input$custom_tickers, "[,;]")))
+    custom  <- custom[nchar(custom) > 0]
+    tickers <- unique(c(tickers, custom))
+
+    if (length(tickers) == 0) {
+      showNotification("Выберите хотя бы один тикер", type = "error")
+      return()
+    }
+
+    api_key    <- trimws(input$api_key)
+    start_date <- format(Sys.Date() - 365 * 3, "%Y-%m-%d")
+    end_date   <- format(Sys.Date(), "%Y-%m-%d")
+    n_tickers  <- length(tickers)
+
+    all_data <- data.frame()
+
+    withProgress(message = "Загрузка с Twelve Data...", value = 0, {
+      # Process in batches of 8 (API limit)
+      batches <- split(tickers, ceiling(seq_along(tickers) / 8))
+
+      for (b_idx in seq_along(batches)) {
+        batch <- batches[[b_idx]]
+        symbols_str <- paste(batch, collapse = ",")
+
+        url <- paste0(
+          "https://api.twelvedata.com/time_series?",
+          "symbol=", URLencode(symbols_str),
+          "&interval=1day",
+          "&start_date=", start_date,
+          "&end_date=", end_date,
+          "&outputsize=5000",
+          "&apikey=", api_key
+        )
+
+        resp <- tryCatch(
+          jsonlite::fromJSON(url, flatten = TRUE),
+          error = function(e) { list(status = "error", message = e$message) }
+        )
+
+        # Handle single vs batch response
+        if (length(batch) == 1) {
+          resp <- list(resp)
+          names(resp) <- batch[1]
+        }
+
+        for (sym in names(resp)) {
+          d <- resp[[sym]]
+          if (is.null(d$values) || length(d$values) == 0) next
+          vals <- d$values
+          if (is.data.frame(vals) && nrow(vals) > 0) {
+            sym_clean <- gsub("/", "", sym)
+            df_sym <- data.frame(
+              ticker_col = sym,
+              date       = as.Date(vals$datetime),
+              price_col  = as.numeric(vals$close),
+              volume_col = as.numeric(vals$volume),
+              stringsAsFactors = FALSE
+            )
+            all_data <- rbind(all_data, df_sym)
+          }
+        }
+
+        incProgress(length(batch) / n_tickers,
+          detail = paste0(min(b_idx * 8, n_tickers), " / ", n_tickers, " тикеров"))
+
+        # Rate limit: pause between batches (free tier = 8/min)
+        if (b_idx < length(batches)) Sys.sleep(8)
+      }
+    })
+
+    if (nrow(all_data) == 0) {
+      showNotification("Не удалось загрузить данные. Проверьте API ключ и тикеры.", type = "error")
+      return()
+    }
+
+    all_data <- all_data[!is.na(all_data$date) & !is.na(all_data$price_col) & all_data$price_col > 0, ]
+    all_data <- all_data[order(all_data$ticker_col, all_data$date), ]
+    api_data(all_data)
+
+    n_sym <- length(unique(all_data$ticker_col))
+    showNotification(
+      paste0("Загружено: ", n_sym, " инструментов, ",
+             format(nrow(all_data), big.mark = " "), " записей"),
+      type = "message", duration = 5)
+  })
+
+  # ── Загрузка и нормализация формата (CSV fallback) ───────────────────────
+  csv_data <- reactive({
     req(input$file)
     first_line <- tryCatch(readLines(input$file$datapath, n = 1, warn = FALSE),
                            error = function(e) "")
@@ -287,19 +462,14 @@ server <- function(input, output, session) {
     cols <- tolower(colnames(df))
     colnames(df) <- cols
 
-    # Detect ticker column
     ticker_col <- cols[cols %in% c("ticker", "symbol", "coin_id", "name", "id", "asset")][1]
-    # Detect date column
     date_col <- cols[cols %in% c("date", "timestamp", "time", "datetime")][1]
-    # Detect price column (prefer close)
     price_col <- cols[cols %in% c("close", "price", "close_price", "adj_close", "last", "value")][1]
-    # Detect volume column
     vol_col <- cols[cols %in% c("volume", "vol", "volume_24h", "total_volume")][1]
 
     if (is.na(ticker_col) || is.na(date_col) || is.na(price_col)) {
       showNotification(
-        paste0("Не найдены колонки. Нужны: ticker/symbol + date + close/price. ",
-               "Найдено: ", paste(colnames(df), collapse = ", ")),
+        paste0("Не найдены колонки. Нужны: ticker/symbol + date + close/price."),
         type = "error", duration = 10)
       return(NULL)
     }
@@ -311,6 +481,13 @@ server <- function(input, output, session) {
 
     df <- df[!is.na(df$date) & !is.na(df$price_col) & df$price_col > 0, ]
     df[order(df$ticker_col, df$date), ]
+  })
+
+  # ── Unified data source: API first, then CSV ────────────────────────────
+  raw_data <- reactive({
+    api <- api_data()
+    if (!is.null(api) && nrow(api) > 0) return(api)
+    csv_data()
   })
 
   fmt_label <- reactive({
