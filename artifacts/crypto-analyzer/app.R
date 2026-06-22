@@ -33,28 +33,27 @@ dark_theme <- theme_minimal(base_size = 13) +
     legend.position  = "top"
   )
 
-# ── Helpers ─────────────────────────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────────
 corr_label <- function(r) {
   if (is.na(r)) return("—")
-  if (r >= 0.7)  return("Движутся вместе")
-  if (r >= 0.4)  return("Слабо вместе")
-  if (r <= -0.7) return("Движутся противоположно")
-  if (r <= -0.4) return("Слабо противоположно")
-  return("Независимы")
+  if (r >= 0.8)  return("Очень сильная связь")
+  if (r >= 0.6)  return("Сильная связь")
+  if (r >= 0.4)  return("Умеренная связь")
+  if (r <= -0.6) return("Сильная обратная")
+  if (r <= -0.4) return("Умеренная обратная")
+  return("Нет связи")
 }
 corr_pct <- function(r) {
   if (is.na(r)) return("—")
   paste0(round(abs(r) * 100), "%")
 }
-arrow_label <- function(lag) {
-  if (is.na(lag) || lag == 0) return("Движутся одновременно")
-  if (lag > 0) paste0("опережает на ", lag, ifelse(abs(lag) == 1, " день", " дн."))
-  else          paste0("отстаёт на ",  abs(lag), ifelse(abs(lag) == 1, " день", " дн."))
-}
 dot_color <- function(r) {
   if (is.na(r)) return(GRAY)
-  if (abs(r) >= 0.7) return(ifelse(r > 0, GREEN, RED))
-  if (abs(r) >= 0.4) return(ifelse(r > 0, "#7ee787", "#ff7b72"))
+  if (r >= 0.8) return(GREEN)
+  if (r >= 0.6) return("#7ee787")
+  if (r >= 0.4) return(ORANGE)
+  if (r <= -0.6) return(RED)
+  if (r <= -0.4) return("#ff7b72")
   return(GRAY)
 }
 lag_color <- function(lag) {
@@ -77,14 +76,63 @@ badge <- function(txt, col) {
     txt)
 }
 
+# ── Cointegration helpers (Engle-Granger, manual) ────────────────────────────
+# Returns: list(halflife, pval_approx, is_cointegrated)
+engle_granger <- function(pa, pb, max_lag = 2) {
+  ok <- !is.na(pa) & !is.na(pb) & pa > 0 & pb > 0
+  if (sum(ok) < 60) return(list(halflife = NA, score = NA, is_coint = FALSE))
+  la <- log(pa[ok]); lb <- log(pb[ok])
+
+  # Step 1: OLS regression, get residuals (the "spread")
+  fit  <- lm(la ~ lb)
+  resid <- residuals(fit)
+
+  # Step 2: AR(1) on Δresid ~ resid_{t-1}  (simplified ADF, no lags for speed)
+  n     <- length(resid)
+  y     <- diff(resid)           # Δresid
+  x     <- resid[-n]             # resid_{t-1}
+  ar_fit <- lm(y ~ x)
+  b     <- coef(ar_fit)["x"]
+  se_b  <- summary(ar_fit)$coefficients["x", "Std. Error"]
+  t_stat <- b / se_b
+
+  # Critical value for ADF on residuals (MacKinnon ~-3.0 at 5%, no intercept in residuals)
+  is_coint <- !is.na(t_stat) && t_stat < -2.9
+
+  # Half-life of mean reversion: -log(2)/b  (days)
+  halflife <- if (!is.na(b) && b < 0) round(-log(2) / b) else NA
+
+  # Score: higher = better for pairs trading (combines correlation and stationarity)
+  score <- if (!is.na(t_stat)) round(abs(t_stat), 2) else NA
+
+  list(halflife = halflife, t_stat = t_stat, score = score, is_coint = is_coint,
+       hedge_ratio = coef(fit)[["lb"]])
+}
+
+halflife_label <- function(hl) {
+  if (is.na(hl) || hl <= 0) return("Нет возврата")
+  if (hl <= 5)   return(paste0(hl, " дн. — слишком быстро"))
+  if (hl <= 30)  return(paste0(hl, " дн. — отлично для трейдинга"))
+  if (hl <= 90)  return(paste0(hl, " дн. — приемлемо"))
+  return(paste0(hl, " дн. — слишком медленно"))
+}
+halflife_color <- function(hl) {
+  if (is.na(hl) || hl <= 0) return(GRAY)
+  if (hl <= 5)   return(BLUE)
+  if (hl <= 30)  return(GREEN)
+  if (hl <= 90)  return(ORANGE)
+  return(RED)
+}
+
+# ── UI ───────────────────────────────────────────────────────────────────────
 ui <- page_navbar(
   title = div(
     style = "display:flex;align-items:center;gap:10px;",
-    span(style = "font-size:1.3rem;font-weight:700;color:#f7931a;", "CryptoAnalyzer"),
+    span(style = "font-size:1.3rem;font-weight:700;color:#58a6ff;", "MarketAnalyzer"),
     span(style = "font-size:0.75rem;color:#555;margin-top:3px;", "простой анализ")
   ),
   theme = bs_theme(
-    bg = BG, fg = "#e6edf3", primary = ORANGE, secondary = BORDER,
+    bg = BG, fg = "#e6edf3", primary = BLUE, secondary = BORDER,
     base_font = font_google("Inter"),
     "navbar-bg"          = CARD,
     "card-bg"            = CARD,
@@ -95,7 +143,7 @@ ui <- page_navbar(
   ),
   fillable = FALSE,
 
-  # ── TAB 1: Загрузка ──────────────────────────────────────────────────────
+  # ── TAB 1: Загрузка ─────────────────────────────────────────────────────
   nav_panel("📂 Данные",
     layout_columns(col_widths = c(4, 8),
       card(
@@ -103,17 +151,17 @@ ui <- page_navbar(
         card_body(
           fileInput("file", NULL, accept = ".csv",
             buttonLabel = "Выбрать файл",
-            placeholder = "coin_id, symbol, date, price…"),
+            placeholder = "ticker/coin_id, date, close/price…"),
           radioButtons("sep", "Разделитель:",
             choices = c("Запятая (,)" = ",", "Точка с запятой (;)" = ";",
                         "Табуляция" = "\t"),
-            selected = ","),
+            selected = "\t"),
           hr(),
           uiOutput("date_filter_ui"),
-          uiOutput("coin_filter_ui"),
+          uiOutput("ticker_filter_ui"),
           hr(),
           actionButton("analyze", "Анализировать →",
-            class = "btn-warning w-100", icon = icon("play"))
+            class = "btn-primary w-100", icon = icon("play"))
         )
       ),
       card(
@@ -129,37 +177,63 @@ ui <- page_navbar(
   ),
 
   # ── TAB 3: Связи ─────────────────────────────────────────────────────────
-  nav_panel("🔗 Связи между монетами",
+  nav_panel("🔗 Корреляции",
     uiOutput("links_ui")
   ),
 
-  # ── TAB 4: Кто ведёт? ────────────────────────────────────────────────────
-  nav_panel("🏁 Кто ведёт рынок?",
+  # ── TAB 4: Pairs Trading ─────────────────────────────────────────────────
+  nav_panel("🤝 Pairs Trading",
+    uiOutput("pairs_ui")
+  ),
+
+  # ── TAB 5: Кто ведёт? ────────────────────────────────────────────────────
+  nav_panel("🏁 Кто ведёт?",
     uiOutput("leader_ui")
   )
 )
 
+# ── Server ───────────────────────────────────────────────────────────────────
 server <- function(input, output, session) {
 
-  # ── Загрузка и очистка данных ─────────────────────────────────────────────
+  # ── Загрузка и нормализация формата ──────────────────────────────────────
   raw_data <- reactive({
     req(input$file)
     df <- tryCatch(
       read.csv(input$file$datapath, sep = input$sep, stringsAsFactors = FALSE),
       error = function(e) NULL)
     req(!is.null(df))
-    need_cols <- c("coin_id", "symbol", "date", "price")
-    miss <- setdiff(need_cols, colnames(df))
-    if (length(miss) > 0) {
-      showNotification(paste("Отсутствуют колонки:", paste(miss, collapse = ", ")),
-                       type = "error"); return(NULL)
+    cols <- colnames(df)
+
+    # Auto-detect format
+    is_stock  <- "ticker" %in% cols && "close" %in% cols
+    is_crypto <- any(c("coin_id", "symbol") %in% cols) && "price" %in% cols
+
+    if (!is_stock && !is_crypto) {
+      showNotification(
+        "Не распознан формат. Нужны колонки: ticker+close (акции) или symbol+price (крипто)",
+        type = "error", duration = 8)
+      return(NULL)
     }
-    df$date  <- as.Date(df$date)
-    df$price <- as.numeric(df$price)
-    if ("volume"     %in% colnames(df)) df$volume     <- as.numeric(df$volume)
-    if ("market_cap" %in% colnames(df)) df$market_cap <- as.numeric(df$market_cap)
-    df <- df[!is.na(df$date) & !is.na(df$price) & df$price > 0, ]
-    df[order(df$coin_id, df$date), ]
+
+    if (is_stock) {
+      df$ticker_col <- df$ticker
+      df$price_col  <- as.numeric(df$close)
+      df$fmt        <- "stock"
+    } else {
+      df$ticker_col <- if ("symbol" %in% cols) df$symbol else df$coin_id
+      df$price_col  <- as.numeric(df$price)
+      df$fmt        <- "crypto"
+    }
+    if ("volume" %in% cols) df$volume_col <- as.numeric(df$volume)
+
+    df$date <- as.Date(df$date)
+    df <- df[!is.na(df$date) & !is.na(df$price_col) & df$price_col > 0, ]
+    df[order(df$ticker_col, df$date), ]
+  })
+
+  fmt_label <- reactive({
+    df <- raw_data(); req(df)
+    if (df$fmt[1] == "stock") "тикеров" else "монет"
   })
 
   output$date_filter_ui <- renderUI({
@@ -167,17 +241,19 @@ server <- function(input, output, session) {
     dateRangeInput("date_range", "Период:", start = min(df$date), end = max(df$date))
   })
 
-  output$coin_filter_ui <- renderUI({
+  output$ticker_filter_ui <- renderUI({
     df <- raw_data(); req(df)
-    coins <- unique(df$symbol)
-    selectInput("sel_coins", paste0("Монеты (", length(coins), " найдено):"),
-                choices = coins, selected = coins, multiple = TRUE,
-                selectize = FALSE, size = min(8, length(coins)))
+    tickers <- sort(unique(df$ticker_col))
+    lbl <- paste0(if (df$fmt[1] == "stock") "Тикеры" else "Монеты",
+                  " (", length(tickers), " найдено):")
+    selectInput("sel_tickers", lbl,
+                choices = tickers, selected = tickers, multiple = TRUE,
+                selectize = FALSE, size = min(8, length(tickers)))
   })
 
   filtered_data <- reactive({
-    df <- raw_data(); req(df, input$sel_coins, input$date_range)
-    df <- df[df$symbol %in% input$sel_coins, ]
+    df <- raw_data(); req(df, input$sel_tickers, input$date_range)
+    df <- df[df$ticker_col %in% input$sel_tickers, ]
     df[df$date >= input$date_range[1] & df$date <= input$date_range[2], ]
   })
 
@@ -187,12 +263,14 @@ server <- function(input, output, session) {
       style = "text-align:center;padding:40px;color:#555;",
       tags$i(class = "fas fa-upload fa-3x",
              style = "display:block;margin-bottom:12px;color:#30363d;"),
-      p("Нужны колонки:"),
-      tags$code("coin_id, symbol, date, price")
+      p("Поддерживаемые форматы:"),
+      tags$code("ticker, date, close, volume"), tags$br(),
+      tags$code("symbol, date, price, volume")
     ))
+    fmt <- if (df$fmt[1] == "stock") "📊 Акции/ETF" else "₿ Крипто"
     layout_columns(col_widths = c(4,4,4),
-      value_box("Монет",   length(unique(df$symbol)),
-                showcase = icon("coins"),    theme = "warning"),
+      value_box(fmt_label(), length(unique(df$ticker_col)),
+                showcase = icon("chart-line"), theme = "primary"),
       value_box("Записей", format(nrow(df), big.mark = " "),
                 showcase = icon("database"), theme = "secondary"),
       value_box("Период",  paste(format(min(df$date), "%d.%m.%y"),
@@ -203,18 +281,21 @@ server <- function(input, output, session) {
 
   output$preview_table <- renderDT({
     df <- raw_data(); req(df)
-    show_cols <- intersect(c("symbol","date","price","volume","market_cap"), colnames(df))
-    datatable(head(df[, show_cols], 300),
+    show <- df[, c("ticker_col", "date", "price_col"), drop = FALSE]
+    if ("volume_col" %in% colnames(df)) show$volume_col <- df$volume_col
+    colnames(show) <- c("Тикер", "Дата", "Цена закрытия",
+                        if ("volume_col" %in% colnames(df)) "Объём")
+    datatable(head(show, 300),
               options = list(pageLength = 10, scrollX = TRUE, dom = "tip"),
               style = "bootstrap5", class = "table-dark table-sm")
   })
 
-  # ── Вспомогательные реактивы ──────────────────────────────────────────────
+  # ── Вспомогательные реактивы ─────────────────────────────────────────────
   price_wide <- eventReactive(input$analyze, {
     df <- filtered_data(); req(df)
     pw <- df |>
-      select(symbol, date, price) |>
-      pivot_wider(names_from = symbol, values_from = price, values_fn = mean) |>
+      select(ticker_col, date, price_col) |>
+      pivot_wider(names_from = ticker_col, values_from = price_col, values_fn = mean) |>
       arrange(date)
     dates <- pw$date
     mat <- as.data.frame(lapply(pw[, -1, drop = FALSE], as.numeric))
@@ -230,7 +311,7 @@ server <- function(input, output, session) {
     }))
   })
 
-  # ── ТАБ: График цен ───────────────────────────────────────────────────────
+  # ── ТАБ: График цен ──────────────────────────────────────────────────────
   output$prices_ui <- renderUI({
     if (!isTruthy(input$analyze)) return(placeholder_msg())
     tagList(
@@ -238,7 +319,7 @@ server <- function(input, output, session) {
         card_header("📈 Динамика цен (нормировано к 100 на старте)"),
         card_body(
           p(style = "color:#8b949e;font-size:0.85rem;margin-bottom:8px;",
-            "Все монеты приведены к одной шкале — удобно сравнивать рост."),
+            "Все инструменты приведены к одной шкале — удобно сравнивать рост."),
           plotOutput("price_chart", height = "420px")
         )
       ),
@@ -249,17 +330,15 @@ server <- function(input, output, session) {
   output$price_chart <- renderPlot({
     pw <- price_wide(); req(pw)
     dates <- as.Date(rownames(pw))
-    # Normalize to 100 at first non-NA value
     norm <- as.data.frame(lapply(pw, function(x) {
       first_val <- x[!is.na(x)][1]
       if (is.na(first_val) || first_val == 0) return(rep(NA, length(x)))
       x / first_val * 100
     }))
     norm$date <- dates
-    long <- pivot_longer(norm, -date, names_to = "Монета", values_to = "Индекс")
+    long <- pivot_longer(norm, -date, names_to = "Тикер", values_to = "Индекс")
     long <- long[!is.na(long$Индекс), ]
-    n_coins <- length(unique(long$Монета))
-    ggplot(long, aes(date, Индекс, color = Монета, group = Монета)) +
+    ggplot(long, aes(date, Индекс, color = Тикер, group = Тикер)) +
       geom_line(linewidth = 0.9, alpha = 0.85) +
       geom_hline(yintercept = 100, color = GRAY, linetype = "dashed", linewidth = 0.5) +
       annotate("text", x = min(dates), y = 102,
@@ -272,10 +351,8 @@ server <- function(input, output, session) {
 
   output$price_stats_cards <- renderUI({
     pw <- price_wide(); req(pw)
-    coins <- colnames(pw)
-    rows <- lapply(coins, function(sym) {
-      x     <- as.numeric(pw[[sym]])
-      x     <- x[!is.na(x)]
+    rows <- lapply(colnames(pw), function(sym) {
+      x   <- as.numeric(pw[[sym]]); x <- x[!is.na(x)]
       if (length(x) < 2) return(NULL)
       chg   <- (x[length(x)] / x[1] - 1) * 100
       color <- if (chg >= 0) GREEN else RED
@@ -292,21 +369,21 @@ server <- function(input, output, session) {
     div(style = "padding:10px 0;", tagList(rows))
   })
 
-  # ── ТАБ: Связи ────────────────────────────────────────────────────────────
+  # ── ТАБ: Корреляции ───────────────────────────────────────────────────────
   output$links_ui <- renderUI({
     if (!isTruthy(input$analyze)) return(placeholder_msg())
     tagList(
       card(
-        card_header("🔗 Как монеты связаны между собой"),
+        card_header("🔗 Насколько инструменты движутся вместе"),
         card_body(
           p(style = "color:#8b949e;font-size:0.85rem;",
-            "Смотрим на доходности (ежедневные изменения цен), а не на сами цены. ",
-            "Это показывает реальную связь движений."),
+            "Смотрим на ежедневные изменения цен, а не сами цены. ",
+            "Корреляция выше 60% означает сильную синхронность движений."),
           uiOutput("links_cards")
         )
       ),
       card(
-        card_header("Таблица всех пар"),
+        card_header("Все пары"),
         card_body(DTOutput("links_table"))
       )
     )
@@ -314,9 +391,8 @@ server <- function(input, output, session) {
 
   corr_pairs <- eventReactive(input$analyze, {
     rw <- returns_wide(); req(rw)
-    validate(need(ncol(rw) >= 2, "Нужно минимум 2 монеты"))
-    coins <- colnames(rw)
-    m <- as.matrix(rw); storage.mode(m) <- "double"
+    validate(need(ncol(rw) >= 2, "Нужно минимум 2 инструмента"))
+    m  <- as.matrix(rw); storage.mode(m) <- "double"
     cm <- cor(m, use = "pairwise.complete.obs")
     pairs <- which(upper.tri(cm), arr.ind = TRUE)
     df <- data.frame(
@@ -330,33 +406,31 @@ server <- function(input, output, session) {
 
   output$links_cards <- renderUI({
     df <- corr_pairs(); req(df)
-    top <- head(df, 9)  # show top 9 strongest relationships
+    top <- head(df, 9)
     rows <- lapply(seq_len(nrow(top)), function(i) {
       r   <- top$corr[i]
       col <- dot_color(r)
       lbl <- corr_label(r)
       pct <- corr_pct(r)
-      direction <- if (r > 0) "одновременно растут и падают" else "двигаются в разные стороны"
+      direction <- if (r > 0) "двигаются в одну сторону" else "двигаются в разные стороны"
       tags$div(style = paste0(
         "border:1px solid ", BORDER, ";border-radius:10px;padding:14px 16px;",
         "margin-bottom:10px;background:", BG, ";"),
         layout_columns(col_widths = c(8, 4),
           div(
-            tags$span(style = paste0("font-size:1rem;font-weight:600;color:#e6edf3;"),
+            tags$span(style = "font-size:1rem;font-weight:600;color:#e6edf3;",
               top$A[i], " ↔ ", top$B[i]),
             tags$br(),
             tags$span(style = "font-size:0.85rem;color:#8b949e;",
-              paste0("Они ", direction, " в ", pct, " случаев"))
+              paste0("Синхронность: ", pct, " — ", direction))
           ),
-          div(style = "text-align:right;",
-            badge(lbl, col)
-          )
+          div(style = "text-align:right;", badge(lbl, col))
         )
       )
     })
     tagList(
       if (nrow(df) > 9) p(style = "color:#8b949e;font-size:0.82rem;",
-        paste0("Показаны топ-9 из ", nrow(df), " пар. Полный список — в таблице ниже.")),
+        paste0("Топ-9 из ", nrow(df), " пар. Полный список — в таблице ниже.")),
       tagList(rows)
     )
   })
@@ -364,11 +438,11 @@ server <- function(input, output, session) {
   output$links_table <- renderDT({
     df <- corr_pairs(); req(df)
     out <- data.frame(
-      "Монета A"  = df$A,
-      "Монета B"  = df$B,
-      "Связь"     = sapply(df$corr, corr_label),
-      "Совпадений" = sapply(df$corr, corr_pct),
-      "Сила"      = round(abs(df$corr), 2),
+      "Тикер A"  = df$A,
+      "Тикер B"  = df$B,
+      "Характер связи" = sapply(df$corr, corr_label),
+      "Синхронность"   = sapply(df$corr, corr_pct),
+      "Коэффициент"    = round(df$corr, 3),
       stringsAsFactors = FALSE, check.names = FALSE
     )
     datatable(out, rownames = FALSE,
@@ -376,7 +450,200 @@ server <- function(input, output, session) {
               style = "bootstrap5", class = "table-dark table-sm")
   })
 
-  # ── ТАБ: Кто ведёт? ───────────────────────────────────────────────────────
+  # ── ТАБ: Pairs Trading ────────────────────────────────────────────────────
+  output$pairs_ui <- renderUI({
+    if (!isTruthy(input$analyze)) return(placeholder_msg())
+    tagList(
+      card(
+        card_header("🤝 Лучшие пары для pairs trading"),
+        card_body(
+          p(style = "color:#8b949e;font-size:0.85rem;",
+            "Pairs trading — стратегия: покупаем отстающий инструмент и продаём опередивший, ",
+            "ждём возврата к средней. Нужны два инструмента, которые: (1) сильно коррелируют ",
+            "и (2) образуют стабильный спред (коинтегрированы). Полутора-двухмесячный полупериод — идеален."),
+          uiOutput("pairs_cards")
+        )
+      ),
+      card(
+        card_header("Все пары — детальная таблица"),
+        card_body(
+          p(style = "color:#8b949e;font-size:0.82rem;",
+            "Полупериод: за сколько дней спред возвращается к среднему. 5–30 дней — лучший диапазон для трейдинга."),
+          DTOutput("pairs_table")
+        )
+      ),
+      card(
+        card_header("📉 График спреда для выбранной пары"),
+        card_body(
+          uiOutput("spread_pair_selector"),
+          plotOutput("spread_chart", height = "360px"),
+          uiOutput("spread_explanation")
+        )
+      )
+    )
+  })
+
+  pairs_coint <- eventReactive(input$analyze, {
+    pw <- price_wide(); req(pw)
+    validate(need(ncol(pw) >= 2, "Нужно минимум 2 инструмента"))
+    tickers <- colnames(pw)
+    combos  <- combn(tickers, 2, simplify = FALSE)
+    rw <- returns_wide()
+
+    res <- lapply(combos, function(p) {
+      pa <- as.numeric(pw[[p[1]]]); pb <- as.numeric(pw[[p[2]]])
+      ra <- as.numeric(rw[[p[1]]]); rb <- as.numeric(rw[[p[2]]])
+      # Correlation of returns
+      ok_r <- !is.na(ra) & !is.na(rb)
+      corr <- if (sum(ok_r) >= 10) cor(ra[ok_r], rb[ok_r]) else NA
+      # Cointegration
+      cg <- engle_granger(pa, pb)
+      data.frame(
+        A           = p[1],
+        B           = p[2],
+        corr        = corr,
+        halflife    = cg$halflife,
+        t_stat      = cg$t_stat,
+        is_coint    = cg$is_coint,
+        hedge_ratio = cg$hedge_ratio,
+        stringsAsFactors = FALSE
+      )
+    })
+    df <- do.call(rbind, Filter(Negate(is.null), res))
+    # Score: good pairs have high |corr| AND is_coint AND halflife 5-60
+    df$score <- with(df, {
+      s <- abs(corr)
+      s <- s + ifelse(is_coint, 0.3, 0)
+      s <- s + ifelse(!is.na(halflife) & halflife >= 5 & halflife <= 60, 0.3, 0)
+      s
+    })
+    df[order(-df$score), ]
+  })
+
+  output$pairs_cards <- renderUI({
+    df <- pairs_coint(); req(df)
+    good <- df[!is.na(df$corr) & abs(df$corr) >= 0.5, ]
+    top  <- head(good, 6)
+    if (nrow(top) == 0) {
+      return(div(style = "text-align:center;padding:30px;color:#555;",
+        p("Не найдено пар с достаточной корреляцией (>50%). Попробуйте добавить больше тикеров.")))
+    }
+    rows <- lapply(seq_len(nrow(top)), function(i) {
+      r  <- top[i, ]
+      corr_col <- dot_color(r$corr)
+      hl_col   <- halflife_color(r$halflife)
+      hl_lbl   <- halflife_label(r$halflife)
+      coint_txt <- if (r$is_coint) "✅ Коинтегрированы" else "⚠️ Не коинтегрированы"
+      coint_col <- if (r$is_coint) GREEN else ORANGE
+      tags$div(style = paste0(
+        "border:1px solid ", if (r$is_coint) GREEN else BORDER,
+        ";border-radius:10px;padding:16px 18px;margin-bottom:12px;background:", BG, ";"),
+        layout_columns(col_widths = c(7, 5),
+          div(
+            tags$span(style = "font-size:1.05rem;font-weight:700;color:#e6edf3;",
+              r$A, " ↔ ", r$B),
+            tags$br(), tags$br(),
+            tags$span(style = paste0("font-size:0.85rem;color:", coint_col, ";font-weight:600;"),
+              coint_txt),
+            tags$br(),
+            tags$span(style = "font-size:0.82rem;color:#8b949e;",
+              paste0("Синхронность движений: ", round(abs(r$corr)*100), "%"))
+          ),
+          div(style = "text-align:right;",
+            badge(paste0("Синхр. ", round(abs(r$corr)*100), "%"), corr_col),
+            tags$br(), tags$br(),
+            if (!is.na(r$halflife))
+              badge(hl_lbl, hl_col)
+            else
+              badge("Полупериод: нет данных", GRAY)
+          )
+        )
+      )
+    })
+    tagList(tagList(rows))
+  })
+
+  output$pairs_table <- renderDT({
+    df <- pairs_coint(); req(df)
+    out <- data.frame(
+      "A"               = df$A,
+      "B"               = df$B,
+      "Синхронность"    = paste0(round(abs(df$corr) * 100, 1), "%"),
+      "Коинтеграция"    = ifelse(df$is_coint, "✅ Да", "—"),
+      "Полупериод (дн.)"= ifelse(is.na(df$halflife), "—", as.character(df$halflife)),
+      "Рейтинг"         = round(df$score, 2),
+      stringsAsFactors  = FALSE, check.names = FALSE
+    )
+    datatable(out, rownames = FALSE,
+              options = list(pageLength = 20, dom = "tip", scrollX = TRUE,
+                             order = list(list(5, "desc"))),
+              style = "bootstrap5", class = "table-dark table-sm")
+  })
+
+  output$spread_pair_selector <- renderUI({
+    df <- pairs_coint(); req(df)
+    pair_labels <- paste0(df$A, " / ", df$B)
+    selectInput("spread_pair", "Выбрать пару:",
+                choices  = setNames(seq_len(nrow(df)), pair_labels),
+                selected = 1, selectize = FALSE, size = 1)
+  })
+
+  output$spread_chart <- renderPlot({
+    df <- pairs_coint(); req(df, input$spread_pair)
+    idx <- as.integer(input$spread_pair)
+    req(idx >= 1 && idx <= nrow(df))
+    row <- df[idx, ]
+    pw  <- price_wide(); req(pw)
+    pa  <- as.numeric(pw[[row$A]]); pb <- as.numeric(pw[[row$B]])
+    dates <- as.Date(rownames(pw))
+    ok  <- !is.na(pa) & !is.na(pb) & pa > 0 & pb > 0
+    if (sum(ok) < 20) return(NULL)
+
+    # Spread = log(pa) - hedge_ratio * log(pb)
+    hr <- if (!is.na(row$hedge_ratio)) row$hedge_ratio else 1
+    spread <- log(pa[ok]) - hr * log(pb[ok])
+    d      <- dates[ok]
+    mn     <- mean(spread, na.rm = TRUE)
+    sd1    <- sd(spread, na.rm = TRUE)
+
+    plot_df <- data.frame(date = d, spread = spread)
+    ggplot(plot_df, aes(date, spread)) +
+      geom_ribbon(aes(ymin = mn - 2*sd1, ymax = mn + 2*sd1),
+                  fill = "#1f2937", alpha = 0.6) +
+      geom_ribbon(aes(ymin = mn - sd1, ymax = mn + sd1),
+                  fill = "#374151", alpha = 0.6) +
+      geom_line(color = BLUE, linewidth = 0.9) +
+      geom_hline(yintercept = mn,         color = GRAY,   linetype = "dashed") +
+      geom_hline(yintercept = mn + sd1,   color = ORANGE, linetype = "dotted", linewidth = 0.6) +
+      geom_hline(yintercept = mn - sd1,   color = ORANGE, linetype = "dotted", linewidth = 0.6) +
+      geom_hline(yintercept = mn + 2*sd1, color = RED,    linetype = "dotted", linewidth = 0.6) +
+      geom_hline(yintercept = mn - 2*sd1, color = RED,    linetype = "dotted", linewidth = 0.6) +
+      labs(x = NULL, y = "Спред (лог)",
+           title = paste0("Спред: ", row$A, " / ", row$B),
+           subtitle = paste0(
+             if (!is.na(row$halflife)) paste0("Полупериод: ", row$halflife, " дн. | ") else "",
+             if (row$is_coint) "✓ Коинтегрированы" else "Нет коинтеграции")) +
+      dark_theme
+  }, bg = CARD)
+
+  output$spread_explanation <- renderUI({
+    df <- pairs_coint(); req(df, input$spread_pair)
+    idx <- as.integer(input$spread_pair)
+    req(idx >= 1 && idx <= nrow(df))
+    row <- df[idx, ]
+    tags$div(style = "margin-top:12px;padding:12px 16px;border-radius:8px;background:#0d1117;",
+      tags$p(style = "color:#8b949e;font-size:0.85rem;margin:0;",
+        "📌 ", tags$b("Как читать: "),
+        "Синяя линия — спред (разница между ценами двух инструментов). ",
+        "Когда спред выходит за оранжевые полосы (±1σ) — ",
+        tags$b("сигнал: "), "покупаем отстающего, продаём опередившего. ",
+        "Когда спред возвращается к серой линии (средняя) — ",
+        tags$b("закрываем позицию.")
+      )
+    )
+  })
+
+  # ── ТАБ: Кто ведёт? ──────────────────────────────────────────────────────
   output$leader_ui <- renderUI({
     if (!isTruthy(input$analyze)) return(placeholder_msg())
     tagList(
@@ -384,13 +651,13 @@ server <- function(input, output, session) {
         card_header("🏁 Кто ведёт, а кто следует?"),
         card_body(
           p(style = "color:#8b949e;font-size:0.85rem;",
-            "Если одна монета регулярно меняется раньше другой — значит, она «ведущая». ",
-            "Это можно использовать для понимания рыночных сигналов."),
+            "Если один инструмент регулярно меняется раньше другого — он «ведущий». ",
+            "Отфильтрованы инструменты с волатильностью < 1%/нед."),
           uiOutput("leader_cards")
         )
       ),
       card(
-        card_header("Полная таблица опережений"),
+        card_header("Полная таблица"),
         card_body(DTOutput("leader_table"))
       )
     )
@@ -398,22 +665,16 @@ server <- function(input, output, session) {
 
   lead_lag_pairs <- eventReactive(input$analyze, {
     rw <- returns_wide(); req(rw)
-    validate(need(ncol(rw) >= 2, "Нужно минимум 2 монеты"))
+    validate(need(ncol(rw) >= 2, "Нужно минимум 2 инструмента"))
 
-    # Exclude low-volatility coins (stablecoins, gold tokens, etc.)
-    # Weekly vol < 1% means the coin barely moves — any lag signal is noise
     weekly_vol <- sapply(rw, function(x) {
       x <- x[!is.na(x)]
       if (length(x) < 7) return(0)
-      sd(x, na.rm = TRUE) * sqrt(7) * 100  # annualized weekly vol in %
+      sd(x, na.rm = TRUE) * sqrt(7) * 100
     })
-    volatile_coins <- names(weekly_vol[weekly_vol >= 1])
-    excluded <- setdiff(colnames(rw), volatile_coins)
-
-    rw <- rw[, volatile_coins, drop = FALSE]
-    validate(need(ncol(rw) >= 2,
-      paste0("После фильтрации осталось меньше 2 монет с достаточной волатильностью. ",
-             "Исключены: ", paste(excluded, collapse = ", "))))
+    volatile <- names(weekly_vol[weekly_vol >= 1])
+    rw <- rw[, volatile, drop = FALSE]
+    validate(need(ncol(rw) >= 2, "Недостаточно волатильных инструментов"))
 
     coins <- colnames(rw)
     pairs <- combn(coins, 2, simplify = FALSE)
@@ -431,19 +692,12 @@ server <- function(input, output, session) {
       } else {
         best_idx  <- sig[which.max(abs(acfs[sig]))]
         best_lag  <- lags[best_idx]
-        best_corr <- abs(acfs[best_idx])
-        strength  <- if (best_corr > 0.2) "Высокая" else "Низкая"
+        strength  <- if (abs(acfs[best_idx]) > 0.2) "Высокая" else "Низкая"
       }
-      leader <- if (best_lag > 0) p[1] else if (best_lag < 0) p[2] else "Нет"
+      leader   <- if (best_lag > 0) p[1] else if (best_lag < 0) p[2] else "Нет"
       follower <- if (best_lag > 0) p[2] else if (best_lag < 0) p[1] else "Нет"
-      data.frame(
-        A = p[1], B = p[2],
-        lag       = best_lag,
-        leader    = leader,
-        follower  = follower,
-        strength  = strength,
-        stringsAsFactors = FALSE
-      )
+      data.frame(A=p[1], B=p[2], lag=best_lag, leader=leader,
+                 follower=follower, strength=strength, stringsAsFactors=FALSE)
     })
     do.call(rbind, Filter(Negate(is.null), res))
   })
@@ -455,14 +709,12 @@ server <- function(input, output, session) {
     top <- head(df_sig, 9)
     if (nrow(top) == 0) {
       return(div(style = "text-align:center;padding:30px;color:#555;",
-        p("Явных опережений не обнаружено. Попробуйте выбрать больший диапазон дат.")))
+        p("Явных опережений не обнаружено.")))
     }
     rows <- lapply(seq_len(nrow(top)), function(i) {
       row <- top[i, ]
       days <- abs(row$lag)
       day_word <- if (days == 1) "день" else if (days < 5) "дня" else "дней"
-      desc <- paste0(row$leader, " опережает ", row$follower, " на ",
-                     days, " ", day_word)
       tags$div(style = paste0(
         "border:1px solid ", BORDER, ";border-radius:10px;padding:14px 16px;",
         "margin-bottom:10px;background:", BG, ";"),
@@ -471,11 +723,11 @@ server <- function(input, output, session) {
             tags$span(style = "font-size:1rem;font-weight:600;color:#e6edf3;",
               row$leader, " → ", row$follower),
             tags$br(),
-            tags$span(style = "font-size:0.85rem;color:#8b949e;", desc)
+            tags$span(style = "font-size:0.85rem;color:#8b949e;",
+              paste0(row$leader, " опережает ", row$follower, " на ", days, " ", day_word))
           ),
           div(style = "text-align:right;",
-            badge(paste0(days, " ", day_word), ORANGE)
-          )
+            badge(paste0(days, " ", day_word), ORANGE))
         )
       )
     })
@@ -489,11 +741,11 @@ server <- function(input, output, session) {
   output$leader_table <- renderDT({
     df <- lead_lag_pairs(); req(df)
     out <- data.frame(
-      "Монета A" = df$A,
-      "Монета B" = df$B,
-      "Кто опережает"  = ifelse(df$leader == "Нет", "Одновременно", df$leader),
+      "A"               = df$A,
+      "B"               = df$B,
+      "Кто опережает"   = ifelse(df$leader == "Нет", "Одновременно", df$leader),
       "На сколько дней" = ifelse(df$lag == 0, "0", paste0(abs(df$lag), " дн.")),
-      "Уверенность"    = df$strength,
+      "Уверенность"     = df$strength,
       stringsAsFactors = FALSE, check.names = FALSE
     )
     datatable(out, rownames = FALSE,
