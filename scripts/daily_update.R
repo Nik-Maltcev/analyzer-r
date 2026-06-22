@@ -6,7 +6,7 @@
 library(RSQLite)
 library(jsonlite)
 
-source("scripts/tickers.R")
+source("/scripts/tickers.R")
 
 DB_PATH <- Sys.getenv("DB_PATH", "data/market.db")
 API_KEY <- Sys.getenv("TWELVEDATA_API_KEY", "")
