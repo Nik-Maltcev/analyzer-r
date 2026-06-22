@@ -514,25 +514,34 @@ server <- function(input, output, session) {
     tickers <- colnames(pw)
     combos  <- combn(tickers, 2, simplify = FALSE)
     rw <- returns_wide()
+    n_combos <- length(combos)
 
-    res <- lapply(combos, function(p) {
-      pa <- as.numeric(pw[[p[1]]]); pb <- as.numeric(pw[[p[2]]])
-      ra <- as.numeric(rw[[p[1]]]); rb <- as.numeric(rw[[p[2]]])
-      # Correlation of returns
-      ok_r <- !is.na(ra) & !is.na(rb)
-      corr <- if (sum(ok_r) >= 10) cor(ra[ok_r], rb[ok_r]) else NA
-      # Cointegration
-      cg <- engle_granger(pa, pb)
-      data.frame(
-        A           = p[1],
-        B           = p[2],
-        corr        = corr,
-        halflife    = cg$halflife,
-        t_stat      = cg$t_stat,
-        is_coint    = cg$is_coint,
-        hedge_ratio = cg$hedge_ratio,
-        stringsAsFactors = FALSE
-      )
+    withProgress(message = "Pairs Trading: расчёт коинтеграции...", value = 0, {
+      res <- vector("list", n_combos)
+      for (i in seq_along(combos)) {
+        p  <- combos[[i]]
+        pa <- as.numeric(pw[[p[1]]]); pb <- as.numeric(pw[[p[2]]])
+        ra <- as.numeric(rw[[p[1]]]); rb <- as.numeric(rw[[p[2]]])
+        # Correlation of returns
+        ok_r <- !is.na(ra) & !is.na(rb)
+        corr <- if (sum(ok_r) >= 10) cor(ra[ok_r], rb[ok_r]) else NA
+        # Cointegration
+        cg <- engle_granger(pa, pb)
+        res[[i]] <- data.frame(
+          A           = p[1],
+          B           = p[2],
+          corr        = corr,
+          halflife    = cg$halflife,
+          t_stat      = cg$t_stat,
+          is_coint    = cg$is_coint,
+          hedge_ratio = cg$hedge_ratio,
+          stringsAsFactors = FALSE
+        )
+        if (i %% 50 == 0 || i == n_combos) {
+          incProgress(50 / n_combos,
+            detail = paste0(i, " / ", n_combos, " пар"))
+        }
+      }
     })
     df <- do.call(rbind, Filter(Negate(is.null), res))
     # Score: good pairs have high |corr| AND is_coint AND halflife 5-60
@@ -1039,26 +1048,36 @@ server <- function(input, output, session) {
 
     coins <- colnames(rw)
     pairs <- combn(coins, 2, simplify = FALSE)
-    res <- lapply(pairs, function(p) {
-      xa <- rw[[p[1]]]; xb <- rw[[p[2]]]
-      ok <- !is.na(xa) & !is.na(xb)
-      if (sum(ok) < 30) return(NULL)
-      cc <- tryCatch(ccf(xa[ok], xb[ok], lag.max = 14, plot = FALSE), error = function(e) NULL)
-      if (is.null(cc)) return(NULL)
-      lags <- as.numeric(cc$lag); acfs <- as.numeric(cc$acf)
-      ci   <- qnorm(0.975) / sqrt(sum(ok))
-      sig  <- which(abs(acfs) > ci)
-      if (length(sig) == 0) {
-        best_lag <- 0; strength <- "Нет"
-      } else {
-        best_idx  <- sig[which.max(abs(acfs[sig]))]
-        best_lag  <- lags[best_idx]
-        strength  <- if (abs(acfs[best_idx]) > 0.2) "Высокая" else "Низкая"
+    n_pairs <- length(pairs)
+
+    withProgress(message = "Кто ведёт: расчёт лагов...", value = 0, {
+      res <- vector("list", n_pairs)
+      for (i in seq_along(pairs)) {
+        p  <- pairs[[i]]
+        xa <- rw[[p[1]]]; xb <- rw[[p[2]]]
+        ok <- !is.na(xa) & !is.na(xb)
+        if (sum(ok) < 30) { res[[i]] <- NULL; next }
+        cc <- tryCatch(ccf(xa[ok], xb[ok], lag.max = 14, plot = FALSE), error = function(e) NULL)
+        if (is.null(cc)) { res[[i]] <- NULL; next }
+        lags <- as.numeric(cc$lag); acfs <- as.numeric(cc$acf)
+        ci   <- qnorm(0.975) / sqrt(sum(ok))
+        sig  <- which(abs(acfs) > ci)
+        if (length(sig) == 0) {
+          best_lag <- 0; strength <- "Нет"
+        } else {
+          best_idx  <- sig[which.max(abs(acfs[sig]))]
+          best_lag  <- lags[best_idx]
+          strength  <- if (abs(acfs[best_idx]) > 0.2) "Высокая" else "Низкая"
+        }
+        leader   <- if (best_lag > 0) p[1] else if (best_lag < 0) p[2] else "Нет"
+        follower <- if (best_lag > 0) p[2] else if (best_lag < 0) p[1] else "Нет"
+        res[[i]] <- data.frame(A=p[1], B=p[2], lag=best_lag, leader=leader,
+                   follower=follower, strength=strength, stringsAsFactors=FALSE)
+        if (i %% 50 == 0 || i == n_pairs) {
+          incProgress(50 / n_pairs,
+            detail = paste0(i, " / ", n_pairs, " пар"))
+        }
       }
-      leader   <- if (best_lag > 0) p[1] else if (best_lag < 0) p[2] else "Нет"
-      follower <- if (best_lag > 0) p[2] else if (best_lag < 0) p[1] else "Нет"
-      data.frame(A=p[1], B=p[2], lag=best_lag, leader=leader,
-                 follower=follower, strength=strength, stringsAsFactors=FALSE)
     })
     do.call(rbind, Filter(Negate(is.null), res))
   })
