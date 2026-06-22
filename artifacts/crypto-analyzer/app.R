@@ -21,16 +21,17 @@ dark_theme <- theme_minimal(base_size = 13) +
   theme(
     plot.background  = element_rect(fill = CARD, color = NA),
     panel.background = element_rect(fill = CARD, color = NA),
-    panel.grid.major = element_line(color = BORDER),
+    panel.grid.major = element_line(color = "#1c2128", linewidth = 0.4),
     panel.grid.minor = element_blank(),
-    axis.text        = element_text(color = "#adbac7"),
-    axis.title       = element_text(color = "#adbac7"),
-    plot.title       = element_text(color = "#e6edf3", face = "bold", size = 14),
-    plot.subtitle    = element_text(color = GRAY, size = 11),
-    legend.background = element_rect(fill = CARD, color = NA),
-    legend.text      = element_text(color = "#adbac7"),
-    legend.title     = element_text(color = "#e6edf3"),
-    legend.position  = "top"
+    axis.text        = element_text(color = "#8b949e", size = 10),
+    axis.title       = element_text(color = "#adbac7", size = 11, face = "plain"),
+    plot.title       = element_text(color = "#e6edf3", face = "bold", size = 15, margin = margin(b = 4)),
+    plot.subtitle    = element_text(color = GRAY, size = 10.5, margin = margin(b = 12)),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.text      = element_text(color = "#adbac7", size = 10),
+    legend.title     = element_text(color = "#e6edf3", size = 10.5),
+    legend.position  = "top",
+    plot.margin      = margin(16, 16, 12, 16)
   )
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -63,16 +64,24 @@ lag_color <- function(lag) {
 }
 
 placeholder_msg <- function(msg = "Загрузите CSV и нажмите «Анализировать»") {
-  div(style = "text-align:center;padding:60px 20px;color:#555;",
-    tags$i(class = "fas fa-chart-line fa-3x",
-           style = "display:block;margin-bottom:14px;color:#30363d;"),
-    p(style = "font-size:1.1rem;", msg))
+  div(style = "text-align:center;padding:80px 20px;color:#555;",
+    div(style = "
+      width:80px;height:80px;margin:0 auto 20px;border-radius:50%;
+      background:linear-gradient(135deg, rgba(88,166,255,0.1), rgba(167,139,250,0.1));
+      display:flex;align-items:center;justify-content:center;
+      border:1px solid #21262d;",
+      tags$i(class = "fas fa-chart-line fa-2x", style = "color:#58a6ff;")
+    ),
+    p(style = "font-size:1.1rem;color:#8b949e;font-weight:500;", msg),
+    p(style = "font-size:0.82rem;color:#484f58;", "Данные обрабатываются локально"))
 }
 
 badge <- function(txt, col) {
   tags$span(style = paste0(
-    "display:inline-block;padding:3px 10px;border-radius:12px;",
-    "font-size:0.82rem;font-weight:600;color:#fff;background:", col, ";"),
+    "display:inline-block;padding:4px 12px;border-radius:20px;",
+    "font-size:0.78rem;font-weight:600;color:#fff;",
+    "background:", col, ";",
+    "box-shadow:0 2px 8px ", col, "33;"),
     txt)
 }
 
@@ -133,8 +142,14 @@ halflife_color <- function(hl) {
 ui <- page_navbar(
   title = div(
     style = "display:flex;align-items:center;gap:10px;",
-    span(style = "font-size:1.3rem;font-weight:700;color:#58a6ff;", "MarketAnalyzer"),
-    span(style = "font-size:0.75rem;color:#555;margin-top:3px;", "простой анализ")
+    tags$span(style = "
+      font-size:1.4rem;font-weight:800;
+      background:linear-gradient(135deg, #58a6ff 0%, #a78bfa 50%, #f7931a 100%);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+      background-clip:text;", "CryptoScope"),
+    tags$span(style = "
+      font-size:0.7rem;color:#555;margin-top:4px;
+      padding:2px 8px;border:1px solid #30363d;border-radius:20px;", "beta")
   ),
   theme = bs_theme(
     bg = BG, fg = "#e6edf3", primary = BLUE, secondary = BORDER,
@@ -147,6 +162,62 @@ ui <- page_navbar(
     "input-color"        = "#e6edf3"
   ),
   fillable = FALSE,
+  header = tags$head(tags$style(HTML("
+    /* Global polish */
+    body { letter-spacing: -0.01em; }
+    .navbar { border-bottom: 1px solid #21262d; backdrop-filter: blur(12px); }
+    .nav-link { font-weight: 500; font-size: 0.9rem; transition: all 0.2s ease; }
+    .nav-link:hover { color: #58a6ff !important; transform: translateY(-1px); }
+    .nav-link.active { color: #58a6ff !important; border-bottom: 2px solid #58a6ff; }
+
+    /* Cards */
+    .card { border-radius: 14px; border: 1px solid #21262d; transition: border-color 0.2s ease; }
+    .card:hover { border-color: #30363d; }
+    .card-header { font-weight: 600; font-size: 0.95rem; border-bottom: 1px solid #21262d; padding: 14px 18px; }
+
+    /* Buttons */
+    .btn-primary {
+      background: linear-gradient(135deg, #58a6ff 0%, #388bfd 100%);
+      border: none; border-radius: 10px; font-weight: 600;
+      padding: 10px 20px; transition: all 0.2s ease;
+      box-shadow: 0 4px 14px rgba(88,166,255,0.25);
+    }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(88,166,255,0.4);
+    }
+
+    /* File input */
+    .form-control { border-radius: 8px; }
+
+    /* Value boxes */
+    .bslib-value-box { border-radius: 12px; border: 1px solid #21262d; }
+
+    /* Tables */
+    .dataTables_wrapper { font-size: 0.88rem; }
+    table.dataTable { border-collapse: separate; border-spacing: 0; }
+    table.dataTable thead th { border-bottom: 2px solid #30363d; font-weight: 600; }
+    table.dataTable tbody tr { transition: background 0.15s ease; }
+    table.dataTable tbody tr:hover { background: #1c2128 !important; }
+
+    /* Select inputs */
+    select.form-select, select.form-control {
+      border-radius: 8px; background-color: #0d1117;
+      border: 1px solid #30363d; color: #e6edf3;
+    }
+
+    /* Progress bar */
+    .shiny-notification { background: #161b22; border: 1px solid #30363d; border-radius: 10px; color: #e6edf3; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #0d1117; }
+    ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+    /* Checkbox */
+    .form-check-input:checked { background-color: #58a6ff; border-color: #58a6ff; }
+  "))),
 
   # ── TAB 1: Загрузка ─────────────────────────────────────────────────────
   nav_panel("📂 Данные",
