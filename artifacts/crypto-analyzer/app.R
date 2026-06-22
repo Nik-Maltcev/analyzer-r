@@ -590,7 +590,8 @@ server <- function(input, output, session) {
                 selected = 1, selectize = FALSE, size = 1)
   })
 
-  output$spread_chart <- renderPlot({
+  # Reactive: compute z-score series for selected pair
+  spread_data <- reactive({
     df <- pairs_coint(); req(df, input$spread_pair)
     idx <- as.integer(input$spread_pair)
     req(idx >= 1 && idx <= nrow(df))
@@ -600,47 +601,70 @@ server <- function(input, output, session) {
     dates <- as.Date(rownames(pw))
     ok  <- !is.na(pa) & !is.na(pb) & pa > 0 & pb > 0
     if (sum(ok) < 20) return(NULL)
-
-    # Spread = log(pa) - hedge_ratio * log(pb)
     hr <- if (!is.na(row$hedge_ratio)) row$hedge_ratio else 1
     spread <- log(pa[ok]) - hr * log(pb[ok])
-    d      <- dates[ok]
-    mn     <- mean(spread, na.rm = TRUE)
-    sd1    <- sd(spread, na.rm = TRUE)
+    mn  <- mean(spread, na.rm = TRUE)
+    sd1 <- sd(spread, na.rm = TRUE)
+    zscore <- if (sd1 > 0) (spread - mn) / sd1 else rep(0, length(spread))
+    list(dates = dates[ok], spread = spread, zscore = zscore,
+         mean = mn, sd = sd1, row = row)
+  })
 
-    plot_df <- data.frame(date = d, spread = spread)
-    ggplot(plot_df, aes(date, spread)) +
-      geom_ribbon(aes(ymin = mn - 2*sd1, ymax = mn + 2*sd1),
-                  fill = "#1f2937", alpha = 0.6) +
-      geom_ribbon(aes(ymin = mn - sd1, ymax = mn + sd1),
-                  fill = "#374151", alpha = 0.6) +
+  output$spread_chart <- renderPlot({
+    s <- spread_data(); req(s)
+    plot_df <- data.frame(date = s$dates, z = s$zscore)
+    ggplot(plot_df, aes(date, z)) +
+      geom_ribbon(aes(ymin = -2, ymax = 2), fill = "#1f2937", alpha = 0.5) +
+      geom_ribbon(aes(ymin = -1, ymax = 1), fill = "#374151", alpha = 0.6) +
       geom_line(color = BLUE, linewidth = 0.9) +
-      geom_hline(yintercept = mn,         color = GRAY,   linetype = "dashed") +
-      geom_hline(yintercept = mn + sd1,   color = ORANGE, linetype = "dotted", linewidth = 0.6) +
-      geom_hline(yintercept = mn - sd1,   color = ORANGE, linetype = "dotted", linewidth = 0.6) +
-      geom_hline(yintercept = mn + 2*sd1, color = RED,    linetype = "dotted", linewidth = 0.6) +
-      geom_hline(yintercept = mn - 2*sd1, color = RED,    linetype = "dotted", linewidth = 0.6) +
-      labs(x = NULL, y = "Спред (лог)",
-           title = paste0("Спред: ", row$A, " / ", row$B),
+      geom_hline(yintercept =  0, color = GRAY,   linetype = "dashed", linewidth = 0.7) +
+      geom_hline(yintercept =  1, color = ORANGE, linetype = "dotted", linewidth = 0.7) +
+      geom_hline(yintercept = -1, color = ORANGE, linetype = "dotted", linewidth = 0.7) +
+      geom_hline(yintercept =  2, color = RED,    linetype = "solid",  linewidth = 0.8) +
+      geom_hline(yintercept = -2, color = RED,    linetype = "solid",  linewidth = 0.8) +
+      annotate("text", x = min(s$dates), y =  2.1, label = "+2σ (сигнал шорт A / лонг B)",
+               color = RED,    size = 3, hjust = 0) +
+      annotate("text", x = min(s$dates), y = -2.1, label = "-2σ (сигнал лонг A / шорт B)",
+               color = RED,    size = 3, hjust = 0) +
+      scale_y_continuous(breaks = c(-3,-2,-1,0,1,2,3)) +
+      labs(x = NULL, y = "Z-score спреда",
+           title = paste0("Z-score спреда: ", s$row$A, " / ", s$row$B),
            subtitle = paste0(
-             if (!is.na(row$halflife)) paste0("Полупериод: ", row$halflife, " дн. | ") else "",
-             if (row$is_coint) "✓ Коинтегрированы" else "Нет коинтеграции")) +
+             if (!is.na(s$row$halflife)) paste0("Полупериод: ", s$row$halflife, " дн. | ") else "",
+             if (s$row$is_coint) "✓ Коинтегрированы" else "Нет коинтеграции")) +
       dark_theme
   }, bg = CARD)
 
   output$spread_explanation <- renderUI({
-    df <- pairs_coint(); req(df, input$spread_pair)
-    idx <- as.integer(input$spread_pair)
-    req(idx >= 1 && idx <= nrow(df))
-    row <- df[idx, ]
-    tags$div(style = "margin-top:12px;padding:12px 16px;border-radius:8px;background:#0d1117;",
-      tags$p(style = "color:#8b949e;font-size:0.85rem;margin:0;",
-        "📌 ", tags$b("Как читать: "),
-        "Синяя линия — спред (разница между ценами двух инструментов). ",
-        "Когда спред выходит за оранжевые полосы (±1σ) — ",
-        tags$b("сигнал: "), "покупаем отстающего, продаём опередившего. ",
-        "Когда спред возвращается к серой линии (средняя) — ",
-        tags$b("закрываем позицию.")
+    s <- spread_data(); req(s)
+    z_now   <- tail(s$zscore, 1)
+    z_round <- round(z_now, 2)
+    signal_col <- if (abs(z_now) >= 2) RED else if (abs(z_now) >= 1) ORANGE else GREEN
+    signal_txt <- if (z_now >=  2) paste0("🔴 Лонг ", s$row$B, " / Шорт ", s$row$A)
+             else if (z_now <= -2) paste0("🔴 Лонг ", s$row$A, " / Шорт ", s$row$B)
+             else if (z_now >=  1) paste0("🟡 Спред расширяется — наблюдать")
+             else if (z_now <= -1) paste0("🟡 Спред сужается — наблюдать")
+             else "🟢 Спред у нормы — позиций нет"
+    tagList(
+      layout_columns(col_widths = c(4, 8),
+        tags$div(style = paste0(
+          "text-align:center;padding:18px;border-radius:10px;",
+          "border:2px solid ", signal_col, ";background:", BG, ";margin-top:12px;"),
+          tags$div(style = "font-size:0.8rem;color:#8b949e;", "Текущий Z-score"),
+          tags$div(style = paste0("font-size:2.2rem;font-weight:800;color:", signal_col, ";"),
+            z_round),
+          tags$div(style = paste0("font-size:0.85rem;font-weight:600;color:", signal_col,
+                                  ";margin-top:4px;"), signal_txt)
+        ),
+        tags$div(style = "margin-top:12px;padding:12px 16px;border-radius:8px;background:#0d1117;",
+          tags$p(style = "color:#8b949e;font-size:0.85rem;margin:0;",
+            "📌 ", tags$b("Как читать: "),
+            "Z-score = на сколько σ спред сейчас отклонился от среднего. ",
+            tags$b("|Z| > 2"), " → сигнал на вход. ",
+            tags$b("|Z| < 0.5"), " → закрыть позицию. ",
+            "Серая полоса (±1σ) — норма. Красные линии (±2σ) — зона входа."
+          )
+        )
       )
     )
   })
