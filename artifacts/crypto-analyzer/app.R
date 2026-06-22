@@ -6,6 +6,7 @@ library(ggplot2)
 library(zoo)
 library(DT)
 library(jsonlite)
+library(RSQLite)
 
 options(shiny.maxRequestSize = 50 * 1024^2)
 
@@ -309,11 +310,46 @@ ui <- page_navbar(
   # ── TAB 6: Сигналы ──────────────────────────────────────────────────────
   nav_panel("🚦 Сигналы",
     uiOutput("signals_ui")
+  ),
+
+  # ── TAB 7: Статус ───────────────────────────────────────────────────────
+  nav_panel("⚙️ Статус",
+    uiOutput("status_ui")
   )
 )
 
 # ── Server ───────────────────────────────────────────────────────────────────
 server <- function(input, output, session) {
+
+  # ── Database connection ──────────────────────────────────────────────────
+  DB_PATH <- Sys.getenv("DB_PATH", "/data/market.db")
+  db_available <- reactive({ file.exists(DB_PATH) })
+
+  get_db_data <- function(market = NULL) {
+    if (!file.exists(DB_PATH)) return(NULL)
+    con <- dbConnect(SQLite(), DB_PATH)
+    on.exit(dbDisconnect(con))
+    query <- if (!is.null(market)) {
+      sprintf("SELECT ticker, date, close FROM prices WHERE market = '%s' ORDER BY ticker, date", market)
+    } else {
+      "SELECT ticker, date, close FROM prices ORDER BY ticker, date"
+    }
+    dbGetQuery(con, query)
+  }
+
+  get_db_signals <- function() {
+    if (!file.exists(DB_PATH)) return(NULL)
+    con <- dbConnect(SQLite(), DB_PATH)
+    on.exit(dbDisconnect(con))
+    dbGetQuery(con, "SELECT * FROM signals ORDER BY date DESC, abs(z_score) DESC LIMIT 200")
+  }
+
+  get_update_log <- function() {
+    if (!file.exists(DB_PATH)) return(NULL)
+    con <- dbConnect(SQLite(), DB_PATH)
+    on.exit(dbDisconnect(con))
+    dbGetQuery(con, "SELECT * FROM update_log ORDER BY timestamp DESC LIMIT 30")
+  }
 
   # ── Пресеты тикеров ─────────────────────────────────────────────────────
   presets <- list(
@@ -483,10 +519,26 @@ server <- function(input, output, session) {
     df[order(df$ticker_col, df$date), ]
   })
 
-  # ── Unified data source: API first, then CSV ────────────────────────────
+  # ── Unified data source: DB > API > CSV ───────────────────────────────────
   raw_data <- reactive({
+    # Priority 1: API data (just fetched)
     api <- api_data()
     if (!is.null(api) && nrow(api) > 0) return(api)
+
+    # Priority 2: Database
+    if (db_available()) {
+      mt <- input$market_type
+      db_df <- get_db_data(mt)
+      if (!is.null(db_df) && nrow(db_df) > 0) {
+        db_df$ticker_col <- db_df$ticker
+        db_df$price_col  <- as.numeric(db_df$close)
+        db_df$date       <- as.Date(db_df$date)
+        db_df <- db_df[!is.na(db_df$date) & !is.na(db_df$price_col) & db_df$price_col > 0, ]
+        if (nrow(db_df) > 0) return(db_df[order(db_df$ticker_col, db_df$date), ])
+      }
+    }
+
+    # Priority 3: CSV upload
     csv_data()
   })
 
@@ -1564,6 +1616,78 @@ server <- function(input, output, session) {
     datatable(out, rownames = FALSE,
               options = list(pageLength = 25, dom = "tip", scrollX = TRUE,
                              order = list(list(1, "desc"))),
+              style = "bootstrap5", class = "table-dark table-sm")
+  })
+
+  # ── ТАБ: Статус ───────────────────────────────────────────────────────────
+  output$status_ui <- renderUI({
+    tagList(
+      card(
+        card_header("⚙️ Статус системы"),
+        card_body(
+          uiOutput("status_db_info"),
+          hr(),
+          tags$h6(style = "color:#e6edf3;", "Лог обновлений"),
+          DTOutput("status_log_table"),
+          hr(),
+          tags$h6(style = "color:#e6edf3;", "Последние сигналы из БД"),
+          DTOutput("status_signals_table")
+        )
+      )
+    )
+  })
+
+  output$status_db_info <- renderUI({
+    if (!db_available()) {
+      return(div(style = "padding:20px;text-align:center;color:#f85149;",
+        tags$i(class = "fas fa-database fa-2x", style = "display:block;margin-bottom:10px;"),
+        p("БД не найдена. Запустите init_db.R для первичной загрузки."),
+        tags$code("Rscript scripts/init_db.R")
+      ))
+    }
+    con <- dbConnect(SQLite(), DB_PATH)
+    on.exit(dbDisconnect(con))
+    stats <- dbGetQuery(con, "
+      SELECT
+        COUNT(*) as total_rows,
+        COUNT(DISTINCT ticker) as tickers,
+        MIN(date) as min_date,
+        MAX(date) as max_date
+      FROM prices")
+    sig_count <- dbGetQuery(con, "SELECT COUNT(*) as n FROM signals WHERE date = ?",
+                            params = list(format(Sys.Date(), "%Y-%m-%d")))$n
+    last_update <- dbGetQuery(con, "SELECT timestamp FROM update_log ORDER BY timestamp DESC LIMIT 1")
+
+    layout_columns(col_widths = c(3, 3, 3, 3),
+      value_box("Тикеров", stats$tickers,
+                showcase = icon("chart-pie"), theme = "primary"),
+      value_box("Записей", format(stats$total_rows, big.mark = " "),
+                showcase = icon("database"), theme = "secondary"),
+      value_box("Данные", paste(stats$min_date, "—", stats$max_date),
+                showcase = icon("calendar"), theme = "secondary"),
+      value_box("Сигналы сегодня", sig_count,
+                showcase = icon("bell"), theme = if (sig_count > 0) "warning" else "secondary")
+    )
+  })
+
+  output$status_log_table <- renderDT({
+    log_df <- get_update_log()
+    if (is.null(log_df) || nrow(log_df) == 0) return(NULL)
+    show <- log_df[, c("timestamp", "market", "tickers_ok", "tickers_fail", "rows_added", "status")]
+    colnames(show) <- c("Время", "Рынок", "OK", "Ошибки", "Новых строк", "Статус")
+    datatable(show, rownames = FALSE,
+              options = list(pageLength = 10, dom = "tip", scrollX = TRUE),
+              style = "bootstrap5", class = "table-dark table-sm")
+  })
+
+  output$status_signals_table <- renderDT({
+    sig_df <- get_db_signals()
+    if (is.null(sig_df) || nrow(sig_df) == 0) return(NULL)
+    show <- sig_df[, c("date", "signal", "z_score", "z_forecast", "strength", "corr")]
+    show$corr <- paste0(round(show$corr * 100), "%")
+    colnames(show) <- c("Дата", "Сигнал", "Z", "Z прогноз", "Сила", "Корр")
+    datatable(show, rownames = FALSE,
+              options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
               style = "bootstrap5", class = "table-dark table-sm")
   })
 }

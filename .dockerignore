@@ -8,3 +8,4 @@ replit.md
 agent.md
 node_modules/
 *.nix
+data/

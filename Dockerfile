@@ -1,6 +1,6 @@
 FROM rocker/r-ver:4.4.0
 
-# System dependencies for R packages
+# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4-openssl-dev \
     libssl-dev \
@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg-dev \
     libharfbuzz-dev \
     libfribidi-dev \
+    libsqlite3-dev \
+    cron \
     && rm -rf /var/lib/apt/lists/*
 
 # Install R packages
@@ -25,13 +27,29 @@ RUN install2.r --error --skipinstalled \
     DT \
     corrplot \
     tibble \
-    lubridate
+    lubridate \
+    RSQLite \
+    jsonlite
 
-# Copy app
-COPY artifacts/crypto-analyzer /app
+# Create directories
+RUN mkdir -p /app /scripts /data
 
-# Expose port (Railway sets PORT env var)
+# Copy scripts and app
+COPY scripts/ /scripts/
+COPY artifacts/crypto-analyzer/ /app/
+
+# Setup cron job: daily at 06:00 UTC (09:00 MSK)
+RUN echo "0 6 * * * cd /scripts && /usr/local/bin/Rscript /scripts/daily_update.R >> /data/cron.log 2>&1" > /etc/cron.d/daily-update \
+    && chmod 0644 /etc/cron.d/daily-update \
+    && crontab /etc/cron.d/daily-update
+
+# Persistent data volume
+VOLUME /data
+
+# Startup script
+COPY scripts/start.sh /start.sh
+RUN chmod +x /start.sh
+
 EXPOSE 3000
 
-# Run Shiny app
-CMD ["R", "-e", "port <- as.integer(Sys.getenv('PORT', unset='3000')); shiny::runApp('/app', host='0.0.0.0', port=port)"]
+CMD ["/start.sh"]
