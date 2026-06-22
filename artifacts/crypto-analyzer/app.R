@@ -84,30 +84,34 @@ engle_granger <- function(pa, pb, max_lag = 2) {
                                 t_stat = NA, hedge_ratio = NA))
   la <- log(pa[ok]); lb <- log(pb[ok])
 
-  # Step 1: OLS regression, get residuals (the "spread")
-  fit  <- lm(la ~ lb)
-  resid <- residuals(fit)
+  result <- tryCatch({
+    # Step 1: OLS regression to get hedge ratio and residuals
+    fit   <- lm(la ~ lb)
+    resid <- residuals(fit)
+    hedge <- coef(fit)[2]   # coefficient on lb
 
-  # Step 2: AR(1) on Δresid ~ resid_{t-1}  (simplified ADF, no lags for speed)
-  n     <- length(resid)
-  y     <- diff(resid)           # Δresid
-  x     <- resid[-n]             # resid_{t-1}
-  ar_fit <- lm(y ~ x)
-  b     <- coef(ar_fit)["x"]
-  se_b  <- summary(ar_fit)$coefficients["x", "Std. Error"]
-  t_stat <- b / se_b
+    # Step 2: AR(1) on Δresid ~ resid_{t-1}  (simplified ADF)
+    n      <- length(resid)
+    y      <- diff(resid)
+    x      <- resid[-n]
+    ar_fit <- lm(y ~ x)
+    coefs  <- summary(ar_fit)$coefficients
+    if (!"x" %in% rownames(coefs))
+      return(list(halflife = NA, t_stat = NA, score = NA, is_coint = FALSE, hedge_ratio = hedge))
+    b      <- coefs["x", "Estimate"]
+    se_b   <- coefs["x", "Std. Error"]
+    t_stat <- if (!is.na(se_b) && se_b > 0) b / se_b else NA
 
-  # Critical value for ADF on residuals (MacKinnon ~-3.0 at 5%, no intercept in residuals)
-  is_coint <- !is.na(t_stat) && t_stat < -2.9
+    is_coint <- !is.na(t_stat) && t_stat < -2.9
+    halflife <- if (!is.na(b) && b < 0) round(-log(2) / b) else NA
+    score    <- if (!is.na(t_stat)) round(abs(t_stat), 2) else NA
 
-  # Half-life of mean reversion: -log(2)/b  (days)
-  halflife <- if (!is.na(b) && b < 0) round(-log(2) / b) else NA
-
-  # Score: higher = better for pairs trading (combines correlation and stationarity)
-  score <- if (!is.na(t_stat)) round(abs(t_stat), 2) else NA
-
-  list(halflife = halflife, t_stat = t_stat, score = score, is_coint = is_coint,
-       hedge_ratio = coef(fit)[["lb"]])
+    list(halflife = halflife, t_stat = t_stat, score = score,
+         is_coint = is_coint, hedge_ratio = hedge)
+  }, error = function(e) {
+    list(halflife = NA, t_stat = NA, score = NA, is_coint = FALSE, hedge_ratio = NA)
+  })
+  result
 }
 
 halflife_label <- function(hl) {
