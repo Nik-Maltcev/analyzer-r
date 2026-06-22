@@ -152,10 +152,8 @@ ui <- page_navbar(
           fileInput("file", NULL, accept = ".csv",
             buttonLabel = "Выбрать файл",
             placeholder = "ticker/coin_id, date, close/price…"),
-          radioButtons("sep", "Разделитель:",
-            choices = c("Запятая (,)" = ",", "Точка с запятой (;)" = ";",
-                        "Табуляция" = "\t"),
-            selected = "\t"),
+          p(style = "font-size:0.8rem;color:#8b949e;margin-top:-6px;",
+            "Форматы: MOEX / Forex / US ETF (tab), или крипто (запятая). Разделитель определяется автоматически."),
           hr(),
           uiOutput("date_filter_ui"),
           uiOutput("ticker_filter_ui"),
@@ -198,8 +196,12 @@ server <- function(input, output, session) {
   # ── Загрузка и нормализация формата ──────────────────────────────────────
   raw_data <- reactive({
     req(input$file)
+    # Auto-detect separator from first line
+    first_line <- tryCatch(readLines(input$file$datapath, n = 1, warn = FALSE),
+                           error = function(e) "")
+    sep_char <- if (grepl("\t", first_line)) "\t" else if (grepl(";", first_line)) ";" else ","
     df <- tryCatch(
-      read.csv(input$file$datapath, sep = input$sep, stringsAsFactors = FALSE),
+      read.csv(input$file$datapath, sep = sep_char, stringsAsFactors = FALSE),
       error = function(e) NULL)
     req(!is.null(df))
     cols <- colnames(df)
