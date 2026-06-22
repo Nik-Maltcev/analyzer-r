@@ -696,6 +696,76 @@ server <- function(input, output, session) {
     s <- spread_data(); req(s)
     z_now <- tail(s$zscore, 1)
 
+    # ── Forecast block ──────────────────────────────────────────────────────
+    fc <- s$forecast
+    forecast_block <- if (!is.null(fc)) {
+      zh    <- round(fc$z_hat, 2)
+      lo80  <- round(fc$lo80, 2); hi80 <- round(fc$hi80, 2)
+      lo95  <- round(fc$lo95, 2); hi95 <- round(fc$hi95, 2)
+      p_sig <- round((fc$p_long + fc$p_short) * 100)
+      p_lng <- round(fc$p_long  * 100)
+      p_sht <- round(fc$p_short * 100)
+      reversion_speed <- if (!is.na(fc$ar_b) && fc$ar_b < 0)
+        paste0(round((1 - abs(fc$ar_b)) * 100), "% от текущего отклонения")
+        else "Слабый возврат к среднему"
+
+      # Color based on forecast direction
+      fc_col <- if (zh > 1.5) RED else if (zh < -1.5) BLUE else GREEN
+      arrow  <- if (zh > z_now + 0.1) "↑" else if (zh < z_now - 0.1) "↓" else "→"
+
+      # Signal probability sentence
+      sig_txt <- if (p_sig < 5) {
+        "Сигнала завтра, скорее всего, не будет"
+      } else if (p_lng > p_sht) {
+        paste0("Вероятность сигнала «Лонг ", s$row$A, "»: ", p_lng, "%")
+      } else {
+        paste0("Вероятность сигнала «Лонг ", s$row$B, "»: ", p_sht, "%")
+      }
+
+      div(style = paste0(
+        "padding:16px 18px;border-radius:12px;border:2px solid ", BLUE,
+        ";background:#0d1b2a;margin-bottom:18px;"),
+        tags$b(style = paste0("color:", BLUE, ";font-size:1rem;"),
+               "🔮 Прогноз Z-score на следующий день"),
+        br(), br(),
+        layout_columns(col_widths = c(4, 4, 4),
+          # Point estimate
+          div(style = "text-align:center;",
+            div(style = "font-size:0.8rem;color:#8b949e;", "Ожидаемый Z завтра"),
+            div(style = paste0("font-size:2rem;font-weight:800;color:", fc_col, ";"),
+              paste0(arrow, " ", zh)),
+            div(style = "font-size:0.75rem;color:#8b949e;",
+              paste0("Сегодня: ", round(z_now, 2)))
+          ),
+          # Intervals
+          div(style = "text-align:center;",
+            div(style = "font-size:0.8rem;color:#8b949e;", "Вероятный диапазон"),
+            div(style = "font-size:1rem;font-weight:700;color:#e6edf3;margin-top:4px;",
+              paste0(lo80, " … ", hi80)),
+            div(style = "font-size:0.75rem;color:#555;margin-top:2px;",
+              paste0("80%: ", lo80, " / ", hi80)),
+            div(style = "font-size:0.75rem;color:#555;",
+              paste0("95%: ", lo95, " / ", hi95))
+          ),
+          # Signal probability
+          div(style = "text-align:center;",
+            div(style = "font-size:0.8rem;color:#8b949e;", "Вер-ть нового сигнала"),
+            div(style = paste0("font-size:2rem;font-weight:800;color:",
+                               if (p_sig >= 20) ORANGE else GREEN, ";"),
+              paste0(p_sig, "%")),
+            div(style = "font-size:0.75rem;color:#8b949e;", sig_txt)
+          )
+        ),
+        br(),
+        div(style = "font-size:0.8rem;color:#555;border-top:1px solid #30363d;padding-top:8px;",
+          paste0("Модель: AR(1) на Z-score. Скорость возврата к 0: ", reversion_speed, ". ",
+                 "Прогноз статистический — не финансовый совет."))
+      )
+    } else {
+      div(style = "color:#555;font-size:0.85rem;margin-bottom:16px;",
+          "Недостаточно данных для прогноза")
+    }
+
     # Current signal block
     entry_z <- 2.0; exit_z <- 0.5
     if (!is.na(z_now) && abs(z_now) >= entry_z) {
@@ -785,7 +855,7 @@ server <- function(input, output, session) {
       )
     }
 
-    tagList(entry_block, stats_block)
+    tagList(forecast_block, entry_block, stats_block)
   })
 
   output$trades_table <- renderDT({
@@ -847,8 +917,32 @@ server <- function(input, output, session) {
     fake_row <- data.frame(A = ta, B = tb, halflife = cg$halflife,
                            is_coint = cg$is_coint, hedge_ratio = hr,
                            stringsAsFactors = FALSE)
+
+    # AR(1) one-step-ahead forecast on Z-score
+    z_clean <- zscore[!is.na(zscore)]
+    forecast <- tryCatch({
+      n_z  <- length(z_clean)
+      zy   <- z_clean[-1]
+      zx   <- z_clean[-n_z]
+      arft <- lm(zy ~ zx)
+      cf   <- coef(arft)
+      z_hat <- cf[1] + cf[2] * tail(z_clean, 1)   # E[Z_tomorrow]
+      sigma <- sd(residuals(arft), na.rm = TRUE)   # noise std dev
+      list(
+        z_hat  = z_hat,
+        lo80   = z_hat - 1.28 * sigma,
+        hi80   = z_hat + 1.28 * sigma,
+        lo95   = z_hat - 1.96 * sigma,
+        hi95   = z_hat + 1.96 * sigma,
+        # P(signal) = P(|Z_tomorrow| > 2)
+        p_long  = pnorm(-2, mean = z_hat, sd = sigma),        # P(Z < -2)
+        p_short = 1 - pnorm(2, mean = z_hat, sd = sigma),     # P(Z > 2)
+        ar_b   = cf[2]
+      )
+    }, error = function(e) NULL)
+
     list(dates = dates[ok], spread = spread, zscore = zscore,
-         mean = mn, sd = sd1, row = fake_row)
+         mean = mn, sd = sd1, row = fake_row, forecast = forecast)
   })
 
   output$spread_chart <- renderPlot({
