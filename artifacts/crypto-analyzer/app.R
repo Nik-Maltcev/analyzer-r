@@ -1143,6 +1143,7 @@ server <- function(input, output, session) {
           p(style = "color:#8b949e;font-size:0.85rem;",
             "Сигналы формируются на основе Z-score спреда коинтегрированных пар. ",
             "Вход при |Z| > 2, выход при |Z| < 0.5. Прогноз — AR(1) модель."),
+          checkboxInput("signals_coint_only", "Только коинтегрированные пары", value = TRUE),
           uiOutput("signals_active"),
           hr(),
           tags$h6(style = "color:#e6edf3;margin-top:16px;", "📋 Все пары — сводная таблица"),
@@ -1236,6 +1237,7 @@ server <- function(input, output, session) {
 
   output$signals_active <- renderUI({
     df <- signals_data(); req(df)
+    if (isTRUE(input$signals_coint_only)) df <- df[df$is_coint == TRUE, ]
     active <- df[df$signal_type != "wait", ]
     active <- active[order(-abs(active$z_now)), ]
 
@@ -1300,6 +1302,7 @@ server <- function(input, output, session) {
 
   output$signals_table <- renderDT({
     df <- signals_data(); req(df)
+    if (isTRUE(input$signals_coint_only)) df <- df[df$is_coint == TRUE, ]
     out <- data.frame(
       "Пара"        = paste0(df$A, " / ", df$B),
       "Z сейчас"    = df$z_now,
