@@ -589,30 +589,51 @@ server <- function(input, output, session) {
 
   output$spread_pair_selector <- renderUI({
     df <- pairs_coint(); req(df)
-    pair_labels <- paste0(df$A, " / ", df$B)
-    selectInput("spread_pair", "Выбрать пару:",
-                choices  = setNames(seq_len(nrow(df)), pair_labels),
-                selected = 1, selectize = FALSE, size = 1)
+    tickers <- sort(unique(c(df$A, df$B)))
+    layout_columns(col_widths = c(5, 5, 2),
+      selectInput("spread_ticker_a", "Тикер A:",
+                  choices = tickers, selected = tickers[1],
+                  selectize = FALSE, size = 1),
+      selectInput("spread_ticker_b", "Тикер B:",
+                  choices = tickers, selected = tickers[min(2, length(tickers))],
+                  selectize = FALSE, size = 1),
+      div(style = "padding-top:28px;",
+        actionButton("swap_tickers", "⇄", class = "btn-secondary w-100",
+                     title = "Поменять местами"))
+    )
+  })
+
+  observeEvent(input$swap_tickers, {
+    a <- input$spread_ticker_a
+    b <- input$spread_ticker_b
+    updateSelectInput(session, "spread_ticker_a", selected = b)
+    updateSelectInput(session, "spread_ticker_b", selected = a)
   })
 
   # Reactive: compute z-score series for selected pair
   spread_data <- reactive({
-    df <- pairs_coint(); req(df, input$spread_pair)
-    idx <- as.integer(input$spread_pair)
-    req(idx >= 1 && idx <= nrow(df))
-    row <- df[idx, ]
-    pw  <- price_wide(); req(pw)
-    pa  <- as.numeric(pw[[row$A]]); pb <- as.numeric(pw[[row$B]])
+    req(input$spread_ticker_a, input$spread_ticker_b)
+    ta <- input$spread_ticker_a; tb <- input$spread_ticker_b
+    validate(need(ta != tb, "Выберите два разных тикера"))
+    pw <- price_wide(); req(pw)
+    validate(need(ta %in% colnames(pw), paste("Тикер", ta, "не найден в данных")))
+    validate(need(tb %in% colnames(pw), paste("Тикер", tb, "не найден в данных")))
+    pa <- as.numeric(pw[[ta]]); pb <- as.numeric(pw[[tb]])
     dates <- as.Date(rownames(pw))
     ok  <- !is.na(pa) & !is.na(pb) & pa > 0 & pb > 0
-    if (sum(ok) < 20) return(NULL)
-    hr <- if (!is.na(row$hedge_ratio)) row$hedge_ratio else 1
+    validate(need(sum(ok) >= 20, "Недостаточно совместных данных для этой пары"))
+    # Compute hedge ratio via OLS for this specific pair
+    cg <- engle_granger(pa, pb)
+    hr <- if (!is.na(cg$hedge_ratio)) cg$hedge_ratio else 1
     spread <- log(pa[ok]) - hr * log(pb[ok])
     mn  <- mean(spread, na.rm = TRUE)
     sd1 <- sd(spread, na.rm = TRUE)
     zscore <- if (sd1 > 0) (spread - mn) / sd1 else rep(0, length(spread))
+    fake_row <- data.frame(A = ta, B = tb, halflife = cg$halflife,
+                           is_coint = cg$is_coint, hedge_ratio = hr,
+                           stringsAsFactors = FALSE)
     list(dates = dates[ok], spread = spread, zscore = zscore,
-         mean = mn, sd = sd1, row = row)
+         mean = mn, sd = sd1, row = fake_row)
   })
 
   output$spread_chart <- renderPlot({
