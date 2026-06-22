@@ -156,9 +156,9 @@ ui <- page_navbar(
         card_body(
           fileInput("file", NULL, accept = ".csv",
             buttonLabel = "Выбрать файл",
-            placeholder = "ticker/coin_id, date, close/price…"),
+            placeholder = "ticker, date, close…"),
           p(style = "font-size:0.8rem;color:#8b949e;margin-top:-6px;",
-            "Форматы: MOEX / Forex / US ETF (tab), или крипто (запятая). Разделитель определяется автоматически."),
+            "Нужны колонки: ticker/symbol + date + close/price. Разделитель определяется автоматически."),
           hr(),
           uiOutput("date_filter_ui"),
           uiOutput("ticker_filter_ui"),
@@ -201,7 +201,6 @@ server <- function(input, output, session) {
   # ── Загрузка и нормализация формата ──────────────────────────────────────
   raw_data <- reactive({
     req(input$file)
-    # Auto-detect separator from first line
     first_line <- tryCatch(readLines(input$file$datapath, n = 1, warn = FALSE),
                            error = function(e) "")
     sep_char <- if (grepl("\t", first_line)) "\t" else if (grepl(";", first_line)) ";" else ","
@@ -209,38 +208,38 @@ server <- function(input, output, session) {
       read.csv(input$file$datapath, sep = sep_char, stringsAsFactors = FALSE),
       error = function(e) NULL)
     req(!is.null(df))
-    cols <- colnames(df)
+    cols <- tolower(colnames(df))
+    colnames(df) <- cols
 
-    # Auto-detect format
-    is_stock  <- "ticker" %in% cols && "close" %in% cols
-    is_crypto <- any(c("coin_id", "symbol") %in% cols) && "price" %in% cols
+    # Detect ticker column
+    ticker_col <- cols[cols %in% c("ticker", "symbol", "coin_id", "name", "id", "asset")][1]
+    # Detect date column
+    date_col <- cols[cols %in% c("date", "timestamp", "time", "datetime")][1]
+    # Detect price column (prefer close)
+    price_col <- cols[cols %in% c("close", "price", "close_price", "adj_close", "last", "value")][1]
+    # Detect volume column
+    vol_col <- cols[cols %in% c("volume", "vol", "volume_24h", "total_volume")][1]
 
-    if (!is_stock && !is_crypto) {
+    if (is.na(ticker_col) || is.na(date_col) || is.na(price_col)) {
       showNotification(
-        "Не распознан формат. Нужны колонки: ticker+close (акции) или symbol+price (крипто)",
-        type = "error", duration = 8)
+        paste0("Не найдены колонки. Нужны: ticker/symbol + date + close/price. ",
+               "Найдено: ", paste(colnames(df), collapse = ", ")),
+        type = "error", duration = 10)
       return(NULL)
     }
 
-    if (is_stock) {
-      df$ticker_col <- df$ticker
-      df$price_col  <- as.numeric(df$close)
-      df$fmt        <- "stock"
-    } else {
-      df$ticker_col <- if ("symbol" %in% cols) df$symbol else df$coin_id
-      df$price_col  <- as.numeric(df$price)
-      df$fmt        <- "crypto"
-    }
-    if ("volume" %in% cols) df$volume_col <- as.numeric(df$volume)
+    df$ticker_col <- as.character(df[[ticker_col]])
+    df$price_col  <- as.numeric(df[[price_col]])
+    df$date       <- as.Date(df[[date_col]])
+    if (!is.na(vol_col)) df$volume_col <- as.numeric(df[[vol_col]])
 
-    df$date <- as.Date(df$date)
     df <- df[!is.na(df$date) & !is.na(df$price_col) & df$price_col > 0, ]
     df[order(df$ticker_col, df$date), ]
   })
 
   fmt_label <- reactive({
     df <- raw_data(); req(df)
-    if (df$fmt[1] == "stock") "тикеров" else "монет"
+    "инструментов"
   })
 
   output$date_filter_ui <- renderUI({
@@ -251,8 +250,7 @@ server <- function(input, output, session) {
   output$ticker_filter_ui <- renderUI({
     df <- raw_data(); req(df)
     tickers <- sort(unique(df$ticker_col))
-    lbl <- paste0(if (df$fmt[1] == "stock") "Тикеры" else "Монеты",
-                  " (", length(tickers), " найдено):")
+    lbl <- paste0("Инструменты (", length(tickers), " найдено):")
     selectInput("sel_tickers", lbl,
                 choices = tickers, selected = tickers, multiple = TRUE,
                 selectize = FALSE, size = min(8, length(tickers)))
@@ -270,11 +268,8 @@ server <- function(input, output, session) {
       style = "text-align:center;padding:40px;color:#555;",
       tags$i(class = "fas fa-upload fa-3x",
              style = "display:block;margin-bottom:12px;color:#30363d;"),
-      p("Поддерживаемые форматы:"),
-      tags$code("ticker, date, close, volume"), tags$br(),
-      tags$code("symbol, date, price, volume")
+      p("Загрузите CSV и укажите колонки слева")
     ))
-    fmt <- if (df$fmt[1] == "stock") "📊 Акции/ETF" else "₿ Крипто"
     layout_columns(col_widths = c(4,4,4),
       value_box(fmt_label(), length(unique(df$ticker_col)),
                 showcase = icon("chart-line"), theme = "primary"),
