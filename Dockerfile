@@ -43,9 +43,6 @@ RUN echo "0 6 * * * cd /scripts && /usr/local/bin/Rscript /scripts/daily_update.
     && chmod 0644 /etc/cron.d/daily-update \
     && crontab /etc/cron.d/daily-update
 
-# Persistent data volume
-VOLUME /data
-
 # Startup script
 COPY scripts/start.sh /start.sh
 RUN chmod +x /start.sh
