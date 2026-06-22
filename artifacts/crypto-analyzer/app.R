@@ -1155,8 +1155,8 @@ server <- function(input, output, session) {
   signals_data <- eventReactive(input$analyze, {
     pw <- price_wide(); req(pw)
     pc <- pairs_coint(); req(pc)
-    # Only process pairs with decent correlation
-    good <- pc[!is.na(pc$corr) & abs(pc$corr) >= 0.4, ]
+    # Only process pairs with strong correlation
+    good <- pc[!is.na(pc$corr) & abs(pc$corr) >= 0.7, ]
     if (nrow(good) == 0) return(data.frame())
 
     n_good <- nrow(good)
