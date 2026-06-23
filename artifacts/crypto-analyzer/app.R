@@ -195,6 +195,62 @@ pair_backtest_stats <- function(pw, ta, tb, hr) {
   )
 }
 
+# ── Full trade history for a single pair (used by "Максимальный профит") ────
+# Returns data.frame with per-trade details: entry/exit dates, direction, pnl
+pair_trades_history <- function(pw, ta, tb, hr) {
+  if (!ta %in% colnames(pw) || !tb %in% colnames(pw)) return(NULL)
+  pa <- as.numeric(pw[[ta]]); pb <- as.numeric(pw[[tb]])
+  dates <- as.Date(rownames(pw))
+  ok <- !is.na(pa) & !is.na(pb) & pa > 0 & pb > 0
+  if (sum(ok) < 30) return(NULL)
+  spread <- log(pa[ok]) - hr * log(pb[ok])
+  mn  <- mean(spread, na.rm = TRUE)
+  sd1 <- sd(spread, na.rm = TRUE)
+  if (is.na(sd1) || sd1 == 0) return(NULL)
+  z  <- (spread - mn) / sd1
+  sp <- spread
+  dt <- dates[ok]
+  n  <- length(z)
+
+  entry_z <- 2.0; exit_z <- 0.5; stop_z <- 3.5
+  trades <- list()
+  in_trade <- FALSE; entry_idx <- NA; entry_dir <- NA; entry_spread <- NA
+
+  for (i in seq_len(n)) {
+    zi <- z[i]
+    if (is.na(zi)) next
+    if (!in_trade) {
+      if (zi >=  entry_z) { in_trade <- TRUE; entry_dir <- -1; entry_idx <- i; entry_spread <- sp[i] }
+      if (zi <= -entry_z) { in_trade <- TRUE; entry_dir <-  1; entry_idx <- i; entry_spread <- sp[i] }
+    } else {
+      hit_stop <- (entry_dir == -1 && zi >= stop_z) || (entry_dir == 1 && zi <= -stop_z)
+      hit_tp   <- abs(zi) <= exit_z
+      if (hit_stop || hit_tp) {
+        pnl_log <- entry_dir * (sp[i] - entry_spread)
+        pnl_pct <- (exp(pnl_log) - 1) * 100
+        hold    <- as.integer(dt[i] - dt[entry_idx])
+        trades[[length(trades) + 1]] <- data.frame(
+          pair        = paste0(ta, " / ", tb),
+          ticker_a    = ta, ticker_b = tb,
+          entry_date  = format(dt[entry_idx], "%Y-%m-%d"),
+          exit_date   = format(dt[i],          "%Y-%m-%d"),
+          direction   = if (entry_dir == -1) paste0("Шорт ", ta, " / Лонг ", tb)
+                        else                  paste0("Лонг ", ta, " / Шорт ", tb),
+          entry_z     = round(z[entry_idx], 2),
+          exit_z      = round(zi, 2),
+          hold_days   = hold,
+          pnl_pct     = round(pnl_pct, 2),
+          result      = if (hit_stop) "Стоп-лосс" else "Тейк-профит",
+          hedge_ratio = hr,
+          stringsAsFactors = FALSE)
+        in_trade <- FALSE
+      }
+    }
+  }
+  if (length(trades) == 0) return(NULL)
+  do.call(rbind, trades)
+}
+
 # ── Calculator: compute P&L for a signal (MEXC Perpetual) ────────────────────
 # s must have: signal_type, z_now, halflife, bt, strength
 # Returns list with all values needed for calc_block_ui()
@@ -716,6 +772,19 @@ ui <- page_navbar(
         "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
     ),
     uiOutput("clear_signals_ui")
+  ),
+
+  # ── TAB 5: Максимальный профит ──────────────────────────────────────────
+  nav_panel("💎 Макс. профит",
+    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
+      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:12px;",
+        "Настройки калькулятора (применяются ко всем сделкам)"),
+      calc_settings_ui("mpcalc_"),
+      div(style = "font-size:0.72rem;color:#555c6b;margin-top:8px;",
+        "MEXC Perpetual: taker 0.02%, maker 0.00%, финансирование ~0.01% / 8ч. ",
+        "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
+    ),
+    uiOutput("maxprofit_ui")
   )
 )
 
@@ -1618,6 +1687,184 @@ server <- function(input, output, session) {
           "Профит — по истории backtest'а пары (или теоретический, если истории нет).")),
       tagList(cards)
     )
+  })
+
+  # ── ТАБ: Максимальный профит ────────────────────────────────────────────
+  maxprofit_trades <- reactive({
+    df <- pairs_coint()
+    pw  <- price_wide()
+    if (is.null(df) || is.null(pw)) return(NULL)
+    # Only cointegrated + high correlation pairs have reliable backtests
+    good <- df[isTRUE(df$is_coint) & !is.na(df$corr) & abs(df$corr) >= 0.7, , drop = FALSE]
+    if (nrow(good) == 0) return(NULL)
+    # Limit to top 30 pairs by score to avoid computing thousands of backtests
+    good <- head(good[order(-good$score), ], 30)
+
+    all_trades <- list()
+    for (i in seq_len(nrow(good))) {
+      r  <- good[i, ]
+      hr <- if (!is.na(r$hedge_ratio)) r$hedge_ratio else 1
+      th <- pair_trades_history(pw, r$A, r$B, hr)
+      if (!is.null(th) && nrow(th) > 0) all_trades[[length(all_trades) + 1]] <- th
+    }
+    if (length(all_trades) == 0) return(NULL)
+    tdf <- do.call(rbind, all_trades)
+    tdf <- tdf[order(-tdf$pnl_pct), ]
+    head(tdf, 20)
+  })
+
+  output$maxprofit_ui <- renderUI({
+    tdf <- maxprofit_trades()
+    if (is.null(tdf) || nrow(tdf) == 0)
+      return(placeholder_msg("Нет прибыльных сделок по коинтегрированным парам."))
+
+    ci <- get_calc_inputs(input, "mpcalc_")
+    pos_size <- ci$cap * ci$lev
+    leg_size  <- pos_size / 2
+
+    # Compute net P&L per trade (in USDT)
+    tdf$gross  <- round(pos_size * tdf$pnl_pct / 100, 2)
+    tdf$comm   <- round(4 * leg_size * ci$taker / 100, 2)
+    tdf$funding <- round(pos_size * ci$funding / 100 * tdf$hold_days * 3, 2)
+    tdf$net    <- round(tdf$gross - tdf$comm - tdf$funding, 2)
+
+    # Summary stats
+    total_net  <- round(sum(tdf$net), 2)
+    avg_net    <- round(mean(tdf$net), 2)
+    best_net   <- round(max(tdf$net), 2)
+    n_win      <- sum(tdf$net > 0)
+
+    fmt <- function(x) format(x, big.mark = " ", scientific = FALSE, trim = TRUE)
+
+    # Build cards for top-5 trades
+    top5 <- head(tdf, 5)
+    cards <- lapply(seq_len(nrow(top5)), function(i) {
+      r <- top5[i, ]
+      pnl_col  <- if (r$net > 0) GREEN else RED
+      res_col  <- if (r$result == "Тейк-профит") GREEN else RED
+      res_icon <- if (r$result == "Тейк-профит") "✅" else "⛔"
+
+      div(style = paste0(
+        "border:1px solid ", BORDER, ";border-radius:14px;padding:16px 18px;",
+        "margin-bottom:12px;background:", CARD, ";transition:all 0.3s;"),
+        layout_columns(col_widths = c(5, 2, 2, 3),
+          div(
+            div(style = paste0("font-size:0.95rem;font-weight:700;color:", pnl_col, ";"),
+              if (r$net > 0) "+" else "", "$", fmt(r$net), "  чистыми"),
+            div(style = "font-size:0.82rem;color:#8b949e;margin-top:2px;", r$direction),
+            div(style = "font-size:0.72rem;color:#555c6b;", r$pair)
+          ),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.72rem;color:#8b949e;", "Держали"),
+            div(style = "font-size:1rem;font-weight:600;color:#e6edf3;", paste0(r$hold_days, "д")),
+            div(style = "font-size:0.68rem;color:#555c6b;", paste0(r$entry_date, " → ", r$exit_date))
+          ),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.72rem;color:#8b949e;", "Результат"),
+            div(style = paste0("font-size:0.9rem;font-weight:600;color:", res_col, ";"),
+              res_icon, " ", r$result),
+            div(style = "font-size:0.68rem;color:#555c6b;",
+              paste0("Z: ", r$entry_z, " → ", r$exit_z))
+          ),
+          div(style = "text-align:right;",
+            div(style = "font-size:0.72rem;color:#8b949e;", "Профит %"),
+            div(style = paste0("font-size:1.3rem;font-weight:700;color:", pnl_col, ";"),
+              paste0(if (r$pnl_pct > 0) "+" else "", r$pnl_pct, "%")),
+            div(style = "font-size:0.68rem;color:#555c6b;",
+              paste0("грязными: $", fmt(r$gross),
+                     " | комиссии: -$", r$comm,
+                     " | фонд: -$", r$funding))
+          )
+        )
+      )
+    })
+
+    # Table for all 20 trades
+    table_df <- tdf[, c("pair","direction","entry_date","exit_date","hold_days",
+                        "pnl_pct","result","net")]
+    colnames(table_df) <- c("Пара","Направление","Вход","Выход","Дней","Профит %","Итог","Чистыми $")
+
+    tagList(
+      # Summary banner
+      div(style = paste0("padding:18px 22px;border-radius:14px;border:1px solid ", BORDER,
+                         ";background:linear-gradient(135deg,", CARD, ",", CARD2,
+                         ");margin-bottom:18px;"),
+        layout_columns(col_widths = c(3, 3, 3, 3),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.75rem;color:#8b949e;", "Топ-20 сделок"),
+            div(style = paste0("font-size:1.5rem;font-weight:700;color:",
+                               if (total_net > 0) GREEN else RED, ";"),
+              paste0(if (total_net > 0) "+" else "", "$", fmt(total_net))),
+            div(style = "font-size:0.68rem;color:#555c6b;", "суммарный профит")
+          ),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.75rem;color:#8b949e;", "Средняя сделка"),
+            div(style = paste0("font-size:1.5rem;font-weight:700;color:",
+                               if (avg_net > 0) GREEN else RED, ";"),
+              paste0(if (avg_net > 0) "+" else "", "$", avg_net)),
+            div(style = "font-size:0.68rem;color:#555c6b;", "чистыми")
+          ),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.75rem;color:#8b949e;", "Лучшая сделка"),
+            div(style = "font-size:1.5rem;font-weight:700;color:#3fb950;",
+              paste0("+$", fmt(best_net))),
+            div(style = "font-size:0.68rem;color:#555c6b;", "чистыми")
+          ),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.75rem;color:#8b949e;", "Прибыльных"),
+            div(style = paste0("font-size:1.5rem;font-weight:700;color:",
+                               if (n_win >= 10) GREEN else ORANGE, ";"),
+              paste0(n_win, "/20")),
+            div(style = "font-size:0.68rem;color:#555c6b;", "из топ-20")
+          )
+        )
+      ),
+      # Info
+      tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+        tags$span(style = "color:#8b949e;font-size:0.82rem;",
+          "Топ-20 самых прибыльных сделок за 3 года по коинтегрированным парам (корреляция ≥ 70%). ",
+          "Стратегия: вход при |Z| ≥ 2, выход при |Z| < 0.5, стоп при |Z| ≥ 3.5. ",
+          "Профит пересчитан в USDT с учётом комиссий MEXC и финансирования.")),
+      # Top-5 cards
+      tags$h6(style = "color:#e6edf3;margin-bottom:12px;font-size:0.88rem;", "🏆 Топ-5 сделок"),
+      tagList(cards),
+      # Full table
+      tags$h6(style = "color:#e6edf3;margin:18px 0 12px;font-size:0.88rem;", "📋 Все топ-20 сделок"),
+      DTOutput("maxprofit_table")
+    )
+  })
+
+  output$maxprofit_table <- renderDT({
+    tdf <- maxprofit_trades(); req(tdf)
+    ci <- get_calc_inputs(input, "mpcalc_")
+    pos_size <- ci$cap * ci$lev
+    leg_size  <- pos_size / 2
+    tdf$gross  <- round(pos_size * tdf$pnl_pct / 100, 2)
+    tdf$comm   <- round(4 * leg_size * ci$taker / 100, 2)
+    tdf$funding <- round(pos_size * ci$funding / 100 * tdf$hold_days * 3, 2)
+    tdf$net    <- round(tdf$gross - tdf$comm - tdf$funding, 2)
+
+    out <- data.frame(
+      "Пара"        = tdf$pair,
+      "Направление" = tdf$direction,
+      "Вход"        = tdf$entry_date,
+      "Выход"       = tdf$exit_date,
+      "Дней"        = tdf$hold_days,
+      "Профит %"    = tdf$pnl_pct,
+      "Итог"        = tdf$result,
+      "Чистыми $"   = tdf$net,
+      stringsAsFactors = FALSE, check.names = FALSE
+    )
+    datatable(out, rownames = FALSE,
+              options = list(pageLength = 20, dom = "tip", scrollX = TRUE,
+                             order = list(list(5, "desc"))),
+              style = "bootstrap5", class = "table-dark table-sm") |>
+      formatStyle("Профит %",
+        color = styleInterval(0, c("#f85149", "#3fb950")),
+        fontWeight = "bold") |>
+      formatStyle("Чистыми $",
+        color = styleInterval(0, c("#f85149", "#3fb950")),
+        fontWeight = "bold")
   })
 
 }
