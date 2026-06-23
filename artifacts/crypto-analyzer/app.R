@@ -242,12 +242,8 @@ ui <- page_navbar(
 
           hr(),
 
-          # Filters (shown after data loaded)
-          uiOutput("date_filter_ui"),
-          uiOutput("ticker_filter_ui"),
-          hr(),
-          actionButton("analyze", "Анализировать",
-            class = "btn-primary w-100", icon = icon("play"))
+          # Auto-analysis status
+          uiOutput("analysis_status_ui")
         )
       ),
       card(
@@ -319,6 +315,17 @@ server <- function(input, output, session) {
     )
   })
 
+  # ── DB pairs reader (precomputed analysis) ──────────────────────────────
+  get_db_pairs <- function(market) {
+    if (!file.exists(DB_PATH)) return(NULL)
+    con <- dbConnect(SQLite(), DB_PATH)
+    on.exit(dbDisconnect(con))
+    tables <- dbGetQuery(con, "SELECT name FROM sqlite_master WHERE type='table' AND name='pairs'")$name
+    if (!"pairs" %in% tables) return(NULL)
+    dbGetQuery(con, "SELECT * FROM pairs WHERE market = ? ORDER BY score DESC",
+               params = list(market))
+  }
+
   # ── Unified data source: SQLite DB ────────────────────────────────────────
   raw_data <- reactive({
     if (!db_available()) return(NULL)
@@ -333,29 +340,30 @@ server <- function(input, output, session) {
     db_df[order(db_df$ticker_col, db_df$date), ]
   })
 
-  fmt_label <- reactive({
-    df <- raw_data(); req(df)
-    "инструментов"
-  })
-
-  output$date_filter_ui <- renderUI({
-    df <- raw_data(); req(df)
-    dateRangeInput("date_range", "Период:", start = min(df$date), end = max(df$date))
-  })
-
-  output$ticker_filter_ui <- renderUI({
-    df <- raw_data(); req(df)
-    tickers <- sort(unique(df$ticker_col))
-    lbl <- paste0("Инструменты (", length(tickers), " найдено):")
-    selectInput("sel_tickers", lbl,
-                choices = tickers, selected = tickers, multiple = TRUE,
-                selectize = FALSE, size = min(8, length(tickers)))
-  })
-
-  filtered_data <- reactive({
-    df <- raw_data(); req(df, input$sel_tickers, input$date_range)
-    df <- df[df$ticker_col %in% input$sel_tickers, ]
-    df[df$date >= input$date_range[1] & df$date <= input$date_range[2], ]
+  # ── Auto-analysis status (shown in Данные tab) ───────────────────────────
+  output$analysis_status_ui <- renderUI({
+    req(input$market_type)
+    df <- pairs_coint()
+    if (is.null(df) || nrow(df) == 0) {
+      return(div(style = "padding:14px 16px;border-radius:10px;border:1px solid #f85149;background:#1a0d0d;",
+        tags$span(style = "color:#f85149;font-weight:600;", "⚠ Анализ не рассчитан"),
+        tags$br(),
+        tags$span(style = "color:#8b949e;font-size:0.82rem;",
+          "Запустите: Rscript /scripts/compute_analysis.R")
+      ))
+    }
+    n_active <- sum(df$signal_type != "wait")
+    div(style = "padding:14px 16px;border-radius:10px;border:1px solid #30363d;background:#0d1117;",
+      tags$span(style = "color:#3fb950;font-weight:600;", "✓ Анализ готов"),
+      tags$br(),
+      tags$span(style = "color:#adbac7;font-size:0.88rem;",
+        paste0(nrow(df), " пар · ",
+               sum(df$is_coint), " коинтегрированных · ",
+               n_active, " активных сигналов")),
+      tags$br(),
+      tags$span(style = "color:#555;font-size:0.75rem;",
+        "Перерасчёт — автоматически каждый день в 09:00 MSK (cron)")
+    )
   })
 
   output$data_summary <- renderUI({
@@ -364,12 +372,10 @@ server <- function(input, output, session) {
       style = "text-align:center;padding:40px;color:#555;",
       tags$i(class = "fas fa-database fa-3x",
              style = "display:block;margin-bottom:12px;color:#30363d;"),
-      p("Нет данных по этому рынку"),
-      p(style = "font-size:0.82rem;color:#484f58;",
-        "Проверьте статус БД слева. Возможно, markets = '", input$market_type, "' пуст.")
+      p("Нет данных по этому рынку")
     ))
     layout_columns(col_widths = c(4,4,4),
-      value_box(fmt_label(), length(unique(df$ticker_col)),
+      value_box("Инструментов", length(unique(df$ticker_col)),
                 showcase = icon("chart-line"), theme = "primary"),
       value_box("Записей", format(nrow(df), big.mark = " "),
                 showcase = icon("database"), theme = "secondary"),
@@ -382,17 +388,38 @@ server <- function(input, output, session) {
   output$preview_table <- renderDT({
     df <- raw_data(); req(df)
     show <- df[, c("ticker_col", "date", "price_col"), drop = FALSE]
-    if ("volume_col" %in% colnames(df)) show$volume_col <- df$volume_col
-    colnames(show) <- c("Тикер", "Дата", "Цена закрытия",
-                        if ("volume_col" %in% colnames(df)) "Объём")
+    colnames(show) <- c("Тикер", "Дата", "Цена закрытия")
     datatable(head(show, 300),
               options = list(pageLength = 10, scrollX = TRUE, dom = "tip"),
               style = "bootstrap5", class = "table-dark table-sm")
   })
 
-  # ── Вспомогательные реактивы ─────────────────────────────────────────────
-  price_wide <- eventReactive(input$analyze, {
-    df <- filtered_data(); req(df)
+  # ── Precomputed pairs (read from DB) ──────────────────────────────────────
+  pairs_coint <- reactive({
+    req(input$market_type)
+    df <- get_db_pairs(input$market_type)
+    if (is.null(df) || nrow(df) == 0) return(NULL)
+    data.frame(
+      A           = df$ticker_a,
+      B           = df$ticker_b,
+      corr        = df$corr,
+      halflife    = df$halflife,
+      t_stat      = df$t_stat,
+      is_coint    = as.logical(df$is_coint),
+      hedge_ratio = df$hedge_ratio,
+      score       = df$score,
+      z_now       = df$z_now,
+      z_forecast  = df$z_forecast,
+      signal      = df$signal,
+      signal_type = df$signal_type,
+      strength    = df$strength,
+      stringsAsFactors = FALSE
+    )
+  })
+
+  # ── Price matrix (for spread chart + backtest, reactive on market) ────────
+  price_wide <- reactive({
+    df <- raw_data(); req(df)
     pw <- df |>
       select(ticker_col, date, price_col) |>
       pivot_wider(names_from = ticker_col, values_from = price_col, values_fn = mean) |>
@@ -403,17 +430,20 @@ server <- function(input, output, session) {
     mat
   })
 
-  returns_wide <- eventReactive(input$analyze, {
-    pw <- price_wide(); req(pw)
-    as.data.frame(lapply(pw, function(x) {
-      xf <- na.approx(as.numeric(x), na.rm = FALSE)
-      c(NA, diff(log(xf)))
-    }))
+  # ── Signals (filter precomputed pairs) ────────────────────────────────────
+  signals_data <- reactive({
+    df <- pairs_coint()
+    if (is.null(df)) return(data.frame())
+    good <- df[!is.na(df$corr) & abs(df$corr) >= 0.7, , drop = FALSE]
+    if (nrow(good) == 0) return(data.frame())
+    good$corr <- round(abs(good$corr) * 100)
+    good
   })
 
   # ── ТАБ: Pairs Trading ────────────────────────────────────────────────────
   output$pairs_ui <- renderUI({
-    if (!isTruthy(input$analyze)) return(placeholder_msg())
+    df <- pairs_coint()
+    if (is.null(df) || nrow(df) == 0) return(placeholder_msg("Анализ не рассчитан. Проверьте БД."))
     tagList(
       card(
         card_header("🤝 Лучшие пары для pairs trading"),
@@ -460,52 +490,6 @@ server <- function(input, output, session) {
         card_body(uiOutput("backtest_ui"))
       )
     )
-  })
-
-  pairs_coint <- eventReactive(input$analyze, {
-    pw <- price_wide(); req(pw)
-    validate(need(ncol(pw) >= 2, "Нужно минимум 2 инструмента"))
-    tickers <- colnames(pw)
-    combos  <- combn(tickers, 2, simplify = FALSE)
-    rw <- returns_wide()
-    n_combos <- length(combos)
-
-    withProgress(message = "Pairs Trading: расчёт коинтеграции...", value = 0, {
-      res <- vector("list", n_combos)
-      for (i in seq_along(combos)) {
-        p  <- combos[[i]]
-        pa <- as.numeric(pw[[p[1]]]); pb <- as.numeric(pw[[p[2]]])
-        ra <- as.numeric(rw[[p[1]]]); rb <- as.numeric(rw[[p[2]]])
-        # Correlation of returns
-        ok_r <- !is.na(ra) & !is.na(rb)
-        corr <- if (sum(ok_r) >= 10) cor(ra[ok_r], rb[ok_r]) else NA
-        # Cointegration
-        cg <- engle_granger(pa, pb)
-        res[[i]] <- data.frame(
-          A           = p[1],
-          B           = p[2],
-          corr        = corr,
-          halflife    = cg$halflife,
-          t_stat      = cg$t_stat,
-          is_coint    = cg$is_coint,
-          hedge_ratio = cg$hedge_ratio,
-          stringsAsFactors = FALSE
-        )
-        if (i %% 50 == 0 || i == n_combos) {
-          incProgress(50 / n_combos,
-            detail = paste0(i, " / ", n_combos, " пар"))
-        }
-      }
-    })
-    df <- do.call(rbind, Filter(Negate(is.null), res))
-    # Score: good pairs have high |corr| AND is_coint AND halflife 5-60
-    df$score <- with(df, {
-      s <- abs(corr)
-      s <- s + ifelse(is_coint, 0.3, 0)
-      s <- s + ifelse(!is.na(halflife) & halflife >= 5 & halflife <= 60, 0.3, 0)
-      s
-    })
-    df[order(-df$score), ]
   })
 
   output$pairs_cards <- renderUI({
@@ -969,7 +953,8 @@ server <- function(input, output, session) {
 
   # ── ТАБ: Сигналы ──────────────────────────────────────────────────────────
   output$signals_ui <- renderUI({
-    if (!isTruthy(input$analyze)) return(placeholder_msg("Нажмите «Анализировать» на вкладке «Данные»"))
+    df <- pairs_coint()
+    if (is.null(df) || nrow(df) == 0) return(placeholder_msg("Анализ не рассчитан. Проверьте БД."))
     tagList(
       card(
         card_header("🚦 Торговые сигналы на завтра"),
@@ -985,88 +970,6 @@ server <- function(input, output, session) {
         )
       )
     )
-  })
-
-  signals_data <- eventReactive(input$analyze, {
-    pw <- price_wide(); req(pw)
-    pc <- pairs_coint(); req(pc)
-    # Only process pairs with strong correlation
-    good <- pc[!is.na(pc$corr) & abs(pc$corr) >= 0.7, ]
-    if (nrow(good) == 0) return(data.frame())
-
-    n_good <- nrow(good)
-    results <- vector("list", n_good)
-
-    withProgress(message = "Сигналы: расчёт прогнозов...", value = 0, {
-      for (i in seq_len(n_good)) {
-        r  <- good[i, ]
-        pa <- as.numeric(pw[[r$A]]); pb <- as.numeric(pw[[r$B]])
-        ok <- !is.na(pa) & !is.na(pb) & pa > 0 & pb > 0
-
-        if (sum(ok) < 30) { results[[i]] <- NULL; next }
-
-        hr <- if (!is.na(r$hedge_ratio)) r$hedge_ratio else 1
-        spread <- log(pa[ok]) - hr * log(pb[ok])
-        mn  <- mean(spread, na.rm = TRUE)
-        sd1 <- sd(spread, na.rm = TRUE)
-        if (is.na(sd1) || sd1 == 0) { results[[i]] <- NULL; next }
-
-        zscore <- (spread - mn) / sd1
-        z_now  <- tail(zscore, 1)
-
-        # AR(1) forecast
-        fc <- tryCatch({
-          z_clean <- zscore[!is.na(zscore)]
-          n_z  <- length(z_clean)
-          if (n_z < 20) stop("too few")
-          zy   <- z_clean[-1]
-          zx   <- z_clean[-n_z]
-          arft <- lm(zy ~ zx)
-          cf   <- coef(arft)
-          z_hat <- cf[1] + cf[2] * tail(z_clean, 1)
-          sigma <- sd(residuals(arft), na.rm = TRUE)
-          list(z_hat = as.numeric(z_hat), sigma = sigma, ar_b = as.numeric(cf[2]))
-        }, error = function(e) NULL)
-
-        z_hat <- if (!is.null(fc)) fc$z_hat else z_now
-
-        # Signal logic
-        if (z_now >= 2 || z_hat >= 2) {
-          signal <- paste0("Шорт ", r$A, " / Лонг ", r$B)
-          signal_type <- "short_a"
-        } else if (z_now <= -2 || z_hat <= -2) {
-          signal <- paste0("Лонг ", r$A, " / Шорт ", r$B)
-          signal_type <- "long_a"
-        } else {
-          signal <- "Ждать"
-          signal_type <- "wait"
-        }
-
-        # Strength
-        strength <- if (r$is_coint && abs(z_now) >= 2) "Сильный"
-                    else if (abs(z_hat) >= 2) "Прогнозный"
-                    else if (abs(z_now) >= 1.5) "Формируется"
-                    else "Нет"
-
-        results[[i]] <- data.frame(
-          A = r$A, B = r$B,
-          z_now = round(z_now, 2),
-          z_forecast = round(z_hat, 2),
-          signal = signal,
-          signal_type = signal_type,
-          strength = strength,
-          is_coint = r$is_coint,
-          halflife = r$halflife,
-          corr = round(abs(r$corr) * 100),
-          stringsAsFactors = FALSE
-        )
-
-        if (i %% 20 == 0 || i == n_good) {
-          incProgress(20 / n_good, detail = paste0(i, " / ", n_good, " пар"))
-        }
-      }
-    })
-    do.call(rbind, Filter(Negate(is.null), results))
   })
 
   output$signals_active <- renderUI({

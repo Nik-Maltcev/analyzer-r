@@ -43,6 +43,20 @@ if [ "$needs_build" = "1" ]; then
   fi
 fi
 
+# ── Auto-analysis: compute pairs if not already done ────────────────────────
+# On a fresh volume the pairs table is empty — compute it now so the app
+# has data immediately on first deploy. On subsequent restarts the cron
+# job keeps it fresh, so we skip to avoid slow startups.
+if [ -f "$DB_PATH" ] && [ -s "$DB_PATH" ]; then
+  pairs_count=$(Rscript --slave -e "cat(tryCatch({v<-RSQLite::dbConnect(RSQLite::SQLite(),'${DB_PATH}');on.exit(RSQLite::dbDisconnect(v));RSQLite::dbGetQuery(v,'SELECT COUNT(*) AS n FROM pairs')\$n},error=function(e)-1L))" 2>/dev/null)
+  echo "[start.sh] pairs table row count: ${pairs_count}"
+  if [ -z "$pairs_count" ] || [ "$pairs_count" -lt 1 ] 2>/dev/null; then
+    echo "[start.sh] Computing pairs analysis (first run)..."
+    Rscript /scripts/compute_analysis.R
+    echo "[start.sh] Analysis done."
+  fi
+fi
+
 # Start cron daemon
 cron
 

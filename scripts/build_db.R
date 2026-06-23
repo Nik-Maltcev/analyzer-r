@@ -47,6 +47,31 @@ dbExecute(con, "
   )
 ")
 
+dbExecute(con, "
+  CREATE TABLE IF NOT EXISTS pairs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market      TEXT NOT NULL,
+    ticker_a    TEXT NOT NULL,
+    ticker_b    TEXT NOT NULL,
+    corr        REAL,
+    halflife    INTEGER,
+    t_stat      REAL,
+    is_coint    INTEGER,
+    hedge_ratio REAL,
+    score       REAL,
+    z_now       REAL,
+    z_forecast  REAL,
+    signal      TEXT,
+    signal_type TEXT,
+    strength    TEXT,
+    computed_at TEXT DEFAULT (datetime('now')),
+    UNIQUE (market, ticker_a, ticker_b)
+  )
+")
+
+dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_pairs_market ON pairs(market)")
+dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_pairs_score   ON pairs(score DESC)")
+
 dbWriteTable(con, "prices", df, append = TRUE, row.names = FALSE)
 
 dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_prices_ticker ON prices(ticker)")
