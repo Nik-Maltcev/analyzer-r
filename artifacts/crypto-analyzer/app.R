@@ -418,10 +418,14 @@ server <- function(input, output, session) {
     withProgress(message = "Загрузка с Twelve Data...", value = 0, {
       # Process in batches of 8 (API limit)
       batches <- split(tickers, ceiling(seq_along(tickers) / 8))
+      n_batches <- length(batches)
 
       for (b_idx in seq_along(batches)) {
         batch <- batches[[b_idx]]
         symbols_str <- paste(batch, collapse = ",")
+
+        incProgress(0,
+          detail = paste0("Батч ", b_idx, "/", n_batches, ": ", paste(batch, collapse = ", ")))
 
         url <- paste0(
           "https://api.twelvedata.com/time_series?",
@@ -461,8 +465,11 @@ server <- function(input, output, session) {
           }
         }
 
+        done_tickers <- min(b_idx * 8, n_tickers)
+        eta_sec <- (n_batches - b_idx) * 10
+        eta_txt <- if (eta_sec > 60) paste0(round(eta_sec/60), " мин") else paste0(eta_sec, " сек")
         incProgress(length(batch) / n_tickers,
-          detail = paste0(min(b_idx * 8, n_tickers), " / ", n_tickers, " тикеров"))
+          detail = paste0(done_tickers, "/", n_tickers, " тикеров | ~", eta_txt, " осталось"))
 
         # Rate limit: pause between batches (free tier = 8/min)
         if (b_idx < length(batches)) Sys.sleep(8)
