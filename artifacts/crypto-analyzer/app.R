@@ -9,6 +9,10 @@ library(jsonlite)
 library(RSQLite)
 
 options(shiny.maxRequestSize = 50 * 1024^2)
+options(shiny.server.maxRequestSize = 50 * 1024^2)
+
+# Keep WebSocket alive during long operations
+options(shiny.idle.timeout = 600000)  # 10 min
 
 ORANGE <- "#f7931a"
 BLUE   <- "#58a6ff"
@@ -474,7 +478,13 @@ server <- function(input, output, session) {
           detail = paste0(done_tickers, "/", n_tickers, " тикеров | ~", eta_txt, " осталось"))
 
         # Small pause to avoid rate limit (but not too long to kill Shiny heartbeat)
-        if (b_idx < length(batches)) Sys.sleep(1)
+        if (b_idx < length(batches)) {
+          for (w in 1:8) {
+            Sys.sleep(1)
+            incProgress(0, detail = paste0(done_tickers, "/", n_tickers,
+              " | пауза ", w, "/8 сек (rate limit)"))
+          }
+        }
       }
     })
 
