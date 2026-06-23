@@ -823,6 +823,28 @@ ui <- page_navbar(
       )
     ),
     uiOutput("maxprofit_ui")
+  ),
+
+  # ── TAB 6: Короткие сделки (до 7 дней) ──────────────────────────────────
+  nav_panel("⚡ Короткие сделки",
+    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
+      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:12px;",
+        "Настройки калькулятора (применяются ко всем сделкам)"),
+      calc_settings_ui("shortcalc_"),
+      div(style = "font-size:0.72rem;color:#555c6b;margin-top:8px;",
+        "MEXC Perpetual: taker 0.02%, maker 0.00%, финансирование ~0.01% / 8ч. ",
+        "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
+    ),
+    div(style = "padding:14px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
+      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
+        "Фильтры пар"),
+      layout_columns(col_widths = c(4, 4, 4),
+        checkboxInput("short_coint_only", "Только коинтегрированные", value = FALSE),
+        sliderInput("short_min_corr", "Мин. корреляция", min = 50, max = 100, value = 50, step = 5, post = "%", width = "100%"),
+        sliderInput("short_max_days", "Макс. дней в сделке", min = 1, max = 7, value = 7, step = 1, post = " дн.", width = "100%")
+      )
+    ),
+    uiOutput("shorttrades_ui")
   )
 )
 
@@ -1909,6 +1931,190 @@ server <- function(input, output, session) {
       formatStyle("Чистыми $",
         color = styleInterval(0, c("#f85149", "#3fb950")),
         fontWeight = "bold")
+  })
+
+  # ── ТАБ: Короткие сделки (до 7 дней) ────────────────────────────────────
+  shorttrades_data <- reactive({
+    df <- pairs_coint()
+    pw  <- price_wide()
+    if (is.null(df) || is.null(pw)) return(NULL)
+
+    min_corr <- if (isTruthy(input$short_min_corr)) input$short_min_corr else 50
+    max_days <- if (isTruthy(input$short_max_days)) input$short_max_days else 7
+    good <- df[!is.na(df$corr) & abs(df$corr) >= min_corr / 100, , drop = FALSE]
+    if (isTRUE(input$short_coint_only)) {
+      good <- good[!is.na(good$is_coint) & good$is_coint == TRUE, , drop = FALSE]
+    }
+    if (nrow(good) == 0) return(NULL)
+    good <- head(good[order(-good$score), ], 50)
+
+    all_trades <- list()
+    for (i in seq_len(nrow(good))) {
+      r  <- good[i, ]
+      hr <- if (!is.na(r$hedge_ratio)) r$hedge_ratio else 1
+      th <- pair_trades_history(pw, r$A, r$B, hr)
+      if (!is.null(th) && nrow(th) > 0) all_trades[[length(all_trades) + 1]] <- th
+    }
+    if (length(all_trades) == 0) return(NULL)
+    tdf <- do.call(rbind, all_trades)
+    # Filter: only trades with hold_days <= max_days
+    tdf <- tdf[tdf$hold_days <= max_days, , drop = FALSE]
+    if (nrow(tdf) == 0) return(NULL)
+    tdf <- tdf[order(-tdf$pnl_pct), ]
+    head(tdf, 20)
+  })
+
+  output$shorttrades_ui <- renderUI({
+    tdf <- shorttrades_data()
+    max_days <- if (isTruthy(input$short_max_days)) input$short_max_days else 7
+    if (is.null(tdf) || nrow(tdf) == 0)
+      return(placeholder_msg(paste0("Нет сделок до ", max_days, " дней по выбранным фильтрам.")))
+
+    ci <- get_calc_inputs(input, "shortcalc_")
+    pos_size <- ci$cap * ci$lev
+    leg_size  <- pos_size / 2
+
+    tdf$gross  <- round(pos_size * tdf$pnl_pct / 100, 2)
+    tdf$comm   <- round(4 * leg_size * ci$taker / 100, 2)
+    tdf$funding <- round(pos_size * ci$funding / 100 * tdf$hold_days * 3, 2)
+    tdf$net    <- round(tdf$gross - tdf$comm - tdf$funding, 2)
+
+    total_net  <- round(sum(tdf$net), 2)
+    avg_net    <- round(mean(tdf$net), 2)
+    best_net   <- round(max(tdf$net), 2)
+    avg_hold   <- round(mean(tdf$hold_days), 1)
+    n_win      <- sum(tdf$net > 0)
+    n_total    <- nrow(tdf)
+
+    fmt <- function(x) format(x, big.mark = " ", scientific = FALSE, trim = TRUE)
+
+    top5 <- head(tdf, 5)
+    cards <- lapply(seq_len(nrow(top5)), function(i) {
+      r <- top5[i, ]
+      pnl_col  <- if (r$net > 0) GREEN else RED
+      res_col  <- if (r$result == "Тейк-профит") GREEN else RED
+      res_icon <- if (r$result == "Тейк-профит") "✅" else "⛔"
+      # Highlight very short trades
+      is_fast  <- r$hold_days <= 3
+      speed_col <- if (is_fast) ORANGE else BLUE
+
+      div(style = paste0(
+        "border:1px solid ", BORDER, ";border-radius:14px;padding:16px 18px;",
+        "margin-bottom:12px;background:", CARD, ";transition:all 0.3s;"),
+        layout_columns(col_widths = c(5, 2, 2, 3),
+          div(
+            div(style = paste0("font-size:0.95rem;font-weight:700;color:", pnl_col, ";"),
+              if (r$net > 0) "+" else "", "$", fmt(r$net), "  чистыми"),
+            div(style = "font-size:0.82rem;color:#8b949e;margin-top:2px;", r$direction),
+            div(style = "font-size:0.72rem;color:#555c6b;", r$pair)
+          ),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.72rem;color:#8b949e;", "Держали"),
+            div(style = paste0("font-size:1rem;font-weight:600;color:", speed_col, ";"), paste0(r$hold_days, "д")),
+            div(style = "font-size:0.68rem;color:#555c6b;", paste0(r$entry_date, " → ", r$exit_date))
+          ),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.72rem;color:#8b949e;", "Результат"),
+            div(style = paste0("font-size:0.9rem;font-weight:600;color:", res_col, ";"),
+              res_icon, " ", r$result),
+            div(style = "font-size:0.68rem;color:#555c6b;",
+              paste0("Z: ", r$entry_z, " → ", r$exit_z))
+          ),
+          div(style = "text-align:right;",
+            div(style = "font-size:0.72rem;color:#8b949e;", "Профит %"),
+            div(style = paste0("font-size:1.3rem;font-weight:700;color:", pnl_col, ";"),
+              paste0(if (r$pnl_pct > 0) "+" else "", r$pnl_pct, "%")),
+            div(style = "font-size:0.68rem;color:#555c6b;",
+              paste0("грязными: $", fmt(r$gross),
+                     " | комиссии: -$", r$comm,
+                     " | фонд: -$", r$funding))
+          )
+        )
+      )
+    })
+
+    tagList(
+      # Summary
+      div(style = paste0("padding:18px 22px;border-radius:14px;border:1px solid ", BORDER,
+                         ";background:linear-gradient(135deg,", CARD, ",", CARD2,
+                         ");margin-bottom:18px;"),
+        layout_columns(col_widths = c(3, 3, 3, 3),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.75rem;color:#8b949e;", paste0("Сделок до ", max_days, " дн.")),
+            div(style = "font-size:1.5rem;font-weight:700;color:#e6edf3;", n_total),
+            div(style = "font-size:0.68rem;color:#555c6b;", paste0("сред. удержание ", avg_hold, " дн."))
+          ),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.75rem;color:#8b949e;", "Суммарный профит"),
+            div(style = paste0("font-size:1.5rem;font-weight:700;color:",
+                               if (total_net > 0) GREEN else RED, ";"),
+              paste0(if (total_net > 0) "+" else "", "$", fmt(total_net))),
+            div(style = "font-size:0.68rem;color:#555c6b;", "чистыми")
+          ),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.75rem;color:#8b949e;", "Лучшая сделка"),
+            div(style = "font-size:1.5rem;font-weight:700;color:#3fb950;",
+              paste0("+$", fmt(best_net))),
+            div(style = "font-size:0.68rem;color:#555c6b;", "чистыми")
+          ),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.75rem;color:#8b949e;", "Прибыльных"),
+            div(style = paste0("font-size:1.5rem;font-weight:700;color:",
+                               if (n_win >= n_total / 2) GREEN else ORANGE, ";"),
+              paste0(n_win, "/", n_total)),
+            div(style = "font-size:0.68rem;color:#555c6b;", "коротких сделок")
+          )
+        )
+      ),
+      # Info
+      tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+        tags$span(style = "color:#8b949e;font-size:0.82rem;",
+          "Топ-20 самых прибыльных коротких сделок (до ", max_days, " дней). ",
+          "Быстрый возврат спреда к среднему = эффективнее капитала. ",
+          "Меньше финансирование, но выше риск шума. ",
+          "Оранжевым отмечены сделки ≤ 3 дней (очень быстрые).")),
+      # Top-5
+      tags$h6(style = "color:#e6edf3;margin-bottom:12px;font-size:0.88rem;", "⚡ Топ-5 коротких сделок"),
+      tagList(cards),
+      # Table
+      tags$h6(style = "color:#e6edf3;margin:18px 0 12px;font-size:0.88rem;", "📋 Все короткие сделки"),
+      DTOutput("shorttrades_table")
+    )
+  })
+
+  output$shorttrades_table <- renderDT({
+    tdf <- shorttrades_data(); req(tdf)
+    ci <- get_calc_inputs(input, "shortcalc_")
+    pos_size <- ci$cap * ci$lev
+    leg_size  <- pos_size / 2
+    tdf$gross  <- round(pos_size * tdf$pnl_pct / 100, 2)
+    tdf$comm   <- round(4 * leg_size * ci$taker / 100, 2)
+    tdf$funding <- round(pos_size * ci$funding / 100 * tdf$hold_days * 3, 2)
+    tdf$net    <- round(tdf$gross - tdf$comm - tdf$funding, 2)
+
+    out <- data.frame(
+      "Пара"        = tdf$pair,
+      "Направление" = tdf$direction,
+      "Вход"        = tdf$entry_date,
+      "Выход"       = tdf$exit_date,
+      "Дней"        = tdf$hold_days,
+      "Профит %"    = tdf$pnl_pct,
+      "Итог"        = tdf$result,
+      "Чистыми $"   = tdf$net,
+      stringsAsFactors = FALSE, check.names = FALSE
+    )
+    datatable(out, rownames = FALSE,
+              options = list(pageLength = 20, dom = "tip", scrollX = TRUE,
+                             order = list(list(5, "desc"))),
+              style = "bootstrap5", class = "table-dark table-sm") |>
+      formatStyle("Профит %",
+        color = styleInterval(0, c("#f85149", "#3fb950")),
+        fontWeight = "bold") |>
+      formatStyle("Чистыми $",
+        color = styleInterval(0, c("#f85149", "#3fb950")),
+        fontWeight = "bold") |>
+      formatStyle("Дней",
+        color = styleInterval(3, c("#f7931a", "#58a6ff")))
   })
 
 }
