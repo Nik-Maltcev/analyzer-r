@@ -453,12 +453,14 @@ server <- function(input, output, session) {
           if (is.null(d$values) || length(d$values) == 0) next
           vals <- d$values
           if (is.data.frame(vals) && nrow(vals) > 0) {
-            sym_clean <- gsub("/", "", sym)
+            n_rows <- nrow(vals)
+            vol <- tryCatch(as.numeric(vals$volume), error = function(e) rep(NA_real_, n_rows))
+            if (is.null(vol) || length(vol) != n_rows) vol <- rep(NA_real_, n_rows)
             df_sym <- data.frame(
-              ticker_col = sym,
+              ticker_col = rep(sym, n_rows),
               date       = as.Date(vals$datetime),
               price_col  = as.numeric(vals$close),
-              volume_col = as.numeric(vals$volume),
+              volume_col = vol,
               stringsAsFactors = FALSE
             )
             all_data <- rbind(all_data, df_sym)
@@ -466,13 +468,13 @@ server <- function(input, output, session) {
         }
 
         done_tickers <- min(b_idx * 8, n_tickers)
-        eta_sec <- (n_batches - b_idx) * 10
+        eta_sec <- (n_batches - b_idx) * 2
         eta_txt <- if (eta_sec > 60) paste0(round(eta_sec/60), " мин") else paste0(eta_sec, " сек")
         incProgress(length(batch) / n_tickers,
           detail = paste0(done_tickers, "/", n_tickers, " тикеров | ~", eta_txt, " осталось"))
 
-        # Rate limit: pause between batches (free tier = 8/min)
-        if (b_idx < length(batches)) Sys.sleep(8)
+        # Small pause to avoid rate limit (but not too long to kill Shiny heartbeat)
+        if (b_idx < length(batches)) Sys.sleep(1)
       }
     })
 
