@@ -814,6 +814,14 @@ ui <- page_navbar(
         "MEXC Perpetual: taker 0.02%, maker 0.00%, финансирование ~0.01% / 8ч. ",
         "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
     ),
+    div(style = "padding:14px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
+      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
+        "Фильтры пар"),
+      layout_columns(col_widths = c(6, 6),
+        checkboxInput("mp_coint_only", "Только коинтегрированные пары", value = FALSE),
+        sliderInput("mp_min_corr", "Мин. корреляция", min = 50, max = 100, value = 50, step = 5, post = "%", width = "100%")
+      )
+    ),
     uiOutput("maxprofit_ui")
   )
 )
@@ -1724,11 +1732,17 @@ server <- function(input, output, session) {
     df <- pairs_coint()
     pw  <- price_wide()
     if (is.null(df) || is.null(pw)) return(NULL)
-    # Only cointegrated + high correlation pairs have reliable backtests
-    good <- df[isTRUE(df$is_coint) & !is.na(df$corr) & abs(df$corr) >= 0.7, , drop = FALSE]
+
+    # Correlation filter (slider)
+    min_corr <- if (isTruthy(input$mp_min_corr)) input$mp_min_corr else 50
+    good <- df[!is.na(df$corr) & abs(df$corr) >= min_corr / 100, , drop = FALSE]
+    # Cointegration filter (optional checkbox)
+    if (isTRUE(input$mp_coint_only)) {
+      good <- good[!is.na(good$is_coint) & good$is_coint == TRUE, , drop = FALSE]
+    }
     if (nrow(good) == 0) return(NULL)
-    # Limit to top 30 pairs by score to avoid computing thousands of backtests
-    good <- head(good[order(-good$score), ], 30)
+    # Limit to top 50 pairs by score to avoid computing thousands of backtests
+    good <- head(good[order(-good$score), ], 50)
 
     all_trades <- list()
     for (i in seq_len(nrow(good))) {
@@ -1746,7 +1760,7 @@ server <- function(input, output, session) {
   output$maxprofit_ui <- renderUI({
     tdf <- maxprofit_trades()
     if (is.null(tdf) || nrow(tdf) == 0)
-      return(placeholder_msg("Нет прибыльных сделок по коинтегрированным парам."))
+      return(placeholder_msg("Нет сделок по выбранным фильтрам. Попробуйте снизить мин. корреляцию или выключить фильтр коинтеграции."))
 
     ci <- get_calc_inputs(input, "mpcalc_")
     pos_size <- ci$cap * ci$lev
@@ -1852,7 +1866,7 @@ server <- function(input, output, session) {
       # Info
       tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
         tags$span(style = "color:#8b949e;font-size:0.82rem;",
-          "Топ-20 самых прибыльных сделок за 3 года по коинтегрированным парам (корреляция ≥ 70%). ",
+          "Топ-20 самых прибыльных сделок за 3 года. ",
           "Стратегия: вход при |Z| ≥ 2, выход при |Z| < 0.5, стоп при |Z| ≥ 3.5. ",
           "Профит пересчитан в USDT с учётом комиссий MEXC и финансирования.")),
       # Top-5 cards
