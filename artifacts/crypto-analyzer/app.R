@@ -845,6 +845,17 @@ ui <- page_navbar(
       )
     ),
     uiOutput("shorttrades_ui")
+  ),
+
+  # ── TAB 7: Сканеры ──────────────────────────────────────────────────────
+  nav_panel("🔍 Сканеры",
+    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
+      radioButtons("scanner_type", NULL,
+        choices = c("⚡ Lead-Lag" = "leadlag", "🎯 Mean Reversion" = "meanrev",
+                    "🔗 Corr Breakdown" = "corrbreak", "🚀 Momentum" = "momentum"),
+        selected = "leadlag", inline = TRUE)
+    ),
+    uiOutput("scanner_ui")
   )
 )
 
@@ -2115,6 +2126,422 @@ server <- function(input, output, session) {
         fontWeight = "bold") |>
       formatStyle("Дней",
         color = styleInterval(3, c("#f7931a", "#58a6ff")))
+  })
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # ТАБ: Сканеры — 4 алгоритма для поиска быстрых зависимостей
+  # ══════════════════════════════════════════════════════════════════════════
+
+  # ── 1. Lead-Lag: кто кого опережает на 1-3 дня ──────────────────────────
+  leadlag_scan <- reactive({
+    pw <- price_wide(); req(pw)
+    if (ncol(pw) < 2) return(NULL)
+    rw <- as.data.frame(lapply(pw, function(x) c(NA, diff(log(as.numeric(x))))))
+    coins <- colnames(rw)
+    pairs <- combn(coins, 2, simplify = FALSE)
+
+    res <- list()
+    for (p in pairs) {
+      xa <- rw[[p[1]]]; xb <- rw[[p[2]]]
+      ok <- !is.na(xa) & !is.na(xb)
+      if (sum(ok) < 60) next
+      cc <- tryCatch(ccf(xa[ok], xb[ok], lag.max = 7, plot = FALSE), error = function(e) NULL)
+      if (is.null(cc)) next
+      lags <- as.numeric(cc$lag); acfs <- as.numeric(cc$acf)
+      ci <- qnorm(0.975) / sqrt(sum(ok))
+      sig <- which(abs(acfs) > ci & lags != 0)
+      if (length(sig) == 0) next
+      best_idx <- sig[which.max(abs(acfs[sig]))]
+      best_lag <- lags[best_idx]; best_acf <- acfs[best_idx]
+      if (abs(best_lag) > 5) next  # too slow
+
+      leader   <- if (best_lag > 0) p[1] else p[2]
+      follower <- if (best_lag > 0) p[2] else p[1]
+      direction <- if (best_acf > 0) "двигаются в одну сторону" else "двигаются в разные стороны"
+
+      # Today's leader return → signal for follower
+      leader_ret <- tail(rw[[leader]][!is.na(rw[[leader]])], 1)
+      follower_action <- if (best_acf > 0) {
+        if (leader_ret > 0) paste0("📈 Лонг ", follower) else paste0("📉 Шорт ", follower)
+      } else {
+        if (leader_ret > 0) paste0("📉 Шорт ", follower) else paste0("📈 Лонг ", follower)
+      }
+
+      res[[length(res) + 1]] <- data.frame(
+        leader = leader, follower = follower, lag = abs(best_lag),
+        acf = round(best_acf, 3), direction = direction,
+        leader_today = round(leader_ret * 100, 2),
+        signal = follower_action,
+        stringsAsFactors = FALSE)
+    }
+    if (length(res) == 0) return(NULL)
+    df <- do.call(rbind, res)
+    df <- df[order(-abs(df$acf)), ]
+    head(df, 15)
+  })
+
+  # ── 2. Mean Reversion: Z-score цены от скользящего среднего ──────────────
+  meanrev_scan <- reactive({
+    pw <- price_wide(); req(pw)
+    if (ncol(pw) < 2) return(NULL)
+    ma_period <- 50
+
+    res <- list()
+    for (sym in colnames(pw)) {
+      x <- as.numeric(pw[[sym]])
+      x <- x[!is.na(x)]
+      if (length(x) < ma_period + 10) next
+      ma <- zoo::rollmean(x, ma_period, align = "right", fill = NA)
+      sd_roll <- zoo::rollapply(x, ma_period, sd, align = "right", fill = NA)
+      last_idx <- length(x)
+      ma_now <- ma[last_idx]; sd_now <- sd_roll[last_idx]; price_now <- x[last_idx]
+      if (is.na(ma_now) || is.na(sd_now) || sd_now == 0) next
+      z <- (price_now - ma_now) / sd_now
+      if (abs(z) < 1.5) next  # only show significant deviations
+
+      signal <- if (z > 0) paste0("📉 Шорт ", sym, " (перегрет, отскок вниз)")
+                else paste0("📈 Лонг ", sym, " (перепродан, отскок вверх)")
+
+      res[[length(res) + 1]] <- data.frame(
+        ticker = sym, price = round(price_now, 4),
+        ma50 = round(ma_now, 4), z_score = round(z, 2),
+        deviation = paste0(round(abs(z) * sd_now / ma_now * 100, 1), "%"),
+        signal = signal,
+        stringsAsFactors = FALSE)
+    }
+    if (length(res) == 0) return(NULL)
+    df <- do.call(rbind, res)
+    df <- df[order(-abs(df$z_score)), ]
+    df
+  })
+
+  # ── 3. Correlation Breakdown: rolling vs static corr ─────────────────────
+  corrbreak_scan <- reactive({
+    pw <- price_wide(); req(pw)
+    if (ncol(pw) < 2) return(NULL)
+    rw <- as.data.frame(lapply(pw, function(x) c(NA, diff(log(as.numeric(x))))))
+    coins <- colnames(rw)
+    cor_static <- cor(rw, use = "pairwise.complete.obs")
+    roll_window <- 30
+
+    res <- list()
+    pairs <- combn(coins, 2, simplify = FALSE)
+    for (p in pairs) {
+      c_static <- cor_static[p[1], p[2]]
+      if (is.na(c_static) || abs(c_static) < 0.5) next  # only pairs that normally correlate
+
+      xa <- rw[[p[1]]]; xb <- rw[[p[2]]]
+      ok <- !is.na(xa) & !is.na(xb)
+      if (sum(ok) < 90) next
+      xa <- xa[ok]; xb <- xb[ok]
+      n <- length(xa)
+
+      # Rolling 30-day correlation
+      roll_cor <- sapply(seq(roll_window, n), function(i) {
+        cor(xa[(i - roll_window + 1):i], xb[(i - roll_window + 1):i])
+      })
+      cor_now <- tail(roll_cor, 1)
+      if (is.na(cor_now)) next
+
+      diff <- cor_now - c_static
+      if (abs(diff) < 0.2) next  # only show significant breakdowns
+
+      res[[length(res) + 1]] <- data.frame(
+        A = p[1], B = p[2],
+        static_corr = round(c_static * 100),
+        rolling_corr = round(cor_now * 100),
+        change = round(diff * 100),
+        signal = if (diff < 0)
+          paste0("Корреляция сломалась: ", p[1], " и ", p[2], " разошлись. Жди возврат к ", round(c_static*100), "%")
+          else
+          paste0("Корреляция выросла: ", p[1], " и ", p[2], " синхронизировались сильнее обычного"),
+        stringsAsFactors = FALSE)
+    }
+    if (length(res) == 0) return(NULL)
+    df <- do.call(rbind, res)
+    df <- df[order(-abs(df$change)), ]
+    head(df, 15)
+  })
+
+  # ── 4. Momentum: сильнейшие движения за 3/7/14 дней ──────────────────────
+  momentum_scan <- reactive({
+    pw <- price_wide(); req(pw)
+    if (ncol(pw) < 2) return(NULL)
+
+    res <- list()
+    for (sym in colnames(pw)) {
+      x <- as.numeric(pw[[sym]])
+      x <- x[!is.na(x)]
+      if (length(x) < 15) next
+      chg3  <- (tail(x, 1) / tail(x, 4)[1] - 1) * 100
+      chg7  <- (tail(x, 1) / tail(x, 8)[1] - 1) * 100
+      chg14 <- (tail(x, 1) / tail(x, 15)[1] - 1) * 100
+      vol7  <- sd(diff(log(tail(x, 8))), na.rm = TRUE) * sqrt(7) * 100
+
+      # Signal: momentum + volatility
+      trend <- if (chg7 > 5) "Сильный рост" else if (chg7 > 1) "Рост"
+               else if (chg7 < -5) "Сильное падение" else if (chg7 < -1) "Падение"
+               else "Боковик"
+      action <- if (chg7 > 5 && chg3 > 0) paste0("📈 Лонг ", sym, " (моментум вверх)")
+                else if (chg7 < -5 && chg3 < 0) paste0("📉 Шорт ", sym, " (моментум вниз)")
+                else "Ждать"
+
+      res[[length(res) + 1]] <- data.frame(
+        ticker = sym, chg3 = round(chg3, 2), chg7 = round(chg7, 2),
+        chg14 = round(chg14, 2), vol7 = round(vol7, 2),
+        trend = trend, signal = action,
+        stringsAsFactors = FALSE)
+    }
+    if (length(res) == 0) return(NULL)
+    df <- do.call(rbind, res)
+    df <- df[order(-abs(df$chg7)), ]
+    df
+  })
+
+  # ── Scanner UI dispatcher ────────────────────────────────────────────────
+  output$scanner_ui <- renderUI({
+    st <- input$scanner_type
+    if (is.null(st)) return(NULL)
+
+    if (st == "leadlag") {
+      df <- leadlag_scan()
+      if (is.null(df) || nrow(df) == 0)
+        return(placeholder_msg("Не найдено опережений на 1-5 дней по этому рынку."))
+      cards <- lapply(seq_len(min(6, nrow(df))), function(i) {
+        r <- df[i, ]
+        lag_col <- if (r$lag <= 2) GREEN else if (r$lag <= 3) ORANGE else BLUE
+        tags$div(style = paste0(
+          "border:1px solid ", BORDER, ";border-radius:14px;padding:14px 16px;",
+          "margin-bottom:10px;background:", CARD, ";"),
+          layout_columns(col_widths = c(5, 3, 4),
+            div(
+              tags$span(style = "font-size:1rem;font-weight:700;color:#e6edf3;",
+                r$leader, " → ", r$follower),
+              tags$br(),
+              tags$span(style = "font-size:0.8rem;color:#8b949e;", r$direction)
+            ),
+            div(style = "text-align:center;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "Опережение"),
+              tags$div(style = paste0("font-size:1.2rem;font-weight:700;color:", lag_col, ";"),
+                paste0(r$lag, " дн.")),
+              tags$div(style = "font-size:0.68rem;color:#555c6b;",
+                paste0("сила: ", abs(r$acf)))
+            ),
+            div(style = "text-align:right;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;",
+                paste0("Лидер сегодня: ", if (r$leader_today > 0) "▲" else "▼", " ", r$leader_today, "%")),
+              tags$div(style = "font-size:0.9rem;font-weight:600;color:#58a6ff;", r$signal)
+            )
+          )
+        )
+      })
+      tagList(
+        tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+          tags$span(style = "color:#8b949e;font-size:0.85rem;",
+            "Если A опережает B на N дней, движение A сегодня = сигнал для B завтра. ",
+            "Зелёное опережение (1-2 дня) — самый быстрый сигнал. ",
+            "Сила = кросс-корреляция (ACF), чем выше, тем надёжнее.")),
+        tagList(cards),
+        tags$h6(style = "color:#e6edf3;margin:18px 0 12px;", "📋 Все пары с опережением"),
+        DTOutput("leadlag_table")
+      )
+
+    } else if (st == "meanrev") {
+      df <- meanrev_scan()
+      if (is.null(df) || nrow(df) == 0)
+        return(placeholder_msg("Нет инструментов с сильным отклонением от среднего (|Z| > 1.5)."))
+      cards <- lapply(seq_len(min(6, nrow(df))), function(i) {
+        r <- df[i, ]
+        z_col <- if (abs(r$z_score) >= 2) RED else ORANGE
+        tags$div(style = paste0(
+          "border:1px solid ", BORDER, ";border-radius:14px;padding:14px 16px;",
+          "margin-bottom:10px;background:", CARD, ";"),
+          layout_columns(col_widths = c(3, 3, 3, 3),
+            div(
+              tags$div(style = "font-size:0.95rem;font-weight:700;color:#e6edf3;", r$ticker),
+              tags$div(style = "font-size:0.72rem;color:#555c6b;", "цена")
+            ),
+            div(style = "text-align:center;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "Цена"),
+              tags$div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;", r$price)
+            ),
+            div(style = "text-align:center;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "MA50"),
+              tags$div(style = "font-size:0.9rem;font-weight:600;color:#8b949e;", r$ma50),
+              tags$div(style = "font-size:0.68rem;color:#555c6b;", paste0("откл: ", r$deviation))
+            ),
+            div(style = "text-align:right;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "Z-score"),
+              tags$div(style = paste0("font-size:1.3rem;font-weight:700;color:", z_col, ";"), r$z_score),
+              tags$div(style = "font-size:0.72rem;font-weight:500;color:#58a6ff;", r$signal)
+            )
+          )
+        )
+      })
+      tagList(
+        tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+          tags$span(style = "color:#8b949e;font-size:0.85rem;",
+            "Инструменты, сильно отклонившиеся от 50-дневного среднего. ",
+            "Z > 2 — перегрет (шорт), Z < -2 — перепродан (лонг). ",
+            "Отскок обычно за 1-5 дней.")),
+        tagList(cards),
+        tags$h6(style = "color:#e6edf3;margin:18px 0 12px;", "📋 Все отклонения"),
+        DTOutput("meanrev_table")
+      )
+
+    } else if (st == "corrbreak") {
+      df <- corrbreak_scan()
+      if (is.null(df) || nrow(df) == 0)
+        return(placeholder_msg("Нет сломанных корреляций. Все пары ведут себя как обычно."))
+      cards <- lapply(seq_len(min(6, nrow(df))), function(i) {
+        r <- df[i, ]
+        brk_col <- if (r$change < 0) RED else GREEN
+        tags$div(style = paste0(
+          "border:1px solid ", brk_col, ";border-radius:14px;padding:14px 16px;",
+          "margin-bottom:10px;background:", CARD, ";"),
+          layout_columns(col_widths = c(4, 3, 3, 2),
+            div(
+              tags$span(style = "font-size:1rem;font-weight:700;color:#e6edf3;",
+                r$A, " / ", r$B),
+              tags$br(),
+              tags$span(style = "font-size:0.78rem;color:#8b949e;", r$signal)
+            ),
+            div(style = "text-align:center;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "Обычная корр."),
+              tags$div(style = "font-size:1rem;font-weight:600;color:#8b949e;",
+                paste0(r$static_corr, "%"))
+            ),
+            div(style = "text-align:center;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "Сейчас (30д)"),
+              tags$div(style = paste0("font-size:1rem;font-weight:700;color:", brk_col, ";"),
+                paste0(r$rolling_corr, "%"))
+            ),
+            div(style = "text-align:right;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "Изменение"),
+              tags$div(style = paste0("font-size:1.1rem;font-weight:700;color:", brk_col, ";"),
+                paste0(if (r$change > 0) "+" else "", r$change, "%"))
+            )
+          )
+        )
+      })
+      tagList(
+        tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+          tags$span(style = "color:#8b949e;font-size:0.85rem;",
+            "Пары, где корреляция за 30 дней сильно отличается от обычной. ",
+            "Красное = корреляция сломалась (паритет временно нарушен — ждём возврат). ",
+            "Зелёное = синхронизация усилилась. Возврат к норме — 3-7 дней.")),
+        tagList(cards),
+        tags$h6(style = "color:#e6edf3;margin:18px 0 12px;", "📋 Все аномалии корреляции"),
+        DTOutput("corrbreak_table")
+      )
+
+    } else if (st == "momentum") {
+      df <- momentum_scan()
+      if (is.null(df) || nrow(df) == 0)
+        return(placeholder_msg("Нет данных для momentum."))
+      cards <- lapply(seq_len(min(6, nrow(df))), function(i) {
+        r <- df[i, ]
+        mom_col <- if (r$chg7 > 5) GREEN else if (r$chg7 < -5) RED else ORANGE
+        tags$div(style = paste0(
+          "border:1px solid ", BORDER, ";border-radius:14px;padding:14px 16px;",
+          "margin-bottom:10px;background:", CARD, ";"),
+          layout_columns(col_widths = c(3, 2, 2, 2, 3),
+            div(
+              tags$div(style = "font-size:1rem;font-weight:700;color:#e6edf3;", r$ticker),
+              tags$div(style = "font-size:0.72rem;color:#555c6b;", r$trend)
+            ),
+            div(style = "text-align:center;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "3 дня"),
+              tags$div(style = paste0("font-size:0.95rem;font-weight:600;color:",
+                                       if (r$chg3 > 0) GREEN else RED, ";"),
+                paste0(if (r$chg3 > 0) "+" else "", r$chg3, "%"))
+            ),
+            div(style = "text-align:center;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "7 дней"),
+              tags$div(style = paste0("font-size:1.05rem;font-weight:700;color:", mom_col, ";"),
+                paste0(if (r$chg7 > 0) "+" else "", r$chg7, "%"))
+            ),
+            div(style = "text-align:center;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "14 дней"),
+              tags$div(style = paste0("font-size:0.95rem;font-weight:600;color:",
+                                       if (r$chg14 > 0) GREEN else RED, ";"),
+                paste0(if (r$chg14 > 0) "+" else "", r$chg14, "%"))
+            ),
+            div(style = "text-align:right;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "Волатильность"),
+              tags$div(style = "font-size:0.85rem;color:#8b949e;", paste0(r$vol7, "%/нед")),
+              tags$div(style = paste0("font-size:0.82rem;font-weight:600;color:",
+                                       if (r$signal != "Ждать") BLUE else GRAY, ";"), r$signal)
+            )
+          )
+        )
+      })
+      tagList(
+        tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+          tags$span(style = "color:#8b949e;font-size:0.85rem;",
+            "Сильнейшие движения за 3/7/14 дней. ",
+            "Моментум > 5% за 7 дней + продолжение за 3 дня = сигнал. ",
+            "Волатильность показывает риск (чем выше, тем опаснее).")),
+        tagList(cards),
+        tags$h6(style = "color:#e6edf3;margin:18px 0 12px;", "📋 Все инструменты по моментуму"),
+        DTOutput("momentum_table")
+      )
+    }
+  })
+
+  # ── Scanner tables ───────────────────────────────────────────────────────
+  output$leadlag_table <- renderDT({
+    df <- leadlag_scan(); req(df)
+    datatable(data.frame(
+      "Лидер" = df$leader, "Ведомый" = df$follower,
+      "Опережение (дн.)" = df$lag, "Сила (ACF)" = df$acf,
+      "Связь" = df$direction, "Лидер сегодня %" = df$leader_today,
+      "Сигнал" = df$signal,
+      stringsAsFactors = FALSE, check.names = FALSE),
+      rownames = FALSE, options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
+      style = "bootstrap5", class = "table-dark table-sm")
+  })
+
+  output$meanrev_table <- renderDT({
+    df <- meanrev_scan(); req(df)
+    datatable(data.frame(
+      "Тикер" = df$ticker, "Цена" = df$price, "MA50" = df$ma50,
+      "Z-score" = df$z_score, "Отклонение" = df$deviation,
+      "Сигнал" = df$signal,
+      stringsAsFactors = FALSE, check.names = FALSE),
+      rownames = FALSE, options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
+      style = "bootstrap5", class = "table-dark table-sm") |>
+      formatStyle("Z-score",
+        color = styleInterval(c(-2, 2), c("#3fb950", "#f7931a", "#f85149")),
+        fontWeight = "bold")
+  })
+
+  output$corrbreak_table <- renderDT({
+    df <- corrbreak_scan(); req(df)
+    datatable(data.frame(
+      "A" = df$A, "B" = df$B,
+      "Обычная корр. %" = df$static_corr, "Сейчас (30д) %" = df$rolling_corr,
+      "Изменение %" = df$change, "Сигнал" = df$signal,
+      stringsAsFactors = FALSE, check.names = FALSE),
+      rownames = FALSE, options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
+      style = "bootstrap5", class = "table-dark table-sm") |>
+      formatStyle("Изменение %",
+        color = styleInterval(0, c("#f85149", "#3fb950")),
+        fontWeight = "bold")
+  })
+
+  output$momentum_table <- renderDT({
+    df <- momentum_scan(); req(df)
+    datatable(data.frame(
+      "Тикер" = df$ticker, "3 дня %" = df$chg3, "7 дней %" = df$chg7,
+      "14 дней %" = df$chg14, "Волат. %/нед" = df$vol7,
+      "Тренд" = df$trend, "Сигнал" = df$signal,
+      stringsAsFactors = FALSE, check.names = FALSE),
+      rownames = FALSE, options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
+      style = "bootstrap5", class = "table-dark table-sm") |>
+      formatStyle("7 дней %",
+        color = styleInterval(c(-5, 5), c("#f85149", "#f7931a", "#3fb950")),
+        fontWeight = "bold")
   })
 
 }
