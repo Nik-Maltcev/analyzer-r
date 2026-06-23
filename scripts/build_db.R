@@ -1,11 +1,16 @@
 #!/usr/bin/env Rscript
-# Build SQLite database from CSV at Docker build time (no API calls)
+# Build SQLite database from seed CSV.
+# Runs at Docker build time (bakes DB into image for plain Docker)
+# AND at runtime via start.sh when /data is a fresh volume (Railway).
 library(RSQLite)
 
-CSV_PATH <- "/data/all_markets_3yr.csv"
-DB_PATH  <- "/data/market.db"
+CSV_PATH <- Sys.getenv("CSV_PATH", "/opt/seed/all_markets_3yr.csv")
+DB_PATH  <- Sys.getenv("DB_PATH",  "/data/market.db")
 
-cat("Building database from CSV...\n")
+if (!file.exists(CSV_PATH)) stop(sprintf("Seed CSV not found: %s", CSV_PATH))
+dir.create(dirname(DB_PATH), recursive = TRUE, showWarnings = FALSE)
+
+cat(sprintf("Building database from CSV...\n  CSV: %s\n  DB:  %s\n", CSV_PATH, DB_PATH))
 df <- read.csv(CSV_PATH, stringsAsFactors = FALSE)
 df <- df[!duplicated(df[, c("ticker", "date")]), ]
 cat(sprintf("  Rows: %d, Tickers: %d\n", nrow(df), length(unique(df$ticker))))
@@ -52,9 +57,6 @@ dbExecute(con, "INSERT INTO update_log (market, tickers_ok, rows_added, status, 
   params = list(length(unique(df$ticker)), nrow(df)))
 
 dbDisconnect(con)
-
-# Remove CSV to save space
-file.remove(CSV_PATH)
 
 cat(sprintf("  Database ready: %s (%.1f MB)\n", DB_PATH,
             file.info(DB_PATH)$size / 1024^2))

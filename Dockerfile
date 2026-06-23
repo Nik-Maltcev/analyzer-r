@@ -31,12 +31,15 @@ RUN install2.r --error --skipinstalled \
     RSQLite \
     jsonlite
 
-# Create directories
-RUN mkdir -p /app /scripts /data
+# Create directories. /opt/seed holds the CSV outside the /data volume mount.
+RUN mkdir -p /app /scripts /data /opt/seed
 
-# Copy data CSV and build SQLite at build time (no API calls needed)
-COPY data/all_markets_3yr.csv /data/all_markets_3yr.csv
+# Copy seed CSV to /opt/seed (NOT /data, which Railway masks with a volume)
+COPY data/all_markets_3yr.csv /opt/seed/all_markets_3yr.csv
 COPY scripts/ /scripts/
+
+# Build DB at image build time (works for plain Docker without a volume).
+# On Railway the /data volume masks this DB; start.sh rebuilds it on first boot.
 RUN Rscript /scripts/build_db.R
 
 # Copy app

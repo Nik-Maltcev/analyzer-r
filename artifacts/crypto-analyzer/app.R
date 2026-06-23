@@ -291,34 +291,14 @@ ui <- page_navbar(
     )
   ),
 
-  # ── TAB 2: График цен ────────────────────────────────────────────────────
-  nav_panel("📈 График цен",
-    uiOutput("prices_ui")
-  ),
-
-  # ── TAB 3: Связи ─────────────────────────────────────────────────────────
-  nav_panel("🔗 Корреляции",
-    uiOutput("links_ui")
-  ),
-
-  # ── TAB 4: Pairs Trading ─────────────────────────────────────────────────
+  # ── TAB 2: Pairs Trading ─────────────────────────────────────────────────
   nav_panel("🤝 Pairs Trading",
     uiOutput("pairs_ui")
   ),
 
-  # ── TAB 5: Кто ведёт? ────────────────────────────────────────────────────
-  nav_panel("🏁 Кто ведёт?",
-    uiOutput("leader_ui")
-  ),
-
-  # ── TAB 6: Сигналы ──────────────────────────────────────────────────────
+  # ── TAB 3: Сигналы ──────────────────────────────────────────────────────
   nav_panel("🚦 Сигналы",
     uiOutput("signals_ui")
-  ),
-
-  # ── TAB 7: Статус ───────────────────────────────────────────────────────
-  nav_panel("⚙️ Статус",
-    uiOutput("status_ui")
   )
 )
 
@@ -339,20 +319,6 @@ server <- function(input, output, session) {
       "SELECT ticker, date, close FROM prices ORDER BY ticker, date"
     }
     dbGetQuery(con, query)
-  }
-
-  get_db_signals <- function() {
-    if (!file.exists(DB_PATH)) return(NULL)
-    con <- dbConnect(SQLite(), DB_PATH)
-    on.exit(dbDisconnect(con))
-    dbGetQuery(con, "SELECT * FROM signals ORDER BY date DESC, abs(z_score) DESC LIMIT 200")
-  }
-
-  get_update_log <- function() {
-    if (!file.exists(DB_PATH)) return(NULL)
-    con <- dbConnect(SQLite(), DB_PATH)
-    on.exit(dbDisconnect(con))
-    dbGetQuery(con, "SELECT * FROM update_log ORDER BY timestamp DESC LIMIT 30")
   }
 
   # ── Пресеты тикеров ─────────────────────────────────────────────────────
@@ -635,145 +601,6 @@ server <- function(input, output, session) {
       xf <- na.approx(as.numeric(x), na.rm = FALSE)
       c(NA, diff(log(xf)))
     }))
-  })
-
-  # ── ТАБ: График цен ──────────────────────────────────────────────────────
-  output$prices_ui <- renderUI({
-    if (!isTruthy(input$analyze)) return(placeholder_msg())
-    tagList(
-      card(
-        card_header("📈 Динамика цен (нормировано к 100 на старте)"),
-        card_body(
-          p(style = "color:#8b949e;font-size:0.85rem;margin-bottom:8px;",
-            "Все инструменты приведены к одной шкале — удобно сравнивать рост."),
-          plotOutput("price_chart", height = "420px")
-        )
-      ),
-      uiOutput("price_stats_cards")
-    )
-  })
-
-  output$price_chart <- renderPlot({
-    pw <- price_wide(); req(pw)
-    dates <- as.Date(rownames(pw))
-    norm <- as.data.frame(lapply(pw, function(x) {
-      first_val <- x[!is.na(x)][1]
-      if (is.na(first_val) || first_val == 0) return(rep(NA, length(x)))
-      x / first_val * 100
-    }))
-    norm$date <- dates
-    long <- pivot_longer(norm, -date, names_to = "Тикер", values_to = "Индекс")
-    long <- long[!is.na(long$Индекс), ]
-    ggplot(long, aes(date, Индекс, color = Тикер, group = Тикер)) +
-      geom_line(linewidth = 0.9, alpha = 0.85) +
-      geom_hline(yintercept = 100, color = GRAY, linetype = "dashed", linewidth = 0.5) +
-      annotate("text", x = min(dates), y = 102,
-               label = "старт (100)", color = GRAY, size = 3.2, hjust = 0) +
-      scale_y_continuous(labels = function(x) paste0(x)) +
-      labs(x = NULL, y = "Индекс (старт = 100)", color = NULL) +
-      dark_theme +
-      guides(color = guide_legend(nrow = 2))
-  }, bg = CARD)
-
-  output$price_stats_cards <- renderUI({
-    pw <- price_wide(); req(pw)
-    rows <- lapply(colnames(pw), function(sym) {
-      x   <- as.numeric(pw[[sym]]); x <- x[!is.na(x)]
-      if (length(x) < 2) return(NULL)
-      chg   <- (x[length(x)] / x[1] - 1) * 100
-      color <- if (chg >= 0) GREEN else RED
-      arrow <- if (chg >= 0) "▲" else "▼"
-      tags$div(style = paste0(
-        "display:inline-block;margin:6px;padding:12px 18px;",
-        "background:", CARD, ";border:1px solid ", BORDER, ";",
-        "border-radius:10px;min-width:140px;text-align:center;"),
-        tags$div(style = "font-size:0.9rem;color:#adbac7;", sym),
-        tags$div(style = paste0("font-size:1.3rem;font-weight:700;color:", color, ";"),
-          paste0(arrow, " ", round(chg, 1), "%"))
-      )
-    })
-    div(style = "padding:10px 0;", tagList(rows))
-  })
-
-  # ── ТАБ: Корреляции ───────────────────────────────────────────────────────
-  output$links_ui <- renderUI({
-    if (!isTruthy(input$analyze)) return(placeholder_msg())
-    tagList(
-      card(
-        card_header("🔗 Насколько инструменты движутся вместе"),
-        card_body(
-          p(style = "color:#8b949e;font-size:0.85rem;",
-            "Смотрим на ежедневные изменения цен, а не сами цены. ",
-            "Корреляция выше 60% означает сильную синхронность движений."),
-          uiOutput("links_cards")
-        )
-      ),
-      card(
-        card_header("Все пары"),
-        card_body(DTOutput("links_table"))
-      )
-    )
-  })
-
-  corr_pairs <- eventReactive(input$analyze, {
-    rw <- returns_wide(); req(rw)
-    validate(need(ncol(rw) >= 2, "Нужно минимум 2 инструмента"))
-    m  <- as.matrix(rw); storage.mode(m) <- "double"
-    cm <- cor(m, use = "pairwise.complete.obs")
-    pairs <- which(upper.tri(cm), arr.ind = TRUE)
-    df <- data.frame(
-      A    = rownames(cm)[pairs[,1]],
-      B    = colnames(cm)[pairs[,2]],
-      corr = cm[pairs],
-      stringsAsFactors = FALSE
-    )
-    df[order(-abs(df$corr)), ]
-  })
-
-  output$links_cards <- renderUI({
-    df <- corr_pairs(); req(df)
-    top <- head(df, 9)
-    rows <- lapply(seq_len(nrow(top)), function(i) {
-      r   <- top$corr[i]
-      col <- dot_color(r)
-      lbl <- corr_label(r)
-      pct <- corr_pct(r)
-      direction <- if (r > 0) "двигаются в одну сторону" else "двигаются в разные стороны"
-      tags$div(style = paste0(
-        "border:1px solid ", BORDER, ";border-radius:10px;padding:14px 16px;",
-        "margin-bottom:10px;background:", BG, ";"),
-        layout_columns(col_widths = c(8, 4),
-          div(
-            tags$span(style = "font-size:1rem;font-weight:600;color:#e6edf3;",
-              top$A[i], " ↔ ", top$B[i]),
-            tags$br(),
-            tags$span(style = "font-size:0.85rem;color:#8b949e;",
-              paste0("Синхронность: ", pct, " — ", direction))
-          ),
-          div(style = "text-align:right;", badge(lbl, col))
-        )
-      )
-    })
-    tagList(
-      if (nrow(df) > 9) p(style = "color:#8b949e;font-size:0.82rem;",
-        paste0("Топ-9 из ", nrow(df), " пар. Полный список — в таблице ниже.")),
-      tagList(rows)
-    )
-  })
-
-  output$links_table <- renderDT({
-    df <- corr_pairs(); req(df)
-    out <- data.frame(
-      "Тикер A"  = df$A,
-      "Тикер B"  = df$B,
-      "Характер связи" = sapply(df$corr, corr_label),
-      "Синхронность"   = sapply(df$corr, corr_pct),
-      "Коэффициент"    = round(df$corr, 3),
-      stringsAsFactors = FALSE, check.names = FALSE
-    )
-    datatable(out, rownames = FALSE,
-              options = list(pageLength = 20, dom = "tip", scrollX = TRUE),
-              style = "bootstrap5", class = "table-dark table-sm")
   })
 
   # ── ТАБ: Pairs Trading ────────────────────────────────────────────────────
@@ -1332,126 +1159,6 @@ server <- function(input, output, session) {
     )
   })
 
-  # ── ТАБ: Кто ведёт? ──────────────────────────────────────────────────────
-  output$leader_ui <- renderUI({
-    if (!isTruthy(input$analyze)) return(placeholder_msg())
-    tagList(
-      card(
-        card_header("🏁 Кто ведёт, а кто следует?"),
-        card_body(
-          p(style = "color:#8b949e;font-size:0.85rem;",
-            "Если один инструмент регулярно меняется раньше другого — он «ведущий». ",
-            "Отфильтрованы инструменты с волатильностью < 1%/нед."),
-          uiOutput("leader_cards")
-        )
-      ),
-      card(
-        card_header("Полная таблица"),
-        card_body(DTOutput("leader_table"))
-      )
-    )
-  })
-
-  lead_lag_pairs <- eventReactive(input$analyze, {
-    rw <- returns_wide(); req(rw)
-    validate(need(ncol(rw) >= 2, "Нужно минимум 2 инструмента"))
-
-    weekly_vol <- sapply(rw, function(x) {
-      x <- x[!is.na(x)]
-      if (length(x) < 7) return(0)
-      sd(x, na.rm = TRUE) * sqrt(7) * 100
-    })
-    volatile <- names(weekly_vol[weekly_vol >= 1])
-    rw <- rw[, volatile, drop = FALSE]
-    validate(need(ncol(rw) >= 2, "Недостаточно волатильных инструментов"))
-
-    coins <- colnames(rw)
-    pairs <- combn(coins, 2, simplify = FALSE)
-    n_pairs <- length(pairs)
-
-    withProgress(message = "Кто ведёт: расчёт лагов...", value = 0, {
-      res <- vector("list", n_pairs)
-      for (i in seq_along(pairs)) {
-        p  <- pairs[[i]]
-        xa <- rw[[p[1]]]; xb <- rw[[p[2]]]
-        ok <- !is.na(xa) & !is.na(xb)
-        if (sum(ok) < 30) { res[[i]] <- NULL; next }
-        cc <- tryCatch(ccf(xa[ok], xb[ok], lag.max = 14, plot = FALSE), error = function(e) NULL)
-        if (is.null(cc)) { res[[i]] <- NULL; next }
-        lags <- as.numeric(cc$lag); acfs <- as.numeric(cc$acf)
-        ci   <- qnorm(0.975) / sqrt(sum(ok))
-        sig  <- which(abs(acfs) > ci)
-        if (length(sig) == 0) {
-          best_lag <- 0; strength <- "Нет"
-        } else {
-          best_idx  <- sig[which.max(abs(acfs[sig]))]
-          best_lag  <- lags[best_idx]
-          strength  <- if (abs(acfs[best_idx]) > 0.2) "Высокая" else "Низкая"
-        }
-        leader   <- if (best_lag > 0) p[1] else if (best_lag < 0) p[2] else "Нет"
-        follower <- if (best_lag > 0) p[2] else if (best_lag < 0) p[1] else "Нет"
-        res[[i]] <- data.frame(A=p[1], B=p[2], lag=best_lag, leader=leader,
-                   follower=follower, strength=strength, stringsAsFactors=FALSE)
-        if (i %% 50 == 0 || i == n_pairs) {
-          incProgress(50 / n_pairs,
-            detail = paste0(i, " / ", n_pairs, " пар"))
-        }
-      }
-    })
-    do.call(rbind, Filter(Negate(is.null), res))
-  })
-
-  output$leader_cards <- renderUI({
-    df <- lead_lag_pairs(); req(df)
-    df_sig <- df[df$leader != "Нет" & df$strength == "Высокая", ]
-    df_sig <- df_sig[order(abs(df_sig$lag)), ]
-    top <- head(df_sig, 9)
-    if (nrow(top) == 0) {
-      return(div(style = "text-align:center;padding:30px;color:#555;",
-        p("Явных опережений не обнаружено.")))
-    }
-    rows <- lapply(seq_len(nrow(top)), function(i) {
-      row <- top[i, ]
-      days <- abs(row$lag)
-      day_word <- if (days == 1) "день" else if (days < 5) "дня" else "дней"
-      tags$div(style = paste0(
-        "border:1px solid ", BORDER, ";border-radius:10px;padding:14px 16px;",
-        "margin-bottom:10px;background:", BG, ";"),
-        layout_columns(col_widths = c(8, 4),
-          div(
-            tags$span(style = "font-size:1rem;font-weight:600;color:#e6edf3;",
-              row$leader, " → ", row$follower),
-            tags$br(),
-            tags$span(style = "font-size:0.85rem;color:#8b949e;",
-              paste0(row$leader, " опережает ", row$follower, " на ", days, " ", day_word))
-          ),
-          div(style = "text-align:right;",
-            badge(paste0(days, " ", day_word), ORANGE))
-        )
-      )
-    })
-    tagList(
-      if (nrow(df_sig) > 9) p(style = "color:#8b949e;font-size:0.82rem;",
-        paste0("Топ-9 из ", nrow(df_sig), " значимых пар.")),
-      tagList(rows)
-    )
-  })
-
-  output$leader_table <- renderDT({
-    df <- lead_lag_pairs(); req(df)
-    out <- data.frame(
-      "A"               = df$A,
-      "B"               = df$B,
-      "Кто опережает"   = ifelse(df$leader == "Нет", "Одновременно", df$leader),
-      "На сколько дней" = ifelse(df$lag == 0, "0", paste0(abs(df$lag), " дн.")),
-      "Уверенность"     = df$strength,
-      stringsAsFactors = FALSE, check.names = FALSE
-    )
-    datatable(out, rownames = FALSE,
-              options = list(pageLength = 20, dom = "tip", scrollX = TRUE),
-              style = "bootstrap5", class = "table-dark table-sm")
-  })
-
   # ── ТАБ: Сигналы ──────────────────────────────────────────────────────────
   output$signals_ui <- renderUI({
     if (!isTruthy(input$analyze)) return(placeholder_msg("Загрузите CSV и нажмите «Анализировать»"))
@@ -1638,77 +1345,6 @@ server <- function(input, output, session) {
               style = "bootstrap5", class = "table-dark table-sm")
   })
 
-  # ── ТАБ: Статус ───────────────────────────────────────────────────────────
-  output$status_ui <- renderUI({
-    tagList(
-      card(
-        card_header("⚙️ Статус системы"),
-        card_body(
-          uiOutput("status_db_info"),
-          hr(),
-          tags$h6(style = "color:#e6edf3;", "Лог обновлений"),
-          DTOutput("status_log_table"),
-          hr(),
-          tags$h6(style = "color:#e6edf3;", "Последние сигналы из БД"),
-          DTOutput("status_signals_table")
-        )
-      )
-    )
-  })
-
-  output$status_db_info <- renderUI({
-    if (!db_available()) {
-      return(div(style = "padding:20px;text-align:center;color:#f85149;",
-        tags$i(class = "fas fa-database fa-2x", style = "display:block;margin-bottom:10px;"),
-        p("БД не найдена. Запустите init_db.R для первичной загрузки."),
-        tags$code("Rscript scripts/init_db.R")
-      ))
-    }
-    con <- dbConnect(SQLite(), DB_PATH)
-    on.exit(dbDisconnect(con))
-    stats <- dbGetQuery(con, "
-      SELECT
-        COUNT(*) as total_rows,
-        COUNT(DISTINCT ticker) as tickers,
-        MIN(date) as min_date,
-        MAX(date) as max_date
-      FROM prices")
-    sig_count <- dbGetQuery(con, "SELECT COUNT(*) as n FROM signals WHERE date = ?",
-                            params = list(format(Sys.Date(), "%Y-%m-%d")))$n
-    last_update <- dbGetQuery(con, "SELECT timestamp FROM update_log ORDER BY timestamp DESC LIMIT 1")
-
-    layout_columns(col_widths = c(3, 3, 3, 3),
-      value_box("Тикеров", stats$tickers,
-                showcase = icon("chart-pie"), theme = "primary"),
-      value_box("Записей", format(stats$total_rows, big.mark = " "),
-                showcase = icon("database"), theme = "secondary"),
-      value_box("Данные", paste(stats$min_date, "—", stats$max_date),
-                showcase = icon("calendar"), theme = "secondary"),
-      value_box("Сигналы сегодня", sig_count,
-                showcase = icon("bell"), theme = if (sig_count > 0) "warning" else "secondary")
-    )
-  })
-
-  output$status_log_table <- renderDT({
-    log_df <- get_update_log()
-    if (is.null(log_df) || nrow(log_df) == 0) return(NULL)
-    show <- log_df[, c("timestamp", "market", "tickers_ok", "tickers_fail", "rows_added", "status")]
-    colnames(show) <- c("Время", "Рынок", "OK", "Ошибки", "Новых строк", "Статус")
-    datatable(show, rownames = FALSE,
-              options = list(pageLength = 10, dom = "tip", scrollX = TRUE),
-              style = "bootstrap5", class = "table-dark table-sm")
-  })
-
-  output$status_signals_table <- renderDT({
-    sig_df <- get_db_signals()
-    if (is.null(sig_df) || nrow(sig_df) == 0) return(NULL)
-    show <- sig_df[, c("date", "signal", "z_score", "z_forecast", "strength", "corr")]
-    show$corr <- paste0(round(show$corr * 100), "%")
-    colnames(show) <- c("Дата", "Сигнал", "Z", "Z прогноз", "Сила", "Корр")
-    datatable(show, rownames = FALSE,
-              options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
-              style = "bootstrap5", class = "table-dark table-sm")
-  })
 }
 
 shinyApp(ui, server)
