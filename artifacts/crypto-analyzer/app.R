@@ -853,7 +853,9 @@ ui <- page_navbar(
       radioButtons("scanner_type", NULL,
         choices = c("⚡ Lead-Lag" = "leadlag", "🎯 Mean Reversion" = "meanrev",
                     "🔗 Corr Breakdown" = "corrbreak", "🚀 Momentum" = "momentum",
-                    "🚨 Аномалии" = "anomaly"),
+                    "🚨 Аномалии" = "anomaly", "📦 Volume" = "volume",
+                    "📉 Drawdown" = "drawdown", "🎯 Multi-TF" = "multitf",
+                    "🌊 Volatility" = "volatility"),
         selected = "leadlag", inline = TRUE)
     ),
     div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
@@ -865,6 +867,16 @@ ui <- page_navbar(
         "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
     ),
     uiOutput("scanner_ui")
+  ),
+
+  # ── TAB 8: Паттерны ─────────────────────────────────────────────────────
+  nav_panel("📅 Паттерны",
+    uiOutput("patterns_ui")
+  ),
+
+  # ── TAB 9: Риск ─────────────────────────────────────────────────────────
+  nav_panel("🛡️ Риск",
+    uiOutput("risk_ui")
   )
 )
 
@@ -2380,6 +2392,166 @@ server <- function(input, output, session) {
          followers = if (length(followers) > 0) do.call(rbind, followers) else NULL)
   })
 
+  # ── 6. Volume: аномалии объёма ──────────────────────────────────────────
+  volume_scan <- reactive({
+    df <- raw_data(); req(df)
+    if (!"volume_col" %in% colnames(df)) {
+      # DB data has no volume column; fetch from prices directly
+      pw <- price_wide(); req(pw)
+      return(NULL)
+    }
+    vol_df <- df[!is.na(df$volume_col) & df$volume_col > 0, , drop = FALSE]
+    if (nrow(vol_df) == 0) return(NULL)
+    lookback <- 30
+    res <- list()
+    for (sym in unique(vol_df$ticker_col)) {
+      sub <- vol_df[vol_df$ticker_col == sym, ]
+      sub <- sub[order(sub$date), ]
+      if (nrow(sub) < lookback + 5) next
+      vols <- sub$volume_col
+      hist_v <- tail(head(vols, length(vols) - 1), lookback)
+      mu <- mean(hist_v); sd_v <- sd(hist_v)
+      if (is.na(sd_v) || sd_v == 0) next
+      last_v <- tail(vols, 1)
+      z <- (last_v - mu) / sd_v
+      if (abs(z) < 1.5) next
+      last_price <- tail(sub$price_col, 1)
+      prev_price <- sub$price_col[nrow(sub) - 1]
+      price_chg <- (last_price / prev_price - 1) * 100
+      res[[length(res) + 1]] <- data.frame(
+        ticker = sym, volume_z = round(z, 2),
+        volume = format(last_v, big.mark = " ", scientific = FALSE),
+        avg_volume = format(round(mu), big.mark = " ", scientific = FALSE),
+        price_chg = round(price_chg, 2),
+        signal = if (z > 2 && price_chg > 3) paste0("📈 Лонг ", sym, " (объём + рост = институционал вход)")
+                 else if (z > 2 && price_chg < -3) paste0("📉 Шорт ", sym, " (объём + падение = институционал выход)")
+                 else if (z > 1.5) paste0("⚠ Высокий объём ", sym, " — наблюдать")
+                 else paste0("⚠ Низкий объём ", sym, " — нет интереса"),
+        stringsAsFactors = FALSE)
+    }
+    if (length(res) == 0) return(NULL)
+    df <- do.call(rbind, res)
+    df[order(-abs(df$volume_z)), ]
+  })
+
+  # ── 7. Drawdown: глубокие просадки ──────────────────────────────────────
+  drawdown_scan <- reactive({
+    pw <- price_wide(); req(pw)
+    if (ncol(pw) < 2) return(NULL)
+    lookback <- 90  # days for high watermark
+    res <- list()
+    for (sym in colnames(pw)) {
+      x <- as.numeric(pw[[sym]])
+      x <- x[!is.na(x)]
+      if (length(x) < lookback) next
+      recent <- tail(x, lookback)
+      high <- max(recent)
+      last <- tail(recent, 1)
+      dd <- (last / high - 1) * 100
+      if (dd > -10) next  # only show significant drawdowns (< -10%)
+      days_since_high <- lookback - which.max(recent)
+      # Historical recovery rate
+      full_x <- x
+      n <- length(full_x)
+      recoveries <- c()
+      for (i in seq(30, n - 30, by = 5)) {
+        h <- max(full_x[max(1, i - lookback):i])
+        d <- (full_x[i] / h - 1) * 100
+        if (d < -10) {
+          future <- full_x[(i + 1):min(i + 30, n)]
+          if (length(future) > 0) {
+            best_recovery <- max(future / full_x[i] - 1) * 100
+            recoveries <- c(recoveries, best_recovery)
+          }
+        }
+      }
+      avg_recovery <- if (length(recoveries) > 0) round(mean(recoveries), 1) else NA
+      res[[length(res) + 1]] <- data.frame(
+        ticker = sym, drawdown = round(dd, 1),
+        high = round(high, 4), current = round(last, 4),
+        days_from_high = days_since_high,
+        avg_recovery = avg_recovery,
+        signal = paste0("📈 Лонг ", sym, " (просадка ", round(dd, 1), "%, исторический отскок +",
+                        if (is.na(avg_recovery)) "?" else avg_recovery, "%)"),
+        stringsAsFactors = FALSE)
+    }
+    if (length(res) == 0) return(NULL)
+    df <- do.call(rbind, res)
+    df[order(df$drawdown), ]
+  })
+
+  # ── 8. Multi-TF: Z-score на 7/30/90 днях одновременно ───────────────────
+  multitf_scan <- reactive({
+    pw <- price_wide(); req(pw)
+    if (ncol(pw) < 2) return(NULL)
+    res <- list()
+    for (sym in colnames(pw)) {
+      x <- as.numeric(pw[[sym]])
+      x <- x[!is.na(x)]
+      if (length(x) < 95) next
+      calc_z <- function(period) {
+        recent <- tail(x, period)
+        ma <- mean(recent)
+        sd_v <- sd(recent)
+        if (is.na(sd_v) || sd_v == 0) return(NA)
+        (tail(x, 1) - ma) / sd_v
+      }
+      z7  <- calc_z(7)
+      z30 <- calc_z(30)
+      z90 <- calc_z(90)
+      if (any(is.na(c(z7, z30, z90)))) next
+      # All same direction and |z| > 1 on all timeframes
+      same_dir <- (sign(z7) == sign(z30) && sign(z30) == sign(z90))
+      all_sig  <- (abs(z7) > 1 && abs(z30) > 1 && abs(z90) > 1)
+      if (!same_dir || !all_sig) next
+      n_sig <- sum(abs(c(z7, z30, z90)) > 2)
+      res[[length(res) + 1]] <- data.frame(
+        ticker = sym, z7 = round(z7, 2), z30 = round(z30, 2), z90 = round(z90, 2),
+        confirmed = n_sig, stringsAsFactors = FALSE)
+    }
+    if (length(res) == 0) return(NULL)
+    df <- do.call(rbind, res)
+    df$signal <- ifelse(df$z90 > 0,
+      paste0("📉 Шорт ", df$ticker, " (перегрет на всех TF)"),
+      paste0("📈 Лонг ", df$ticker, " (перепродан на всех TF)"))
+    df[order(-df$confirmed), ]
+  })
+
+  # ── 9. Volatility: режим волатильности рынка ────────────────────────────
+  volatility_scan <- reactive({
+    pw <- price_wide(); req(pw)
+    if (ncol(pw) < 2) return(NULL)
+    rw <- as.data.frame(lapply(pw, function(x) c(NA, diff(log(as.numeric(x))))))
+    vols <- sapply(rw, function(x) {
+      x <- x[!is.na(x)]
+      if (length(x) < 30) return(NA)
+      sd(tail(x, 30)) * sqrt(365) * 100  # annualized %
+    })
+    vols <- vols[!is.na(vols)]
+    if (length(vols) == 0) return(NULL)
+    avg_vol <- mean(vols)
+    # Historical avg vol (last 90 days of returns for whole market)
+    recent_rw <- rw[nrow(rw) - 89:0, , drop = FALSE]
+    hist_vols <- sapply(recent_rw, function(x) {
+      x <- x[!is.na(x)]
+      if (length(x) < 20) return(NA)
+      sd(x) * sqrt(365) * 100
+    })
+    hist_vols <- hist_vols[!is.na(hist_vols)]
+    hist_avg <- if (length(hist_vols) > 0) mean(hist_vols) else avg_vol
+    regime <- if (avg_vol > hist_avg * 1.5) "🔥 Высокая (бурный)"
+              else if (avg_vol > hist_avg * 1.1) "⚠ Повышенная"
+              else if (avg_vol < hist_avg * 0.7) "🧊 Низкая (спокойный)"
+              else "✅ Нормальная"
+    per_asset <- data.frame(
+      ticker = names(vols), vol = round(vols, 1),
+      stringsAsFactors = FALSE)
+    per_asset <- per_asset[order(-per_asset$vol), ]
+    list(regime = regime, avg_vol = round(avg_vol, 1),
+         hist_avg = round(hist_avg, 1), ratio = round(avg_vol / hist_avg, 2),
+         per_asset = per_asset)
+  })
+
   # ── Scanner UI dispatcher ────────────────────────────────────────────────
   output$scanner_ui <- renderUI({
     st <- input$scanner_type
@@ -2702,6 +2874,184 @@ server <- function(input, output, session) {
           tags$h6(style = "color:#e6edf3;margin:18px 0 12px;", "📋 Все зависимости"),
           DTOutput("anomaly_followers_table"))
       )
+
+    } else if (st == "volume") {
+      df <- volume_scan()
+      if (is.null(df) || nrow(df) == 0)
+        return(placeholder_msg("Нет данных по объёму или аномалий не найдено."))
+      ci <- get_calc_inputs(input, "scancalc_")
+      cards <- lapply(seq_len(min(6, nrow(df))), function(i) {
+        r <- df[i, ]
+        z_col <- if (abs(r$volume_z) >= 3) RED else ORANGE
+        is_signal <- grepl("Лонг|Шорт", r$signal)
+        s <- list(signal_type = if (grepl("Шорт", r$signal)) "short_a" else "long_a",
+                  z_now = r$volume_z / 2, halflife = 5, bt = NULL, strength = "Volume")
+        v <- if (is_signal) calc_signal_pnl(s, ci$cap, ci$lev, ci$taker, ci$funding) else NULL
+        div(style = paste0("border:1px solid ", BORDER, ";border-radius:14px;padding:14px 16px;margin-bottom:10px;background:", CARD, ";"),
+          layout_columns(col_widths = c(3, 3, 2, 4),
+            div(tags$div(style="font-size:1rem;font-weight:700;color:#e6edf3;", r$ticker),
+                tags$div(style="font-size:0.72rem;color:#555c6b;", paste0("vol: ", r$volume))),
+            div(style="text-align:center;",
+              tags$div(style="font-size:0.72rem;color:#8b949e;", "Объём Z"),
+              tags$div(style=paste0("font-size:1.2rem;font-weight:700;color:", z_col, ";"), r$volume_z),
+              tags$div(style="font-size:0.68rem;color:#555c6b;", paste0("сред: ", r$avg_volume))),
+            div(style="text-align:center;",
+              tags$div(style="font-size:0.72rem;color:#8b949e;", "Цена"),
+              tags$div(style=paste0("font-size:1rem;font-weight:600;color:",
+                                     if(r$price_chg>0) GREEN else RED, ";"),
+                paste0(if(r$price_chg>0)"+"else"", r$price_chg, "%"))),
+            div(style="text-align:right;",
+              tags$div(style="font-size:0.78rem;font-weight:500;color:#58a6ff;", r$signal))
+          ),
+          if (!is.null(v)) calc_block_ui(v)
+        )
+      })
+      tagList(
+        tags$div(style="padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+          tags$span(style="color:#8b949e;font-size:0.85rem;",
+            "Аномалии объёма (|Z| > 1.5). Объём + рост = институционал вход. Объём + падение = институционал выход. ",
+            "Высокий объём без движения — накопление/распределение.")),
+        tagList(cards),
+        tags$h6(style="color:#e6edf3;margin:18px 0 12px;", "📋 Все аномалии объёма"),
+        DTOutput("volume_table"))
+
+    } else if (st == "drawdown") {
+      df <- drawdown_scan()
+      if (is.null(df) || nrow(df) == 0)
+        return(placeholder_msg("Нет значительных просадок (>10%) на этом рынке."))
+      ci <- get_calc_inputs(input, "scancalc_")
+      cards <- lapply(seq_len(min(6, nrow(df))), function(i) {
+        r <- df[i, ]
+        dd_col <- if (r$drawdown < -30) RED else if (r$drawdown < -20) ORANGE else BLUE
+        s <- list(signal_type = "long_a", z_now = abs(r$drawdown) / 10,
+                  halflife = 14, bt = NULL, strength = "Drawdown")
+        v <- calc_signal_pnl(s, ci$cap, ci$lev, ci$taker, ci$funding)
+        div(style = paste0("border:1px solid ", dd_col, ";border-radius:14px;padding:14px 16px;margin-bottom:10px;background:", CARD, ";"),
+          layout_columns(col_widths = c(3, 3, 2, 4),
+            div(tags$div(style="font-size:1rem;font-weight:700;color:#e6edf3;", r$ticker),
+                tags$div(style="font-size:0.72rem;color:#555c6b;",
+                  paste0("макс: ", r$high, " → тек: ", r$current))),
+            div(style="text-align:center;",
+              tags$div(style="font-size:0.72rem;color:#8b949e;", "Просадка"),
+              tags$div(style=paste0("font-size:1.3rem;font-weight:700;color:", dd_col, ";"),
+                paste0(r$drawdown, "%")),
+              tags$div(style="font-size:0.68rem;color:#555c6b;",
+                paste0(r$days_from_high, " дн. от максимума"))),
+            div(style="text-align:center;",
+              tags$div(style="font-size:0.72rem;color:#8b949e;", "Ист. отскок"),
+              tags$div(style="font-size:1rem;font-weight:700;color:#3fb950;",
+                if(is.na(r$avg_recovery)) "?" else paste0("+", r$avg_recovery, "%"))),
+            div(style="text-align:right;",
+              tags$div(style="font-size:0.78rem;font-weight:500;color:#58a6ff;", r$signal))
+          ),
+          calc_block_ui(v)
+        )
+      })
+      tagList(
+        tags$div(style="padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+          tags$span(style="color:#8b949e;font-size:0.85rem;",
+            "Инструменты в просадке > 10% от 90-дневного максимума. Исторический отскок — средний возврат ",
+            "после подобных просадок (по 30-дневному окну). Лонг на отскок.")),
+        tagList(cards),
+        tags$h6(style="color:#e6edf3;margin:18px 0 12px;", "📋 Все просадки"),
+        DTOutput("drawdown_table"))
+
+    } else if (st == "multitf") {
+      df <- multitf_scan()
+      if (is.null(df) || nrow(df) == 0)
+        return(placeholder_msg("Нет подтверждённых сигналов на всех таймфреймах (7/30/90 дней)."))
+      ci <- get_calc_inputs(input, "scancalc_")
+      cards <- lapply(seq_len(min(6, nrow(df))), function(i) {
+        r <- df[i, ]
+        all3 <- r$confirmed == 3
+        z_col <- if (all3) RED else ORANGE
+        s <- list(signal_type = if (r$z90 > 0) "short_a" else "long_a",
+                  z_now = r$z90, halflife = 10, bt = NULL, strength = "Multi-TF")
+        v <- calc_signal_pnl(s, ci$cap, ci$lev, ci$taker, ci$funding)
+        div(style = paste0("border:1px solid ", z_col, ";border-radius:14px;padding:14px 16px;margin-bottom:10px;background:", CARD, ";"),
+          layout_columns(col_widths = c(3, 2, 2, 2, 3),
+            div(tags$div(style="font-size:1rem;font-weight:700;color:#e6edf3;", r$ticker),
+                tags$div(style="font-size:0.72rem;color:#555c6b;",
+                  if(all3) "3/3 подтверждено" else paste0(r$confirmed, "/3 подтверждено"))),
+            div(style="text-align:center;",
+              tags$div(style="font-size:0.72rem;color:#8b949e;", "Z 7д"),
+              tags$div(style=paste0("font-size:0.95rem;font-weight:600;color:",
+                                     if(abs(r$z7)>2) RED else ORANGE, ";"), r$z7)),
+            div(style="text-align:center;",
+              tags$div(style="font-size:0.72rem;color:#8b949e;", "Z 30д"),
+              tags$div(style=paste0("font-size:0.95rem;font-weight:600;color:",
+                                     if(abs(r$z30)>2) RED else ORANGE, ";"), r$z30)),
+            div(style="text-align:center;",
+              tags$div(style="font-size:0.72rem;color:#8b949e;", "Z 90д"),
+              tags$div(style=paste0("font-size:0.95rem;font-weight:600;color:",
+                                     if(abs(r$z90)>2) RED else ORANGE, ";"), r$z90)),
+            div(style="text-align:right;",
+              tags$div(style="font-size:0.72rem;color:#8b949e;", "Сигнал"),
+              tags$div(style="font-size:0.78rem;font-weight:500;color:#58a6ff;", r$signal))
+          ),
+          calc_block_ui(v)
+        )
+      })
+      tagList(
+        tags$div(style="padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+          tags$span(style="color:#8b949e;font-size:0.85rem;",
+            "Z-score цены на 7/30/90 днях одновременно. Все 3 в одну сторону + |Z| > 1 = сильный сигнал. ",
+            "3/3 подтверждено (|Z| > 2 на всех TF) = максимальная надёжность.")),
+        tagList(cards),
+        tags$h6(style="color:#e6edf3;margin:18px 0 12px;", "📋 Все multi-TF сигналы"),
+        DTOutput("multitf_table"))
+
+    } else if (st == "volatility") {
+      res <- volatility_scan()
+      if (is.null(res)) return(placeholder_msg("Нет данных по волатильности."))
+      regime_col <- if (grepl("Высокая|бурный", res$regime)) RED
+                    else if (grepl("Повышенная", res$regime)) ORANGE
+                    else if (grepl("Низкая|спокойный", res$regime)) BLUE
+                    else GREEN
+      strat_txt <- if (grepl("Высокая|бурный", res$regime))
+        "Стратегия: mean reversion работает лучше (быстрые возвраты), momentum рискованнее."
+        else if (grepl("Низкая|спокойный", res$regime))
+        "Стратегия: momentum работает лучше (тренды устойчивее), mean reversion слабее."
+        else "Обе стратегии в норме."
+
+      top_vol <- head(res$per_asset, 10)
+      vol_bars <- lapply(seq_len(nrow(top_vol)), function(i) {
+        r <- top_vol[i, ]
+        bar_w <- min(r$vol / max(top_vol$vol) * 100, 100)
+        div(style = paste0("display:flex;align-items:center;gap:10px;margin-bottom:6px;"),
+          div(style = "font-size:0.82rem;color:#e6edf3;width:90px;font-weight:600;", r$ticker),
+          div(style = paste0("height:20px;border-radius:4px;width:", bar_w, "%;",
+                             "background:linear-gradient(90deg,#58a6ff,#a78bfa);"),
+            div(style = "font-size:0.72rem;color:#e6edf3;padding:2px 8px;line-height:16px;",
+              paste0(r$vol, "%"))))
+      })
+
+      tagList(
+        div(style = paste0("padding:18px 22px;border-radius:14px;border:2px solid ", regime_col,
+                           ";background:", CARD, ";margin-bottom:18px;text-align:center;"),
+          div(style = "font-size:0.8rem;color:#8b949e;margin-bottom:6px;", "Текущий режим рынка"),
+          div(style = paste0("font-size:1.6rem;font-weight:700;color:", regime_col, ";margin-bottom:8px;"),
+            res$regime),
+          layout_columns(col_widths = c(3, 3, 3, 3),
+            div(style="text-align:center;",
+              div(style="font-size:0.72rem;color:#8b949e;", "Текущая волат."),
+              div(style="font-size:1.2rem;font-weight:700;color:#e6edf3;", paste0(res$avg_vol, "%"))),
+            div(style="text-align:center;",
+              div(style="font-size:0.72rem;color:#8b949e;", "Историческая"),
+              div(style="font-size:1.2rem;font-weight:700;color:#8b949e;", paste0(res$hist_avg, "%"))),
+            div(style="text-align:center;",
+              div(style="font-size:0.72rem;color:#8b949e;", "Отношение"),
+              div(style=paste0("font-size:1.2rem;font-weight:700;color:", regime_col, ";"), res$ratio)),
+            div(style="text-align:center;",
+              div(style="font-size:0.72rem;color:#8b949e;", "Период"),
+              div(style="font-size:1.2rem;font-weight:700;color:#e6edf3;", "30 дней"))
+          ),
+          div(style = "font-size:0.82rem;color:#8b949e;margin-top:10px;", strat_txt)
+        ),
+        tags$h6(style = "color:#e6edf3;margin-bottom:12px;", "📊 Топ-10 по волатильности (годовой %)"),
+        tagList(vol_bars),
+        tags$h6(style = "color:#e6edf3;margin:18px 0 12px;", "📋 Все инструменты"),
+        DTOutput("volatility_table"))
     }
   })
 
@@ -2790,6 +3140,363 @@ server <- function(input, output, session) {
       formatStyle("Корр. на экстремумах",
         color = styleInterval(c(-0.6, -0.4, 0.4, 0.6),
           c("#3fb950", "#f7931a", "#f7931a", "#58a6ff", "#3fb950")),
+        fontWeight = "bold")
+  })
+
+  output$volume_table <- renderDT({
+    df <- volume_scan(); req(df)
+    datatable(data.frame(
+      "Тикер" = df$ticker, "Volume Z" = df$volume_z,
+      "Объём" = df$volume, "Средний объём" = df$avg_volume,
+      "Цена %" = df$price_chg, "Сигнал" = df$signal,
+      stringsAsFactors = FALSE, check.names = FALSE),
+      rownames = FALSE, options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
+      style = "bootstrap5", class = "table-dark table-sm") |>
+      formatStyle("Volume Z",
+        color = styleInterval(c(-2, 2), c("#58a6ff", "#f7931a", "#f85149")),
+        fontWeight = "bold")
+  })
+
+  output$drawdown_table <- renderDT({
+    df <- drawdown_scan(); req(df)
+    datatable(data.frame(
+      "Тикер" = df$ticker, "Просадка %" = df$drawdown,
+      "Максимум" = df$high, "Текущая" = df$current,
+      "Дней от макс." = df$days_from_high, "Ист. отскок %" = df$avg_recovery,
+      "Сигнал" = df$signal,
+      stringsAsFactors = FALSE, check.names = FALSE),
+      rownames = FALSE, options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
+      style = "bootstrap5", class = "table-dark table-sm") |>
+      formatStyle("Просадка %",
+        color = styleInterval(c(-30, -20), c("#f85149", "#f7931a", "#58a6ff")),
+        fontWeight = "bold")
+  })
+
+  output$multitf_table <- renderDT({
+    df <- multitf_scan(); req(df)
+    datatable(data.frame(
+      "Тикер" = df$ticker, "Z 7д" = df$z7, "Z 30д" = df$z30,
+      "Z 90д" = df$z90, "Подтверждено" = df$confirmed,
+      "Сигнал" = df$signal,
+      stringsAsFactors = FALSE, check.names = FALSE),
+      rownames = FALSE, options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
+      style = "bootstrap5", class = "table-dark table-sm")
+  })
+
+  output$volatility_table <- renderDT({
+    res <- volatility_scan(); req(res)
+    df <- res$per_asset
+    datatable(data.frame(
+      "Тикер" = df$ticker, "Волатильность %/год" = df$vol,
+      stringsAsFactors = FALSE, check.names = FALSE),
+      rownames = FALSE, options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
+      style = "bootstrap5", class = "table-dark table-sm")
+  })
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # ТАБ: Паттерны — календарные закономерности
+  # ══════════════════════════════════════════════════════════════════════════
+  patterns_data <- reactive({
+    df <- raw_data(); req(df)
+    if (nrow(df) < 100) return(NULL)
+    df$dow <- as.integer(format(df$date, "%w"))  # 0=Sun, 6=Sat
+    df$dom <- as.integer(format(df$date, "%d"))  # day of month
+    df$ret <- c(NA, diff(log(df$price_col)))  # per ticker, need careful
+
+    # Per-ticker daily returns
+    res <- list()
+    for (sym in unique(df$ticker_col)) {
+      sub <- df[df$ticker_col == sym, ]
+      sub <- sub[order(sub$date), ]
+      sub$ret <- c(NA, diff(log(sub$price_col)))
+      sub <- sub[!is.na(sub$ret), ]
+      if (nrow(sub) < 60) next
+
+      # By day of week
+      dow_stats <- tapply(sub$ret, sub$dow, function(x) c(mean(x) * 100, length(x)))
+      dow_names <- c("Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб")
+      dow_avg <- sapply(0:6, function(d) {
+        vals <- sub$ret[sub$dow == d]
+        if (length(vals) < 5) return(NA)
+        mean(vals) * 100
+      })
+      dow_n <- sapply(0:6, function(d) sum(sub$dow == d))
+
+      # End of month (last 3 trading days)
+      sub$is_eom <- sub$dom >= 28
+      eom_avg <- if (sum(sub$is_eom) > 5) mean(sub$ret[sub$is_eom]) * 100 else NA
+      non_eom_avg <- if (sum(!sub$is_eom) > 5) mean(sub$ret[!sub$is_eom]) * 100 else NA
+
+      # Find best day
+      best_dow <- which.max(dow_avg) - 1
+      worst_dow <- which.min(dow_avg) - 1
+      best_avg <- dow_avg[best_dow + 1]
+      worst_avg <- dow_avg[worst_dow + 1]
+
+      if (any(is.na(dow_avg))) next
+
+      # Signal: best day to buy/sell
+      best_day_name <- dow_names[best_dow + 1]
+      worst_day_name <- dow_names[worst_dow + 1]
+      signal <- if (best_avg > 0 && best_avg > 0.3)
+        paste0("📈 Лонг ", sym, " по ", best_day_name, " (средний +", round(best_avg, 2), "%)")
+        else if (worst_avg < -0.3)
+        paste0("📉 Шорт ", sym, " по ", worst_day_name, " (средний ", round(worst_avg, 2), "%)")
+        else paste0("— Нет явного календарного паттерна у ", sym)
+
+      res[[length(res) + 1]] <- data.frame(
+        ticker = sym,
+        best_day = best_day_name, best_avg = round(best_avg, 2),
+        worst_day = worst_day_name, worst_avg = round(worst_avg, 2),
+        eom_avg = round(eom_avg, 2), non_eom_avg = round(non_eom_avg, 2),
+        signal = signal,
+        stringsAsFactors = FALSE)
+    }
+    if (length(res) == 0) return(NULL)
+    do.call(rbind, res)
+  })
+
+  output$patterns_ui <- renderUI({
+    df <- patterns_data()
+    if (is.null(df) || nrow(df) == 0)
+      return(placeholder_msg("Недостаточно данных для календарных паттернов."))
+
+    # Filter: only show actionable patterns
+    actionable <- df[grepl("Лонг|Шорт", df$signal), , drop = FALSE]
+    if (nrow(actionable) == 0)
+      return(div(style = "text-align:center;padding:40px;color:#8b949e;",
+        tags$i(class = "fas fa-calendar-check fa-3x", style = "color:#30363d;margin-bottom:12px;"),
+        p("Явных календарных паттернов не найдено."),
+        p(style = "font-size:0.82rem;color:#555c6b;",
+          "Ни один день недели не даёт статистически значимого преимущества.")))
+
+    cards <- lapply(seq_len(min(8, nrow(actionable))), function(i) {
+      r <- actionable[i, ]
+      best_col <- if (r$best_avg > 0.3) GREEN else GRAY
+      worst_col <- if (r$worst_avg < -0.3) RED else GRAY
+      eom_col <- if (!is.na(r$eom_avg) && r$eom_avg > r$non_eom_avg) ORANGE else GRAY
+
+      div(style = paste0("border:1px solid ", BORDER, ";border-radius:14px;padding:14px 16px;margin-bottom:10px;background:", CARD, ";"),
+        layout_columns(col_widths = c(4, 3, 3, 2),
+          div(
+            tags$div(style = "font-size:1rem;font-weight:700;color:#e6edf3;", r$ticker),
+            tags$div(style = "font-size:0.78rem;color:#58a6ff;font-weight:500;", r$signal)),
+          div(style = "text-align:center;",
+            tags$div(style = "font-size:0.72rem;color:#8b949e;", paste0("Лучший день: ", r$best_day)),
+            tags$div(style = paste0("font-size:1.1rem;font-weight:700;color:", best_col, ";"),
+              paste0("+", r$best_avg, "%")),
+            tags$div(style = "font-size:0.68rem;color:#555c6b;", "средний return")),
+          div(style = "text-align:center;",
+            tags$div(style = "font-size:0.72rem;color:#8b949e;", paste0("Худший день: ", r$worst_day)),
+            tags$div(style = paste0("font-size:1.1rem;font-weight:700;color:", worst_col, ";"),
+              paste0(r$worst_avg, "%")),
+            tags$div(style = "font-size:0.68rem;color:#555c6b;", "средний return")),
+          div(style = "text-align:right;",
+            tags$div(style = "font-size:0.72rem;color:#8b949e;", "Конец месяца"),
+            tags$div(style = paste0("font-size:0.95rem;font-weight:600;color:", eom_col, ";"),
+              if (is.na(r$eom_avg)) "—" else paste0(r$eom_avg, "%")),
+            tags$div(style = "font-size:0.68rem;color:#555c6b;",
+              if (is.na(r$non_eom_avg)) "" else paste0("vs ", r$non_eom_avg, "%")))
+        )
+      )
+    })
+
+    tagList(
+      tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+        tags$span(style = "color:#8b949e;font-size:0.85rem;",
+          "Календарные паттерны: день недели, конец месяца. ",
+          "Показаны только инструменты с статистически значимым преимуществом (|return| > 0.3%). ",
+          "Сделка: 1 день (купить вечером перед лучшим днём, продать вечером лучшего дня).")),
+      tagList(cards),
+      tags$h6(style = "color:#e6edf3;margin:18px 0 12px;", "📋 Все инструменты"),
+      DTOutput("patterns_table"))
+  })
+
+  output$patterns_table <- renderDT({
+    df <- patterns_data(); req(df)
+    datatable(data.frame(
+      "Тикер" = df$ticker, "Лучший день" = df$best_day, "Avg %" = df$best_avg,
+      "Худший день" = df$worst_day, "Avg %" = df$worst_avg,
+      "Конец месяца %" = df$eom_avg, "Остальные %" = df$non_eom_avg,
+      "Сигнал" = df$signal,
+      stringsAsFactors = FALSE, check.names = FALSE),
+      rownames = FALSE, options = list(pageLength = 20, dom = "tip", scrollX = TRUE),
+      style = "bootstrap5", class = "table-dark table-sm")
+  })
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # ТАБ: Риск — корреляция портфеля + liquidity sweep
+  # ══════════════════════════════════════════════════════════════════════════
+  risk_data <- reactive({
+    pw <- price_wide(); req(pw)
+    if (ncol(pw) < 2) return(NULL)
+    rw <- as.data.frame(lapply(pw, function(x) c(NA, diff(log(as.numeric(x))))))
+    cor_mat <- cor(rw, use = "pairwise.complete.obs")
+
+    # Liquidity sweep: price crossed 20-day high/low but reverted
+    sweeps <- list()
+    for (sym in colnames(pw)) {
+      x <- as.numeric(pw[[sym]])
+      x <- x[!is.na(x)]
+      if (length(x) < 30) next
+      last <- tail(x, 1)
+      prev <- x[length(x) - 1]
+      window <- tail(head(x, length(x) - 1), 20)
+      high <- max(window)
+      low <- min(window)
+      # Sweep up: prev broke high, last reverted below
+      sweep_up <- prev > high && last < high && last < prev
+      # Sweep down: prev broke low, last reverted above
+      sweep_down <- prev < low && last > low && last > prev
+      if (!sweep_up && !sweep_down) next
+      sweep_type <- if (sweep_up) "Ложный пробой вверх" else "Ложный пробой вниз"
+      signal <- if (sweep_up) paste0("📉 Шорт ", sym, " (ложный пробой вверх — откат)")
+                else paste0("📈 Лонг ", sym, " (ложный пробой вниз — отскок)")
+      sweeps[[length(sweeps) + 1]] <- data.frame(
+        ticker = sym, type = sweep_type,
+        level = if (sweep_up) round(high, 4) else round(low, 4),
+        current = round(last, 4), signal = signal,
+        stringsAsFactors = FALSE)
+    }
+    sweeps_df <- if (length(sweeps) > 0) do.call(rbind, sweeps) else NULL
+
+    # High-correlation clusters (for portfolio risk)
+    high_corr <- which(upper.tri(cor_mat) & abs(cor_mat) > 0.7, arr.ind = TRUE)
+    clusters <- if (nrow(high_corr) > 0) {
+      data.frame(
+        A = colnames(cor_mat)[high_corr[, 1]],
+        B = colnames(cor_mat)[high_corr[, 2]],
+        corr = round(cor_mat[high_corr], 2),
+        stringsAsFactors = FALSE)
+    } else NULL
+
+    list(cor_mat = cor_mat, sweeps = sweeps_df, clusters = clusters)
+  })
+
+  output$risk_ui <- renderUI({
+    res <- risk_data()
+    if (is.null(res)) return(placeholder_msg("Недостаточно данных для анализа риска."))
+
+    # Correlation heatmap
+    cor_html <- NULL
+    if (!is.null(res$cor_mat) && ncol(res$cor_mat) >= 2) {
+      cm <- res$cor_mat
+      # Top 12 by variance to keep heatmap readable
+      if (ncol(cm) > 12) {
+        vars <- apply(cm, 2, function(x) sum(x^2, na.rm = TRUE))
+        cm <- cm[order(-vars)[1:12], order(-vars)[1:12]]
+      }
+      n <- ncol(cm)
+      cells <- ""
+      for (i in seq_len(n)) {
+        for (j in seq_len(n)) {
+          v <- cm[i, j]
+          if (i == j) {
+            col <- "#1c2333"
+          } else if (is.na(v)) {
+            col <- "#0a0e14"
+          } else if (v > 0) {
+            intensity <- abs(v)
+            col <- sprintf("rgba(88,166,255,%.2f)", intensity)
+          } else {
+            intensity <- abs(v)
+            col <- sprintf("rgba(248,81,73,%.2f)", intensity)
+          }
+          cells <- paste0(cells, sprintf(
+            '<div style="background:%s;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:0.55rem;color:%s;">%s</div>',
+            col, if (abs(v) > 0.5 && !is.na(v)) "#fff" else "#555",
+            if (is.na(v)) "" else sprintf("%.1f", v)))
+        }
+        cells <- paste0(cells, '<div style="width:100%;"></div>')
+      }
+      labels <- paste0(sprintf('<div style="width:28px;text-align:center;font-size:0.5rem;color:#8b949e;writing-mode:vertical-rl;transform:rotate(180deg);height:60px;">%s</div>',
+        colnames(cm)), collapse = "")
+      cor_html <- div(
+        div(style = "display:flex;gap:2px;margin-bottom:4px;padding-left:60px;", lapply(colnames(cm), function(x)
+          div(style = "width:28px;text-align:center;font-size:0.5rem;color:#8b949e;transform:rotate(-45deg);height:40px;", x))),
+        div(style = "display:flex;gap:2px;",
+          div(style = "display:flex;flex-direction:column;gap:2px;margin-right:4px;",
+            lapply(colnames(cm), function(x) div(style = "height:28px;display:flex;align-items:center;justify-content:flex-end;font-size:0.55rem;color:#8b949e;width:56px;", x))),
+          div(style = "display:flex;flex-wrap:wrap;gap:2px;width:", 28 * n, "px;", HTML(cells))))
+    }
+
+    # Sweep cards
+    sweep_cards <- NULL
+    if (!is.null(res$sweeps) && nrow(res$sweeps) > 0) {
+      sweep_cards <- lapply(seq_len(min(6, nrow(res$sweeps))), function(i) {
+        r <- res$sweeps[i, ]
+        sweep_col <- if (grepl("Шорт", r$signal)) RED else GREEN
+        div(style = paste0("border:1px solid ", sweep_col, ";border-radius:14px;padding:14px 16px;margin-bottom:10px;background:", CARD, ";"),
+          layout_columns(col_widths = c(4, 3, 3, 2),
+            div(tags$div(style="font-size:1rem;font-weight:700;color:#e6edf3;", r$ticker),
+                tags$div(style="font-size:0.78rem;color:#8b949e;", r$type)),
+            div(style="text-align:center;",
+              tags$div(style="font-size:0.72rem;color:#8b949e;", "Уровень"),
+              tags$div(style="font-size:0.9rem;font-weight:600;color:#8b949e;", r$level)),
+            div(style="text-align:center;",
+              tags$div(style="font-size:0.72rem;color:#8b949e;", "Текущая"),
+              tags$div(style="font-size:0.9rem;font-weight:600;color:#e6edf3;", r$current)),
+            div(style="text-align:right;",
+              tags$div(style="font-size:0.78rem;font-weight:500;color:", sweep_col, ";", r$signal))
+          ))
+      })
+    }
+
+    # Cluster warning
+    cluster_block <- NULL
+    if (!is.null(res$clusters) && nrow(res$clusters) > 0) {
+      n_clusters <- nrow(res$clusters)
+      cluster_block <- div(style = paste0("padding:16px 18px;border-radius:12px;border:1px solid ",
+        if (n_clusters > 10) RED else if (n_clusters > 5) ORANGE else GREEN,
+        ";background:", CARD, ";margin-bottom:18px;"),
+        div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:8px;",
+          "⚠ Корреляция между активами"),
+        p(style = "font-size:0.82rem;color:#8b949e;margin-bottom:10px;",
+          paste0("Найдено ", n_clusters, " пар с корреляцией > 70%. ",
+                 "Открытие позиций по нескольким из них = риск x2+ на одно событие. ",
+                 "Диверсифицируй: не более 1 пары из каждого кластера.")),
+        DTOutput("risk_clusters_table"))
+    }
+
+    tagList(
+      tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+        tags$span(style = "color:#8b949e;font-size:0.85rem;",
+          "Анализ риска портфеля: корреляционная матрица, ложные пробои (liquidity sweep), ",
+          "кластеры корреляции для управления диверсификацией.")),
+      # Liquidity sweep
+      tags$h6(style = "color:#e6edf3;margin-bottom:12px;font-size:0.88rem;",
+        "🎯 Liquidity Sweep — ложные пробои"),
+      if (!is.null(sweep_cards)) tagList(sweep_cards) else div(
+        style = "padding:20px;text-align:center;color:#555c6b;font-size:0.85rem;",
+        "Ложных пробоев 20-дневных уровней сегодня не найдено."),
+      # Correlation heatmap
+      tags$h6(style = "color:#e6edf3;margin:18px 0 12px;font-size:0.88rem;",
+        "🔥 Корреляционная матрица доходностей"),
+      if (!is.null(cor_html)) cor_html else div(
+        style = "padding:20px;text-align:center;color:#555c6b;font-size:0.85rem;",
+        "Недостаточно инструментов для матрицы."),
+      # Clusters
+      tags$h6(style = "color:#e6edf3;margin:18px 0 12px;font-size:0.88rem;",
+        "📊 Кластеры высокой корреляции (>70%)"),
+      if (!is.null(cluster_block)) cluster_block else div(
+        style = "padding:20px;text-align:center;color:#3fb950;font-size:0.85rem;",
+        "✅ Высоких корреляций не найдено — портфель хорошо диверсифицирован.")
+    )
+  })
+
+  output$risk_clusters_table <- renderDT({
+    res <- risk_data(); req(res, res$clusters)
+    df <- res$clusters
+    datatable(data.frame(
+      "A" = df$A, "B" = df$B, "Корреляция" = df$corr,
+      "Риск" = ifelse(abs(df$corr) > 0.8, "🔴 Критический",
+               ifelse(abs(df$corr) > 0.7, "🟡 Высокий", "🟢 Умеренный")),
+      stringsAsFactors = FALSE, check.names = FALSE),
+      rownames = FALSE, options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
+      style = "bootstrap5", class = "table-dark table-sm") |>
+      formatStyle("Корреляция",
+        color = styleInterval(c(-0.8, -0.7, 0.7, 0.8),
+          c("#f85149", "#f7931a", "#f7931a", "#f7931a", "#f85149")),
         fontWeight = "bold")
   })
 
