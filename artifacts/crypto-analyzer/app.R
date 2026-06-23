@@ -172,15 +172,21 @@ pair_backtest_stats <- function(pw, ta, tb, hr) {
   }
 
   if (length(trades) == 0)
-    return(list(n_trades = 0, win_rate = NA, avg_pnl = NA, avg_hold = NA, has_history = FALSE))
+    return(list(n_trades = 0, win_rate = NA, avg_pnl = NA, avg_hold = NA,
+                avg_win = NA, avg_loss = NA, sd_spread_pct = round(sd1 * 100, 3),
+                has_history = FALSE))
   tdf <- do.call(rbind, trades)
-  wins <- tdf[tdf$pnl_pct > 0, ]
+  wins   <- tdf[tdf$pnl_pct > 0, ]
+  losses <- tdf[tdf$pnl_pct <= 0, ]
   list(
-    n_trades    = nrow(tdf),
-    win_rate    = round(nrow(wins) / nrow(tdf) * 100),
-    avg_pnl     = round(mean(tdf$pnl_pct), 2),
-    avg_hold    = round(mean(tdf$hold_days)),
-    has_history = TRUE
+    n_trades      = nrow(tdf),
+    win_rate      = round(nrow(wins) / nrow(tdf) * 100),
+    avg_pnl       = round(mean(tdf$pnl_pct), 2),
+    avg_hold      = round(mean(tdf$hold_days)),
+    avg_win       = if (nrow(wins)   > 0) round(mean(wins$pnl_pct), 2)   else NA,
+    avg_loss      = if (nrow(losses) > 0) round(mean(losses$pnl_pct), 2) else NA,
+    sd_spread_pct = round(sd1 * 100, 3),
+    has_history   = TRUE
   )
 }
 
@@ -321,6 +327,33 @@ ui <- page_navbar(
 
   # ── TAB 4: Понятные сигналы ─────────────────────────────────────────────
   nav_panel("💡 Понятные сигналы",
+    # Calculator settings (static UI, so inputs persist)
+    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #30363d;background:#161b22;margin-bottom:18px;",
+      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:12px;",
+        "Настройки калькулятора (применяются ко всем сигналам)"),
+      layout_columns(col_widths = c(3, 3, 3, 3),
+        div(
+          tags$label(style = "font-size:0.78rem;color:#8b949e;", "Капитал на сделку (USDT)"),
+          numericInput("calc_capital", NULL, value = 100, min = 10, max = 100000, step = 10, width = "100%")
+        ),
+        div(
+          tags$label(style = "font-size:0.78rem;color:#8b949e;", "Плечо"),
+          sliderInput("calc_leverage", NULL, min = 1, max = 20, value = 1, step = 1, width = "100%", post = "x")
+        ),
+        div(
+          tags$label(style = "font-size:0.78rem;color:#8b949e;", "Комиссия taker (% / сторону)"),
+          numericInput("calc_taker", NULL, value = 0.02, min = 0, max = 1, step = 0.01, width = "100%")
+        ),
+        div(
+          tags$label(style = "font-size:0.78rem;color:#8b949e;", "Финансирование (% / 8ч)"),
+          numericInput("calc_funding", NULL, value = 0.01, min = 0, max = 0.1, step = 0.005, width = "100%")
+        )
+      ),
+      div(style = "font-size:0.72rem;color:#555;margin-top:8px;",
+        "MEXC Perpetual Futures: taker 0.02%, maker 0.00%, финансирование ~0.01% каждые 8 часов. ",
+        "Комиссии: 4 заполнения (2 ноги × вход + выход). ",
+        "Финансирование: worst-case (обе ноги платят). Измените под свой аккаунт.")
+    ),
     uiOutput("clear_signals_ui")
   )
 )
@@ -1147,33 +1180,61 @@ server <- function(input, output, session) {
     items <- clear_signals_data()
     if (is.null(items)) return(placeholder_msg("Нет активных сигналов. Все пары в нейтральной зоне."))
 
+    # ── Calculator inputs (with fallbacks for first render) ─────────────────
+    cap       <- if (isTruthy(input$calc_capital))  input$calc_capital  else 100
+    lev       <- if (isTruthy(input$calc_leverage)) input$calc_leverage else 1
+    taker_fee <- if (isTruthy(input$calc_taker))    input$calc_taker    else 0.02
+    fund_rate <- if (isTruthy(input$calc_funding))  input$calc_funding  else 0.01
+    pos_size  <- cap * lev              # total position across both legs
+    leg_size  <- pos_size / 2           # per-leg position
+
     cards <- lapply(items, function(s) {
       is_short  <- s$signal_type == "short_a"
       sig_col   <- if (is_short) RED else GREEN
       sig_icon  <- if (is_short) "📉" else "📈"
 
-      # Exit condition
-      exit_txt <- "Когда Z вернётся к ±0.5 (возврат к среднему)"
-
-      # Hold time estimate: halflife if available, else backtest avg
+      # Hold time estimate
+      hold_days <- if (!is.na(s$halflife) && s$halflife > 0) s$halflife
+                   else if (!is.null(s$bt) && s$bt$has_history && !is.na(s$bt$avg_hold)) s$bt$avg_hold
+                   else 10
       hold_txt <- if (!is.na(s$halflife) && s$halflife > 0)
         paste0("~", s$halflife, " дн. (полупериод)")
-      else if (!is.null(s$bt) && s$bt$has_history && !is.na(s$bt$avg_hold))
-        paste0("~", s$bt$avg_hold, " дн. (по истории)")
-      else
-        "Нет оценки"
+        else if (!is.null(s$bt) && s$bt$has_history && !is.na(s$bt$avg_hold))
+          paste0("~", s$bt$avg_hold, " дн. (по истории)")
+          else "~10 дн. (по умолчанию)"
 
-      # Expected profit: backtest avg if history exists
-      if (!is.null(s$bt) && s$bt$has_history) {
-        pnl_col  <- if (s$bt$avg_pnl > 0) GREEN else RED
-        profit_txt <- paste0(if (s$bt$avg_pnl > 0) "+" else "", s$bt$avg_pnl, "%")
-        profit_sub <- paste0("по истории: ", s$bt$n_trades, " сделок, ",
-                             if (is.na(s$bt$win_rate)) "—" else paste0(s$bt$win_rate, "% прибыльных"))
+      # ── Profit/Loss estimates (% of position) ─────────────────────────────
+      z_abs <- abs(s$z_now)
+      if (!is.null(s$bt) && s$bt$has_history && !is.na(s$bt$avg_win)) {
+        tp_pct <- s$bt$avg_win
+        sl_pct <- if (!is.na(s$bt$avg_loss)) abs(s$bt$avg_loss) else 0
+        src_txt <- paste0("по истории (", s$bt$n_trades, " сделок)")
       } else {
-        pnl_col  <- ORANGE
-        profit_txt <- "Нет истории"
-        profit_sub <- "сигналов по этой паре ещё не было"
+        # Theoretical: movement from current Z to TP (0.5) or SL (3.5)
+        sd_pct <- s$bt$sd_spread_pct
+        tp_pct <- round((z_abs - 0.5) * sd_pct, 2)
+        sl_pct <- round((3.5 - z_abs) * sd_pct, 2)
+        src_txt <- "теоретический расчёт"
       }
+      if (is.na(tp_pct) || tp_pct <= 0) tp_pct <- 0.1
+      if (is.na(sl_pct) || sl_pct <= 0) sl_pct <- 0.1
+
+      # ── Costs (in USDT) ───────────────────────────────────────────────────
+      # Commission: 2 legs × (entry + exit) = 4 fills, taker fee per side
+      comm <- round(4 * leg_size * taker_fee / 100, 2)
+      # Funding: position × rate × periods (3 per day), worst-case both legs pay
+      fund_periods <- hold_days * 3
+      funding <- round(pos_size * fund_rate / 100 * fund_periods, 2)
+
+      # ── Net P&L (USDT) ────────────────────────────────────────────────────
+      gross_tp <- round(pos_size * tp_pct / 100, 2)
+      gross_sl <- round(pos_size * sl_pct / 100, 2)
+      net_tp   <- round(gross_tp - comm - funding, 2)
+      net_sl   <- round(-(gross_sl + comm + funding), 2)
+      rr_ratio <- if (net_sl != 0) round(abs(net_tp / net_sl), 2) else NA
+
+      tp_col <- if (net_tp > 0) GREEN else RED
+      sl_col <- RED
 
       # Strength
       str_col <- switch(s$strength,
@@ -1197,17 +1258,77 @@ server <- function(input, output, session) {
           ),
           div(style = paste0("padding:12px;border-radius:8px;background:", CARD, ";border:1px solid ", BORDER, ";"),
             div(style = "font-size:0.75rem;color:#8b949e;margin-bottom:4px;", "Когда выходить"),
-            div(style = "font-size:0.85rem;font-weight:600;color:#e6edf3;", "Z → ±0.5"),
-            div(style = "font-size:0.78rem;color:#555;", "возврат к среднему")
+            div(style = "font-size:0.85rem;font-weight:600;color:#e6edf3;", "TP: Z → ±0.5"),
+            div(style = "font-size:0.78rem;color:#555;", paste0("SL: |Z| → 3.5"))
           ),
           div(style = paste0("padding:12px;border-radius:8px;background:", CARD, ";border:1px solid ", BORDER, ";"),
             div(style = "font-size:0.75rem;color:#8b949e;margin-bottom:4px;", "Сколько держать"),
             div(style = "font-size:0.95rem;font-weight:600;color:#e6edf3;", hold_txt)
           ),
           div(style = paste0("padding:12px;border-radius:8px;background:", CARD, ";border:1px solid ", BORDER, ";"),
-            div(style = "font-size:0.75rem;color:#8b949e;margin-bottom:4px;", "Ожидаемый профит"),
-            div(style = paste0("font-size:1.1rem;font-weight:700;color:", pnl_col, ";"), profit_txt),
-            div(style = "font-size:0.72rem;color:#555;", profit_sub)
+            div(style = "font-size:0.75rem;color:#8b949e;margin-bottom:4px;", "Сила сигнала"),
+            div(style = paste0("font-size:0.95rem;font-weight:600;color:", str_col, ";"), s$strength),
+            div(style = "font-size:0.72rem;color:#555;", src_txt)
+          )
+        ),
+        # ── Calculator block ────────────────────────────────────────────────
+        div(style = paste0("margin-top:14px;padding:14px 16px;border-radius:10px;",
+                           "background:", CARD, ";border:1px solid ", BORDER, ";"),
+          div(style = "font-size:0.85rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
+            "🧮 Калькулятор прибыли (MEXC Perpetual)"),
+          layout_columns(col_widths = c(3, 3, 3, 3),
+            # Position size
+            div(
+              div(style = "font-size:0.72rem;color:#8b949e;", "Размер позиции"),
+              div(style = "font-size:0.95rem;font-weight:600;color:#e6edf3;",
+                paste0("$", format(pos_size, big.mark = " ", scientific = FALSE))),
+              div(style = "font-size:0.68rem;color:#555;",
+                paste0("$", cap, " × ", lev, "x"))
+            ),
+            # Commission
+            div(
+              div(style = "font-size:0.72rem;color:#8b949e;", "Комиссии (вход+выход)"),
+              div(style = "font-size:0.95rem;font-weight:600;color:#f85149;",
+                paste0("-$", comm)),
+              div(style = "font-size:0.68rem;color:#555;",
+                paste0("4 × $", format(leg_size, big.mark = " "), " × ", taker_fee, "%"))
+            ),
+            # Funding
+            div(
+              div(style = "font-size:0.72rem;color:#8b949e;", paste0("Финансирование (", fund_periods, " раз)")),
+              div(style = "font-size:0.95rem;font-weight:600;color:#f85149;",
+                paste0("-$", funding)),
+              div(style = "font-size:0.68rem;color:#555;",
+                paste0(fund_rate, "% / 8ч × ", hold_days, " дн."))
+            ),
+            # R/R ratio
+            div(
+              div(style = "font-size:0.72rem;color:#8b949e;", "Risk / Reward"),
+              div(style = paste0("font-size:1.1rem;font-weight:700;color:",
+                                 if (!is.na(rr_ratio) && rr_ratio >= 1.5) GREEN else ORANGE, ";"),
+                if (!is.na(rr_ratio)) paste0("1:", round(rr_ratio, 1)) else "—"),
+              div(style = "font-size:0.68rem;color:#555;", "профит / убыток")
+            )
+          ),
+          # Net P&L
+          div(style = "border-top:1px solid #30363d;margin:10px 0;"),
+          layout_columns(col_widths = c(6, 6),
+            div(style = paste0("text-align:center;padding:10px;border-radius:8px;",
+                               "background:#0f2a1a;border:1px solid ", GREEN, ";"),
+              div(style = "font-size:0.75rem;color:#8b949e;", "Чистая прибыль (TP)"),
+              div(style = paste0("font-size:1.3rem;font-weight:700;color:", tp_col, ";"),
+                paste0(if (net_tp > 0) "+" else "", "$", net_tp)),
+              div(style = "font-size:0.68rem;color:#555;",
+                paste0("+", gross_tp, " − ", comm, " − ", funding))
+            ),
+            div(style = paste0("text-align:center;padding:10px;border-radius:8px;",
+                               "background:#2a0f0f;border:1px solid ", RED, ";"),
+              div(style = "font-size:0.75rem;color:#8b949e;", "Чистый убыток (SL)"),
+              div(style = paste0("font-size:1.3rem;font-weight:700;color:", sl_col, ";"),
+                paste0("$", net_sl)),
+              div(style = "font-size:0.68rem;color:#555;",
+                paste0("-(", gross_sl, " + ", comm, " + ", funding, ")"))
+            )
           )
         ),
         # Footer: meta
@@ -1220,11 +1341,13 @@ server <- function(input, output, session) {
     })
 
     tagList(
+      # ── Info banner ───────────────────────────────────────────────────────
       tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #30363d;background:#0d1117;margin-bottom:18px;",
         tags$span(style = "color:#8b949e;font-size:0.85rem;",
           "Сигналы на основе Z-score спреда коинтегрированных пар. ",
-          "Вход при |Z| ≥ 2, выход при |Z| < 0.5, стоп при |Z| ≥ 3.5. ",
-          "Профит и время удержания — по истории backtest'а каждой пары.")),
+          "Вход при |Z| ≥ 2, TP при |Z| < 0.5, SL при |Z| ≥ 3.5. ",
+          "Профит — по истории backtest'а пары (или теоретический, если истории нет).")),
+      # ── Signal cards ──────────────────────────────────────────────────────
       tagList(cards)
     )
   })
