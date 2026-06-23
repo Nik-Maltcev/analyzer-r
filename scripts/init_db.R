@@ -119,15 +119,18 @@ load_market <- function(tickers, market_name, con, api_key) {
         next
       }
       vals <- d$values
+      n_rows <- nrow(vals)
+      vol <- if (!is.null(vals$volume)) as.numeric(vals$volume) else rep(NA_real_, n_rows)
+      if (length(vol) != n_rows) vol <- rep(NA_real_, n_rows)
       df <- data.frame(
-        ticker = sym,
+        ticker = rep(sym, n_rows),
         date   = vals$datetime,
         open   = as.numeric(vals$open),
         high   = as.numeric(vals$high),
         low    = as.numeric(vals$low),
         close  = as.numeric(vals$close),
-        volume = as.numeric(vals$volume),
-        market = market_name,
+        volume = vol,
+        market = rep(market_name, n_rows),
         stringsAsFactors = FALSE
       )
       # Upsert
