@@ -3577,7 +3577,8 @@ server <- function(input, output, session) {
   # ══════════════════════════════════════════════════════════════════════════
   # ТАБ: Топ-6 монет — глубокие паттерны XRP, SOL, BTC, ETH, DOGE, BNB
   # ══════════════════════════════════════════════════════════════════════════
-  TOP6_COINS <- c("BTC/USD", "ETH/USD", "BNB/USD", "SOL/USD", "XRP/USD", "DOGE/USD")
+  # pivot_wider replaces '/' with '.' in column names (R make.names behavior)
+  TOP6_COINS <- c("BTC.USD", "ETH.USD", "BNB.USD", "SOL.USD", "XRP.USD", "DOGE.USD")
 
   top6_data <- reactive({
     pw <- price_wide(); req(pw)
@@ -3755,7 +3756,7 @@ server <- function(input, output, session) {
         # Header
         div(style = "display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;",
           div(
-            tags$span(style = "font-size:1.3rem;font-weight:800;color:#e6edf3;", d$sym),
+            tags$span(style = "font-size:1.3rem;font-weight:800;color:#e6edf3;", sub("\\.", "/", d$sym)),
             tags$span(style = "font-size:0.75rem;color:#555c6b;margin-left:8px;",
               paste0("$", format(round(d$last_price, 4), nsmall = ifelse(d$last_price < 1, 4, 2)),
                      " · ", d$n_days, " дней истории"))),
