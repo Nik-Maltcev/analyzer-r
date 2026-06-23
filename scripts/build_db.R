@@ -7,6 +7,7 @@ DB_PATH  <- "/data/market.db"
 
 cat("Building database from CSV...\n")
 df <- read.csv(CSV_PATH, stringsAsFactors = FALSE)
+df <- df[!duplicated(df[, c("ticker", "date")]), ]
 cat(sprintf("  Rows: %d, Tickers: %d\n", nrow(df), length(unique(df$ticker))))
 
 con <- dbConnect(SQLite(), DB_PATH)
