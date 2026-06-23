@@ -1,11 +1,8 @@
 #!/bin/bash
 set -e
 
-# Export all env vars so child processes (cron, Rscript) can see them
-export $(env | xargs)
-
-# Pass environment variables to cron
-env >> /etc/environment
+# Save env vars for cron (filter only valid variable names)
+env | grep -E '^[A-Za-z_][A-Za-z_0-9]*=' > /etc/environment || true
 
 # Start cron daemon in background
 cron
@@ -13,7 +10,7 @@ cron
 # Initialize DB if not exists
 if [ ! -f /data/market.db ]; then
   echo "First run: initializing database..."
-  cd /scripts && /usr/local/bin/Rscript /scripts/init_db.R
+  /usr/local/bin/Rscript /scripts/init_db.R
 fi
 
 # Start Shiny app
