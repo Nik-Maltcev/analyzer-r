@@ -855,6 +855,14 @@ ui <- page_navbar(
                     "🔗 Corr Breakdown" = "corrbreak", "🚀 Momentum" = "momentum"),
         selected = "leadlag", inline = TRUE)
     ),
+    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
+      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:12px;",
+        "Настройки калькулятора (применяются ко всем сигналам)"),
+      calc_settings_ui("scancalc_"),
+      div(style = "font-size:0.72rem;color:#555c6b;margin-top:8px;",
+        "MEXC Perpetual: taker 0.02%, maker 0.00%, финансирование ~0.01% / 8ч. ",
+        "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
+    ),
     uiOutput("scanner_ui")
   )
 )
@@ -2307,9 +2315,16 @@ server <- function(input, output, session) {
       df <- leadlag_scan()
       if (is.null(df) || nrow(df) == 0)
         return(placeholder_msg("Не найдено опережений на 1-5 дней по этому рынку."))
+      ci <- get_calc_inputs(input, "scancalc_")
       cards <- lapply(seq_len(min(6, nrow(df))), function(i) {
         r <- df[i, ]
         lag_col <- if (r$lag <= 2) GREEN else if (r$lag <= 3) ORANGE else BLUE
+        # Build signal for calculator: hold ~ lag days, tp from |leader_today|
+        s <- list(
+          signal_type = if (grepl("Шорт", r$signal)) "short_a" else "long_a",
+          z_now = r$leader_today / 10,  # approx Z from % move
+          halflife = r$lag, bt = NULL, strength = "Сканер")
+        v <- calc_signal_pnl(s, ci$cap, ci$lev, ci$taker, ci$funding)
         tags$div(style = paste0(
           "border:1px solid ", BORDER, ";border-radius:14px;padding:14px 16px;",
           "margin-bottom:10px;background:", CARD, ";"),
@@ -2332,7 +2347,8 @@ server <- function(input, output, session) {
                 paste0("Лидер сегодня: ", if (r$leader_today > 0) "▲" else "▼", " ", r$leader_today, "%")),
               tags$div(style = "font-size:0.9rem;font-weight:600;color:#58a6ff;", r$signal)
             )
-          )
+          ),
+          calc_block_ui(v)
         )
       })
       tagList(
@@ -2350,9 +2366,14 @@ server <- function(input, output, session) {
       df <- meanrev_scan()
       if (is.null(df) || nrow(df) == 0)
         return(placeholder_msg("Нет инструментов с сильным отклонением от среднего (|Z| > 1.5)."))
+      ci <- get_calc_inputs(input, "scancalc_")
       cards <- lapply(seq_len(min(6, nrow(df))), function(i) {
         r <- df[i, ]
         z_col <- if (abs(r$z_score) >= 2) RED else ORANGE
+        s <- list(
+          signal_type = if (r$z_score > 0) "short_a" else "long_a",
+          z_now = r$z_score, halflife = 5, bt = NULL, strength = "Сканер")
+        v <- calc_signal_pnl(s, ci$cap, ci$lev, ci$taker, ci$funding)
         tags$div(style = paste0(
           "border:1px solid ", BORDER, ";border-radius:14px;padding:14px 16px;",
           "margin-bottom:10px;background:", CARD, ";"),
@@ -2375,7 +2396,8 @@ server <- function(input, output, session) {
               tags$div(style = paste0("font-size:1.3rem;font-weight:700;color:", z_col, ";"), r$z_score),
               tags$div(style = "font-size:0.72rem;font-weight:500;color:#58a6ff;", r$signal)
             )
-          )
+          ),
+          calc_block_ui(v)
         )
       })
       tagList(
@@ -2393,9 +2415,14 @@ server <- function(input, output, session) {
       df <- corrbreak_scan()
       if (is.null(df) || nrow(df) == 0)
         return(placeholder_msg("Нет сломанных корреляций. Все пары ведут себя как обычно."))
+      ci <- get_calc_inputs(input, "scancalc_")
       cards <- lapply(seq_len(min(6, nrow(df))), function(i) {
         r <- df[i, ]
         brk_col <- if (r$change < 0) RED else GREEN
+        s <- list(
+          signal_type = "long_a",
+          z_now = abs(r$change) / 10, halflife = 5, bt = NULL, strength = "Сканер")
+        v <- calc_signal_pnl(s, ci$cap, ci$lev, ci$taker, ci$funding)
         tags$div(style = paste0(
           "border:1px solid ", brk_col, ";border-radius:14px;padding:14px 16px;",
           "margin-bottom:10px;background:", CARD, ";"),
@@ -2421,7 +2448,8 @@ server <- function(input, output, session) {
               tags$div(style = paste0("font-size:1.1rem;font-weight:700;color:", brk_col, ";"),
                 paste0(if (r$change > 0) "+" else "", r$change, "%"))
             )
-          )
+          ),
+          calc_block_ui(v)
         )
       })
       tagList(
@@ -2439,9 +2467,15 @@ server <- function(input, output, session) {
       df <- momentum_scan()
       if (is.null(df) || nrow(df) == 0)
         return(placeholder_msg("Нет данных для momentum."))
+      ci <- get_calc_inputs(input, "scancalc_")
       cards <- lapply(seq_len(min(6, nrow(df))), function(i) {
         r <- df[i, ]
         mom_col <- if (r$chg7 > 5) GREEN else if (r$chg7 < -5) RED else ORANGE
+        is_signal <- r$signal != "Ждать"
+        s <- list(
+          signal_type = if (grepl("Шорт", r$signal)) "short_a" else "long_a",
+          z_now = abs(r$chg7) / 5, halflife = 7, bt = NULL, strength = "Сканер")
+        v <- if (is_signal) calc_signal_pnl(s, ci$cap, ci$lev, ci$taker, ci$funding) else NULL
         tags$div(style = paste0(
           "border:1px solid ", BORDER, ";border-radius:14px;padding:14px 16px;",
           "margin-bottom:10px;background:", CARD, ";"),
@@ -2471,9 +2505,10 @@ server <- function(input, output, session) {
               tags$div(style = "font-size:0.72rem;color:#8b949e;", "Волатильность"),
               tags$div(style = "font-size:0.85rem;color:#8b949e;", paste0(r$vol7, "%/нед")),
               tags$div(style = paste0("font-size:0.82rem;font-weight:600;color:",
-                                       if (r$signal != "Ждать") BLUE else GRAY, ";"), r$signal)
+                                       if (is_signal) BLUE else GRAY, ";"), r$signal)
             )
-          )
+          ),
+          if (!is.null(v)) calc_block_ui(v)
         )
       })
       tagList(
