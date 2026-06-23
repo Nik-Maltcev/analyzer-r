@@ -10,8 +10,10 @@ library(RSQLite)
 options(shiny.maxRequestSize = 50 * 1024^2)
 options(shiny.server.maxRequestSize = 50 * 1024^2)
 
-# Keep WebSocket alive during long operations
-options(shiny.idle.timeout = 600000)  # 10 min
+# Keep session alive: 24h idle timeout + auto-reconnect + JS heartbeat
+options(shiny.idle.timeout = 86400000)       # 24 hours
+options(shiny.autoreload = TRUE)
+options(shiny.sanitize.errors = FALSE)
 
 ORANGE <- "#f7931a"
 BLUE   <- "#58a6ff"
@@ -713,6 +715,34 @@ ui <- page_navbar(
       box-shadow: 0 0 0 4px var(--glow-blue);
     }
   "))),
+
+  # ── Keep-alive: heartbeat + auto-reconnect ────────────────────────────────
+  tags$script(HTML("
+    // Heartbeat: ping Shiny every 60s to prevent idle timeout
+    $(function() {
+      setInterval(function() {
+        if (typeof Shiny !== 'undefined' && Shiny.shinyapp) {
+          Shiny.shinyapp.makeRequest('heartbeat', [], []);
+        }
+      }, 60000);
+    });
+
+    // Auto-reconnect on WebSocket drop
+    $(document).on('shiny:disconnected', function(e) {
+      setTimeout(function() { window.location.reload(); }, 3000);
+    });
+
+    // Prevent browser sleep (Wake Lock API)
+    if ('wakeLock' in navigator) {
+      var wakeLock = null;
+      navigator.wakeLock.request('screen').catch(function(){});
+      document.addEventListener('visibilitychange', function() {
+        if (wakeLock !== null && document.visibilityState === 'visible') {
+          navigator.wakeLock.request('screen').catch(function(){});
+        }
+      });
+    }
+  ")),
 
   # ── TAB 1: Данные ───────────────────────────────────────────────────────
   nav_panel("📂 Данные",
