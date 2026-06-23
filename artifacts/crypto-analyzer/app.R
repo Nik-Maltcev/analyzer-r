@@ -128,6 +128,62 @@ engle_granger <- function(pa, pb, max_lag = 2) {
   result
 }
 
+# ── Backtest stats for a single pair (used by "Понятные сигналы") ────────────
+# Returns: list(n_trades, win_rate, avg_pnl, avg_hold, has_history)
+pair_backtest_stats <- function(pw, ta, tb, hr) {
+  if (!ta %in% colnames(pw) || !tb %in% colnames(pw)) return(NULL)
+  pa <- as.numeric(pw[[ta]]); pb <- as.numeric(pw[[tb]])
+  dates <- as.Date(rownames(pw))
+  ok <- !is.na(pa) & !is.na(pb) & pa > 0 & pb > 0
+  if (sum(ok) < 30) return(NULL)
+  spread <- log(pa[ok]) - hr * log(pb[ok])
+  mn  <- mean(spread, na.rm = TRUE)
+  sd1 <- sd(spread, na.rm = TRUE)
+  if (is.na(sd1) || sd1 == 0) return(NULL)
+  z  <- (spread - mn) / sd1
+  sp <- spread
+  dt <- dates[ok]
+  n  <- length(z)
+
+  entry_z <- 2.0; exit_z <- 0.5; stop_z <- 3.5
+  trades <- list()
+  in_trade <- FALSE; entry_idx <- NA; entry_dir <- NA; entry_spread <- NA
+
+  for (i in seq_len(n)) {
+    zi <- z[i]
+    if (is.na(zi)) next
+    if (!in_trade) {
+      if (zi >=  entry_z) { in_trade <- TRUE; entry_dir <- -1; entry_idx <- i; entry_spread <- sp[i] }
+      if (zi <= -entry_z) { in_trade <- TRUE; entry_dir <-  1; entry_idx <- i; entry_spread <- sp[i] }
+    } else {
+      hit_stop <- (entry_dir == -1 && zi >= stop_z) || (entry_dir == 1 && zi <= -stop_z)
+      hit_tp   <- abs(zi) <= exit_z
+      if (hit_stop || hit_tp) {
+        pnl_log <- entry_dir * (sp[i] - entry_spread)
+        pnl_pct <- (exp(pnl_log) - 1) * 100
+        hold    <- as.integer(dt[i] - dt[entry_idx])
+        trades[[length(trades) + 1]] <- data.frame(
+          pnl_pct = pnl_pct, hold_days = hold,
+          result = if (hit_stop) "stop" else "tp",
+          stringsAsFactors = FALSE)
+        in_trade <- FALSE
+      }
+    }
+  }
+
+  if (length(trades) == 0)
+    return(list(n_trades = 0, win_rate = NA, avg_pnl = NA, avg_hold = NA, has_history = FALSE))
+  tdf <- do.call(rbind, trades)
+  wins <- tdf[tdf$pnl_pct > 0, ]
+  list(
+    n_trades    = nrow(tdf),
+    win_rate    = round(nrow(wins) / nrow(tdf) * 100),
+    avg_pnl     = round(mean(tdf$pnl_pct), 2),
+    avg_hold    = round(mean(tdf$hold_days)),
+    has_history = TRUE
+  )
+}
+
 halflife_label <- function(hl) {
   if (is.na(hl) || hl <= 0) return("Нет возврата")
   if (hl <= 5)   return(paste0(hl, " дн. — слишком быстро"))
@@ -261,6 +317,11 @@ ui <- page_navbar(
   # ── TAB 3: Сигналы ──────────────────────────────────────────────────────
   nav_panel("🚦 Сигналы",
     uiOutput("signals_ui")
+  ),
+
+  # ── TAB 4: Понятные сигналы ─────────────────────────────────────────────
+  nav_panel("💡 Понятные сигналы",
+    uiOutput("clear_signals_ui")
   )
 )
 
@@ -1054,6 +1115,118 @@ server <- function(input, output, session) {
               options = list(pageLength = 25, dom = "tip", scrollX = TRUE,
                              order = list(list(1, "desc"))),
               style = "bootstrap5", class = "table-dark table-sm")
+  })
+
+  # ── ТАБ: Понятные сигналы ───────────────────────────────────────────────
+  clear_signals_data <- reactive({
+    df <- pairs_coint()
+    pw  <- price_wide()
+    if (is.null(df) || is.null(pw)) return(NULL)
+    active <- df[df$signal_type != "wait", , drop = FALSE]
+    if (nrow(active) == 0) return(NULL)
+    active <- active[order(-abs(active$z_now)), ]
+    active <- head(active, 10)
+
+    lapply(seq_len(nrow(active)), function(i) {
+      r  <- active[i, ]
+      hr <- if (!is.na(r$hedge_ratio)) r$hedge_ratio else 1
+      bt <- pair_backtest_stats(pw, r$A, r$B, hr)
+      list(
+        A = r$A, B = r$B,
+        signal = r$signal, signal_type = r$signal_type,
+        z_now = r$z_now, z_forecast = r$z_forecast,
+        strength = r$strength, is_coint = r$is_coint,
+        corr = round(abs(r$corr) * 100),
+        halflife = r$halflife, hedge_ratio = hr,
+        bt = bt
+      )
+    })
+  })
+
+  output$clear_signals_ui <- renderUI({
+    items <- clear_signals_data()
+    if (is.null(items)) return(placeholder_msg("Нет активных сигналов. Все пары в нейтральной зоне."))
+
+    cards <- lapply(items, function(s) {
+      is_short  <- s$signal_type == "short_a"
+      sig_col   <- if (is_short) RED else GREEN
+      sig_icon  <- if (is_short) "📉" else "📈"
+
+      # Exit condition
+      exit_txt <- "Когда Z вернётся к ±0.5 (возврат к среднему)"
+
+      # Hold time estimate: halflife if available, else backtest avg
+      hold_txt <- if (!is.na(s$halflife) && s$halflife > 0)
+        paste0("~", s$halflife, " дн. (полупериод)")
+      else if (!is.null(s$bt) && s$bt$has_history && !is.na(s$bt$avg_hold))
+        paste0("~", s$bt$avg_hold, " дн. (по истории)")
+      else
+        "Нет оценки"
+
+      # Expected profit: backtest avg if history exists
+      if (!is.null(s$bt) && s$bt$has_history) {
+        pnl_col  <- if (s$bt$avg_pnl > 0) GREEN else RED
+        profit_txt <- paste0(if (s$bt$avg_pnl > 0) "+" else "", s$bt$avg_pnl, "%")
+        profit_sub <- paste0("по истории: ", s$bt$n_trades, " сделок, ",
+                             if (is.na(s$bt$win_rate)) "—" else paste0(s$bt$win_rate, "% прибыльных"))
+      } else {
+        pnl_col  <- ORANGE
+        profit_txt <- "Нет истории"
+        profit_sub <- "сигналов по этой паре ещё не было"
+      }
+
+      # Strength
+      str_col <- switch(s$strength,
+        "Сильный"     = GREEN,
+        "Прогнозный"  = ORANGE,
+        "Формируется" = BLUE,
+        GRAY)
+
+      div(style = paste0(
+        "border:2px solid ", sig_col, ";border-radius:14px;padding:18px 20px;",
+        "margin-bottom:16px;background:", BG, ";box-shadow:0 0 20px ", sig_col, "22;"),
+        # Header: action
+        div(style = paste0("font-size:1.15rem;font-weight:700;color:", sig_col, ";margin-bottom:14px;"),
+          sig_icon, " ", s$signal),
+        # Grid: 4 key facts
+        layout_columns(col_widths = c(3, 3, 3, 3),
+          div(style = paste0("padding:12px;border-radius:8px;background:", CARD, ";border:1px solid ", BORDER, ";"),
+            div(style = "font-size:0.75rem;color:#8b949e;margin-bottom:4px;", "Когда входить"),
+            div(style = "font-size:0.95rem;font-weight:600;color:#e6edf3;", "Сейчас"),
+            div(style = "font-size:0.78rem;color:#555;", paste0("Z = ", s$z_now))
+          ),
+          div(style = paste0("padding:12px;border-radius:8px;background:", CARD, ";border:1px solid ", BORDER, ";"),
+            div(style = "font-size:0.75rem;color:#8b949e;margin-bottom:4px;", "Когда выходить"),
+            div(style = "font-size:0.85rem;font-weight:600;color:#e6edf3;", "Z → ±0.5"),
+            div(style = "font-size:0.78rem;color:#555;", "возврат к среднему")
+          ),
+          div(style = paste0("padding:12px;border-radius:8px;background:", CARD, ";border:1px solid ", BORDER, ";"),
+            div(style = "font-size:0.75rem;color:#8b949e;margin-bottom:4px;", "Сколько держать"),
+            div(style = "font-size:0.95rem;font-weight:600;color:#e6edf3;", hold_txt)
+          ),
+          div(style = paste0("padding:12px;border-radius:8px;background:", CARD, ";border:1px solid ", BORDER, ";"),
+            div(style = "font-size:0.75rem;color:#8b949e;margin-bottom:4px;", "Ожидаемый профит"),
+            div(style = paste0("font-size:1.1rem;font-weight:700;color:", pnl_col, ";"), profit_txt),
+            div(style = "font-size:0.72rem;color:#555;", profit_sub)
+          )
+        ),
+        # Footer: meta
+        div(style = "margin-top:12px;font-size:0.8rem;color:#8b949e;",
+          badge(s$strength, str_col), "  ",
+          if (s$is_coint) "✅ Коинтегрированы" else "⚠️ Не коинтегрированы",
+          "  ·  Корреляция: ", s$corr, "%",
+          if (!is.na(s$halflife)) paste0("  ·  Полупериод: ", s$halflife, " дн.") else "")
+      )
+    })
+
+    tagList(
+      tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #30363d;background:#0d1117;margin-bottom:18px;",
+        tags$span(style = "color:#8b949e;font-size:0.85rem;",
+          "Сигналы на основе Z-score спреда коинтегрированных пар. ",
+          "Вход при |Z| ≥ 2, выход при |Z| < 0.5, стоп при |Z| ≥ 3.5. ",
+          "Профит и время удержания — по истории backtest'а каждой пары.")),
+      tagList(cards)
+    )
   })
 
 }
