@@ -34,12 +34,16 @@ RUN install2.r --error --skipinstalled \
 # Create directories
 RUN mkdir -p /app /scripts /data
 
-# Copy scripts and app
+# Copy data CSV and build SQLite at build time (no API calls needed)
+COPY data/all_markets_3yr.csv /data/all_markets_3yr.csv
 COPY scripts/ /scripts/
+RUN Rscript /scripts/build_db.R
+
+# Copy app
 COPY artifacts/crypto-analyzer/ /app/
 
 # Setup cron job: daily at 06:00 UTC (09:00 MSK)
-RUN echo "0 6 * * * cd /scripts && /usr/local/bin/Rscript /scripts/daily_update.R >> /data/cron.log 2>&1" > /etc/cron.d/daily-update \
+RUN echo "0 6 * * * /usr/local/bin/Rscript /scripts/daily_update.R >> /data/cron.log 2>&1" > /etc/cron.d/daily-update \
     && chmod 0644 /etc/cron.d/daily-update \
     && crontab /etc/cron.d/daily-update
 

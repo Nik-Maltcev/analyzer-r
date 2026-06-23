@@ -142,10 +142,10 @@ load_market <- function(tickers, market_name, con, api_key) {
       cat(sprintf("    OK: %s (%d rows)\n", sym, nrow(df)))
     }
 
-    # Rate limit: 8 requests/min on free tier
+    # Rate limit: free tier = 8 credits/min (1 batch of 8 = all credits)
     if (b_idx < length(batches)) {
-      cat("    Waiting 10s (rate limit)...\n")
-      Sys.sleep(10)
+      cat("    waiting 75s (rate limit: 8 credits/min)...\n")
+      Sys.sleep(75)
     }
   }
 

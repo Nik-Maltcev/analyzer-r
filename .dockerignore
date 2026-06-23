@@ -8,4 +8,5 @@ replit.md
 agent.md
 node_modules/
 *.nix
-data/
+scripts/fetch_local.R
+scripts/fetch_remaining.R

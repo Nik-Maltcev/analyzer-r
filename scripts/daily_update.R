@@ -83,7 +83,7 @@ update_market <- function(tickers, market_name, con, api_key) {
       ok_count <- ok_count + 1
     }
 
-    if (b_idx < length(batches)) Sys.sleep(10)
+    if (b_idx < length(batches)) Sys.sleep(75)
   }
 
   cat(sprintf("  [%s] %d OK, %d fail, %d new rows\n", market_name, ok_count, fail_count, total_new))
