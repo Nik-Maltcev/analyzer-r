@@ -3674,8 +3674,24 @@ server <- function(input, output, session) {
 
   output$top6_ui <- renderUI({
     data <- top6_data()
-    if (is.null(data) || length(data) == 0)
-      return(placeholder_msg("Топ-6 монет не найдены в данных. Выбран рынок crypto?"))
+    if (is.null(data) || length(data) == 0) {
+      # Diagnostic: show what's available
+      pw <- tryCatch(price_wide(), error = function(e) NULL)
+      avail <- if (!is.null(pw)) colnames(pw) else NULL
+      crypto_avail <- if (!is.null(avail)) grep("BTC|ETH|BNB|SOL|XRP|DOGE", avail, value = TRUE) else NULL
+      diag_txt <- if (!is.null(avail) && length(avail) > 0)
+        paste0("Доступно тикеров: ", length(avail), ". Первые 5: ", paste(head(avail, 5), collapse = ", "))
+        else "price_wide() вернул NULL — БД пуста или market_type не crypto"
+      if (length(crypto_avail) > 0)
+        diag_txt <- paste0(diag_txt, " | Найдено похоже: ", paste(crypto_avail, collapse = ", "))
+      return(div(
+        placeholder_msg("Топ-6 монет не найдены в данных."),
+        div(style = "text-align:center;padding:20px;color:#f85149;font-size:0.85rem;",
+          "Диагностика: ", diag_txt,
+          br(), "Ищем: ", paste(TOP6_COINS, collapse = ", "),
+          br(), "Рынок: ", input$market_type)
+      ))
+    }
 
     # Build per-coin cards
     cards <- lapply(data, function(d) {
