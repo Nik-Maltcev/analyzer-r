@@ -18,15 +18,20 @@ BLUE   <- "#58a6ff"
 GREEN  <- "#3fb950"
 RED    <- "#f85149"
 GRAY   <- "#8b949e"
-BG     <- "#0d1117"
-CARD   <- "#161b22"
-BORDER <- "#30363d"
+BG     <- "#0a0e14"
+CARD   <- "#0f1419"
+CARD2  <- "#131922"
+BORDER <- "#1c2333"
+GLOW_BL <- "rgba(88,166,255,0.15)"
+GLOW_GR <- "rgba(63,185,80,0.15)"
+GLOW_RD <- "rgba(248,81,73,0.15)"
+GLOW_OR <- "rgba(247,147,26,0.15)"
 
 dark_theme <- theme_minimal(base_size = 13) +
   theme(
     plot.background  = element_rect(fill = CARD, color = NA),
     panel.background = element_rect(fill = CARD, color = NA),
-    panel.grid.major = element_line(color = "#1c2128", linewidth = 0.4),
+    panel.grid.major = element_line(color = "#161d2a", linewidth = 0.4),
     panel.grid.minor = element_blank(),
     axis.text        = element_text(color = "#8b949e", size = 10),
     axis.title       = element_text(color = "#adbac7", size = 11, face = "plain"),
@@ -353,15 +358,23 @@ halflife_color <- function(hl) {
 # ── UI ───────────────────────────────────────────────────────────────────────
 ui <- page_navbar(
   title = div(
-    style = "display:flex;align-items:center;gap:10px;",
+    style = "display:flex;align-items:center;gap:12px;padding:4px 0;",
     tags$span(style = "
-      font-size:1.4rem;font-weight:800;
+      display:inline-flex;align-items:center;justify-content:center;
+      width:34px;height:34px;border-radius:10px;
       background:linear-gradient(135deg, #58a6ff 0%, #a78bfa 50%, #f7931a 100%);
-      -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-      background-clip:text;", "CryptoScope"),
-    tags$span(style = "
-      font-size:0.7rem;color:#555;margin-top:4px;
-      padding:2px 8px;border:1px solid #30363d;border-radius:20px;", "beta")
+      box-shadow:0 4px 16px rgba(88,166,255,0.35);
+      font-size:1.1rem;font-weight:900;color:#0a0e14;",
+      "C"),
+    div(style = "display:flex;flex-direction:column;line-height:1.1;",
+      tags$span(style = "
+        font-size:1.15rem;font-weight:800;letter-spacing:-0.02em;
+        background:linear-gradient(135deg, #e6edf3 0%, #a78bfa 100%);
+        -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+        background-clip:text;", "CryptoScope"),
+      tags$span(style = "font-size:0.62rem;color:#555;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;",
+        "pairs trading terminal")
+    )
   ),
   theme = bs_theme(
     bg = BG, fg = "#e6edf3", primary = BLUE, secondary = BORDER,
@@ -369,66 +382,280 @@ ui <- page_navbar(
     "navbar-bg"          = CARD,
     "card-bg"            = CARD,
     "card-border-color"  = BORDER,
-    "input-bg"           = BG,
+    "input-bg"           = CARD2,
     "input-border-color" = BORDER,
     "input-color"        = "#e6edf3"
   ),
   fillable = FALSE,
   header = tags$head(tags$style(HTML("
-    /* Global polish */
-    body { letter-spacing: -0.01em; }
-    .navbar { border-bottom: 1px solid #21262d; backdrop-filter: blur(12px); }
-    .nav-link { font-weight: 500; font-size: 0.9rem; transition: all 0.2s ease; }
-    .nav-link:hover { color: #58a6ff !important; transform: translateY(-1px); }
-    .nav-link.active { color: #58a6ff !important; border-bottom: 2px solid #58a6ff; }
+    /* ════════════════════════════════════════════════════════════════════
+       CryptoScope — Modern Fintech Design System
+       Glassmorphism + neon accents + smooth animations
+       ════════════════════════════════════════════════════════════════════ */
 
-    /* Cards */
-    .card { border-radius: 14px; border: 1px solid #21262d; transition: border-color 0.2s ease; }
-    .card:hover { border-color: #30363d; }
-    .card-header { font-weight: 600; font-size: 0.95rem; border-bottom: 1px solid #21262d; padding: 14px 18px; }
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&display=swap');
 
-    /* Buttons */
+    :root {
+      --bg: #0a0e14;
+      --card: #0f1419;
+      --card2: #131922;
+      --border: #1c2333;
+      --border-hover: #2a3548;
+      --text: #e6edf3;
+      --text-dim: #8b949e;
+      --text-muted: #555c6b;
+      --blue: #58a6ff;
+      --green: #3fb950;
+      --red: #f85149;
+      --orange: #f7931a;
+      --purple: #a78bfa;
+      --glow-blue: rgba(88,166,255,0.2);
+      --glow-green: rgba(63,185,80,0.2);
+      --glow-red: rgba(248,81,73,0.2);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      letter-spacing: -0.01em;
+      background: var(--bg);
+      background-image:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(88,166,255,0.06), transparent),
+        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(167,139,250,0.04), transparent);
+      background-attachment: fixed;
+      font-feature-settings: 'cv11', 'ss01';
+    }
+
+    /* ── Navbar ──────────────────────────────────────────────────────────── */
+    .navbar {
+      border-bottom: 1px solid var(--border) !important;
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      background: rgba(15,20,25,0.7) !important;
+      padding: 6px 20px;
+    }
+    .nav-link {
+      font-weight: 500;
+      font-size: 0.88rem;
+      color: var(--text-dim) !important;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 8px;
+      padding: 8px 14px !important;
+      position: relative;
+    }
+    .nav-link:hover {
+      color: var(--blue) !important;
+      background: var(--glow-blue);
+      transform: translateY(-1px);
+    }
+    .nav-link.active {
+      color: var(--blue) !important;
+      background: rgba(88,166,255,0.08);
+    }
+    .nav-link.active::after {
+      content: '';
+      position: absolute;
+      bottom: -7px; left: 50%;
+      transform: translateX(-50%);
+      width: 24px; height: 2px;
+      background: var(--blue);
+      border-radius: 2px;
+      box-shadow: 0 0 8px var(--blue);
+    }
+
+    /* ── Cards (glassmorphism) ───────────────────────────────────────────── */
+    .card {
+      border-radius: 16px !important;
+      border: 1px solid var(--border) !important;
+      background: linear-gradient(180deg, var(--card) 0%, var(--card2) 100%) !important;
+      box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset, 0 8px 32px rgba(0,0,0,0.3);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .card:hover {
+      border-color: var(--border-hover) !important;
+      box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 12px 40px rgba(0,0,0,0.4);
+      transform: translateY(-1px);
+    }
+    .card-header {
+      font-weight: 600;
+      font-size: 0.92rem;
+      color: var(--text);
+      border-bottom: 1px solid var(--border) !important;
+      padding: 16px 20px !important;
+      background: transparent !important;
+    }
+    .card-body { padding: 20px !important; }
+
+    /* ── Buttons ─────────────────────────────────────────────────────────── */
     .btn-primary {
-      background: linear-gradient(135deg, #58a6ff 0%, #388bfd 100%);
-      border: none; border-radius: 10px; font-weight: 600;
-      padding: 10px 20px; transition: all 0.2s ease;
-      box-shadow: 0 4px 14px rgba(88,166,255,0.25);
+      background: linear-gradient(135deg, #58a6ff 0%, #388bfd 100%) !important;
+      border: none !important;
+      border-radius: 10px !important;
+      font-weight: 600;
+      font-size: 0.9rem;
+      padding: 10px 22px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 16px rgba(88,166,255,0.3);
     }
     .btn-primary:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 20px rgba(88,166,255,0.4);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(88,166,255,0.45);
+      filter: brightness(1.1);
     }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-secondary {
+      background: var(--card2) !important;
+      border: 1px solid var(--border) !important;
+      color: var(--text) !important;
+      border-radius: 10px !important;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover {
+      border-color: var(--border-hover) !important;
+      background: var(--card) !important;
+    }
+    .btn-sm { font-size: 0.78rem; padding: 6px 12px; }
 
-    /* File input */
-    .form-control { border-radius: 8px; }
-
-    /* Value boxes */
-    .bslib-value-box { border-radius: 12px; border: 1px solid #21262d; }
-
-    /* Tables */
-    .dataTables_wrapper { font-size: 0.88rem; }
-    table.dataTable { border-collapse: separate; border-spacing: 0; }
-    table.dataTable thead th { border-bottom: 2px solid #30363d; font-weight: 600; }
-    table.dataTable tbody tr { transition: background 0.15s ease; }
-    table.dataTable tbody tr:hover { background: #1c2128 !important; }
-
-    /* Select inputs */
+    /* ── Inputs ──────────────────────────────────────────────────────────── */
+    .form-control, .form-select {
+      border-radius: 10px !important;
+      background-color: var(--card2) !important;
+      border: 1px solid var(--border) !important;
+      color: var(--text) !important;
+      transition: all 0.2s;
+      font-size: 0.88rem;
+    }
+    .form-control:focus, .form-select:focus {
+      border-color: var(--blue) !important;
+      box-shadow: 0 0 0 3px var(--glow-blue) !important;
+      background-color: var(--card) !important;
+    }
     select.form-select, select.form-control {
-      border-radius: 8px; background-color: #0d1117;
-      border: 1px solid #30363d; color: #e6edf3;
+      border-radius: 10px !important;
+      background-color: var(--card2) !important;
+      border: 1px solid var(--border) !important;
     }
 
-    /* Progress bar */
-    .shiny-notification { background: #161b22; border: 1px solid #30363d; border-radius: 10px; color: #e6edf3; }
+    /* ── Radio buttons (segmented control look) ──────────────────────────── */
+    .radio-inline .radio { display: inline-flex; }
+    .radio-inline label {
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-right: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-dim);
+    }
+    .radio-inline label:hover {
+      border-color: var(--blue);
+      color: var(--text);
+    }
+    .radio-inline input:checked + span {
+      color: var(--blue);
+      font-weight: 600;
+    }
 
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: #0d1117; }
-    ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+    /* ── Checkbox ────────────────────────────────────────────────────────── */
+    .form-check-input:checked {
+      background-color: var(--blue) !important;
+      border-color: var(--blue) !important;
+    }
+    .form-check-input:focus {
+      border-color: var(--blue) !important;
+      box-shadow: 0 0 0 3px var(--glow-blue) !important;
+    }
 
-    /* Checkbox */
-    .form-check-input:checked { background-color: #58a6ff; border-color: #58a6ff; }
+    /* ── Value boxes ─────────────────────────────────────────────────────── */
+    .bslib-value-box {
+      border-radius: 14px !important;
+      border: 1px solid var(--border) !important;
+      background: linear-gradient(135deg, var(--card) 0%, var(--card2) 100%) !important;
+      transition: all 0.3s;
+    }
+    .bslib-value-box:hover {
+      border-color: var(--border-hover) !important;
+      transform: translateY(-2px);
+    }
+
+    /* ── Tables (DT) ─────────────────────────────────────────────────────── */
+    .dataTables_wrapper { font-size: 0.84rem; }
+    table.dataTable {
+      border-collapse: separate !important;
+      border-spacing: 0 !important;
+    }
+    table.dataTable thead th {
+      border-bottom: 2px solid var(--border) !important;
+      font-weight: 600;
+      color: var(--text);
+      text-transform: uppercase;
+      font-size: 0.72rem;
+      letter-spacing: 0.05em;
+      padding: 12px 14px !important;
+    }
+    table.dataTable tbody td {
+      padding: 10px 14px !important;
+      border-bottom: 1px solid rgba(28,35,51,0.5) !important;
+    }
+    table.dataTable tbody tr {
+      transition: all 0.15s ease;
+    }
+    table.dataTable tbody tr:hover {
+      background: var(--card2) !important;
+    }
+    .table-dark { background: transparent !important; color: var(--text) !important; }
+
+    /* ── Progress / notifications ────────────────────────────────────────── */
+    .shiny-notification {
+      background: rgba(15,20,25,0.95) !important;
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border) !important;
+      border-radius: 12px !important;
+      color: var(--text) !important;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    .progress-bar {
+      background: linear-gradient(90deg, var(--blue), var(--purple)) !important;
+    }
+
+    /* ── Scrollbar ───────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 5px;
+      border: 2px solid var(--bg);
+    }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+
+    /* ── Numbers (monospace for financial data) ──────────────────────────── */
+    .num, .dataTables_wrapper td {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Animations ──────────────────────────────────────────────────────── */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 8px currentColor; }
+      50%      { box-shadow: 0 0 16px currentColor; }
+    }
+    .card, .bslib-value-box { animation: fadeInUp 0.4s ease-out; }
+
+    /* ── HR ──────────────────────────────────────────────────────────────── */
+    hr { border-color: var(--border) !important; opacity: 0.5; }
+
+    /* ── Slider (range) ──────────────────────────────────────────────────── */
+    .irs--shiny .irs-bar { background: var(--blue) !important; }
+    .irs--shiny .irs-handle {
+      background: var(--blue) !important;
+      box-shadow: 0 0 0 4px var(--glow-blue);
+    }
   "))),
 
   # ── TAB 1: Данные ───────────────────────────────────────────────────────
