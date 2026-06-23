@@ -889,7 +889,7 @@ server <- function(input, output, session) {
   signals_data <- reactive({
     df <- pairs_coint()
     if (is.null(df)) return(data.frame())
-    good <- df[!is.na(df$corr) & abs(df$corr) >= 0.7, , drop = FALSE]
+    good <- df[!is.na(df$corr) & abs(df$corr) >= 0.5, , drop = FALSE]
     if (nrow(good) == 0) return(data.frame())
     good$corr <- round(abs(good$corr) * 100)
     good
@@ -1418,6 +1418,7 @@ server <- function(input, output, session) {
             "Сигналы формируются на основе Z-score спреда коинтегрированных пар. ",
             "Вход при |Z| > 2, выход при |Z| < 0.5. Прогноз — AR(1) модель."),
           checkboxInput("signals_coint_only", "Только коинтегрированные пары", value = TRUE),
+          sliderInput("signals_min_corr", "Мин. корреляция", min = 50, max = 100, value = 70, step = 5, post = "%", width = "100%"),
           uiOutput("signals_active"),
           hr(),
           tags$h6(style = "color:#e6edf3;margin-top:16px;", "📋 Все пары — сводная таблица"),
@@ -1430,6 +1431,8 @@ server <- function(input, output, session) {
   output$signals_active <- renderUI({
     df <- signals_data(); req(df)
     if (isTRUE(input$signals_coint_only)) df <- df[df$is_coint == TRUE, ]
+    min_corr <- if (isTruthy(input$signals_min_corr)) input$signals_min_corr else 70
+    df <- df[df$corr >= min_corr, , drop = FALSE]
     active <- df[df$signal_type != "wait", ]
     active <- active[order(-abs(active$z_now)), ]
 
@@ -1509,6 +1512,8 @@ server <- function(input, output, session) {
   output$signals_table <- renderDT({
     df <- signals_data(); req(df)
     if (isTRUE(input$signals_coint_only)) df <- df[df$is_coint == TRUE, ]
+    min_corr <- if (isTruthy(input$signals_min_corr)) input$signals_min_corr else 70
+    df <- df[df$corr >= min_corr, , drop = FALSE]
     out <- data.frame(
       "Пара"        = paste0(df$A, " / ", df$B),
       "Z сейчас"    = df$z_now,
