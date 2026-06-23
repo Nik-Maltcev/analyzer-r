@@ -855,7 +855,7 @@ ui <- page_navbar(
                     "🔗 Corr Breakdown" = "corrbreak", "🚀 Momentum" = "momentum",
                     "🚨 Аномалии" = "anomaly", "📦 Volume" = "volume",
                     "📉 Drawdown" = "drawdown", "🎯 Multi-TF" = "multitf",
-                    "🌊 Volatility" = "volatility"),
+                    "🌊 Volatility" = "volatility", "🕐 Интрадей" = "intraday"),
         selected = "leadlag", inline = TRUE)
     ),
     div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
@@ -900,6 +900,20 @@ server <- function(input, output, session) {
       sprintf("SELECT ticker, date, close FROM prices WHERE market = '%s' ORDER BY ticker, date", market)
     } else {
       "SELECT ticker, date, close FROM prices ORDER BY ticker, date"
+    }
+    dbGetQuery(con, query)
+  }
+
+  get_hourly_data <- function(ticker = NULL) {
+    if (!file.exists(DB_PATH)) return(NULL)
+    con <- dbConnect(SQLite(), DB_PATH)
+    on.exit(dbDisconnect(con))
+    tables <- dbGetQuery(con, "SELECT name FROM sqlite_master WHERE type='table' AND name='hourly_prices'")$name
+    if (!"hourly_prices" %in% tables) return(NULL)
+    query <- if (!is.null(ticker)) {
+      sprintf("SELECT * FROM hourly_prices WHERE ticker = '%s' ORDER BY timestamp", ticker)
+    } else {
+      "SELECT * FROM hourly_prices ORDER BY ticker, timestamp"
     }
     dbGetQuery(con, query)
   }
@@ -2589,6 +2603,67 @@ server <- function(input, output, session) {
          per_asset = per_asset)
   })
 
+  # ── 10. Intraday: почасовые паттерны для 6 монет ────────────────────────
+  intraday_scan <- reactive({
+    hdf <- get_hourly_data()
+    if (is.null(hdf) || nrow(hdf) == 0) return(NULL)
+
+    # Compute hourly returns per ticker
+    res <- list()
+    for (sym in unique(hdf$ticker)) {
+      sub <- hdf[hdf$ticker == sym, ]
+      sub <- sub[order(sub$timestamp), ]
+      if (nrow(sub) < 100) next
+      sub$ret <- c(NA, diff(log(sub$close)))
+      sub <- sub[!is.na(sub$ret), ]
+
+      # Average return + win rate per hour (0-23 UTC)
+      hour_avg <- sapply(0:23, function(h) {
+        vals <- sub$ret[sub$hour == h]
+        if (length(vals) < 10) return(NA)
+        mean(vals) * 100
+      })
+      hour_win <- sapply(0:23, function(h) {
+        vals <- sub$ret[sub$hour == h]
+        vals <- vals[!is.na(vals)]
+        if (length(vals) < 10) return(NA)
+        round(sum(vals > 0) / length(vals) * 100)
+      })
+      hour_n <- sapply(0:23, function(h) sum(sub$hour == h & !is.na(sub$ret)))
+
+      # Best/worst hour
+      valid <- !is.na(hour_avg)
+      if (sum(valid) < 10) next
+      best_hour <- which.max(hour_avg) - 1
+      worst_hour <- which.min(hour_avg) - 1
+      best_avg <- hour_avg[best_hour + 1]
+      worst_avg <- hour_avg[worst_hour + 1]
+      best_win <- hour_win[best_hour + 1]
+      worst_win <- hour_win[worst_hour + 1]
+
+      # Current hour
+      current_hour <- as.integer(format(Sys.time(), "%H"))
+      current_avg <- hour_avg[current_hour + 1]
+      current_win <- hour_win[current_hour + 1]
+
+      # Volatility per hour (range high-low as % of price)
+      hour_vol <- sapply(0:23, function(h) {
+        vals <- sub[sub$hour == h, ]
+        if (nrow(vals) < 10) return(NA)
+        mean((vals$high - vals$low) / vals$close * 100)
+      })
+
+      res[[sym]] <- list(
+        sym = sym, hour_avg = hour_avg, hour_win = hour_win,
+        hour_n = hour_n, hour_vol = hour_vol,
+        best_hour = best_hour, best_avg = best_avg, best_win = best_win,
+        worst_hour = worst_hour, worst_avg = worst_avg, worst_win = worst_win,
+        current_hour = current_hour, current_avg = current_avg,
+        current_win = current_win, n_candles = nrow(sub))
+    }
+    res
+  })
+
   # ── Scanner UI dispatcher ────────────────────────────────────────────────
   output$scanner_ui <- renderUI({
     st <- input$scanner_type
@@ -3126,6 +3201,80 @@ server <- function(input, output, session) {
         tagList(vol_bars),
         tags$h6(style = "color:#e6edf3;margin:18px 0 12px;", "📋 Все инструменты"),
         DTOutput("volatility_table"))
+
+    } else if (st == "intraday") {
+      data <- intraday_scan()
+      if (is.null(data) || length(data) == 0)
+        return(placeholder_msg("Нет почасовых данных. Запустите scripts/fetch_hourly.R для загрузки с Binance."))
+
+      cards <- lapply(data, function(d) {
+        sym_display <- sub("\\.", "/", d$sym)
+
+        # 24-hour bars
+        hour_bars <- lapply(0:23, function(h) {
+          avg <- d$hour_avg[h + 1]
+          win <- d$hour_win[h + 1]
+          n <- d$hour_n[h + 1]
+          if (is.na(avg)) return(div(style = "height:14px;"))
+          col <- if (avg > 0.05) GREEN else if (avg < -0.05) RED else GRAY
+          bar_w <- min(abs(avg) / 0.5 * 100, 100)
+          is_current <- h == d$current_hour
+          border <- if (is_current) paste0("border:1px solid ", BLUE, ";") else "border:1px solid transparent;"
+          div(style = paste0("display:flex;align-items:center;gap:4px;padding:1px 4px;border-radius:3px;", border),
+            div(style = "font-size:0.55rem;color:#555c6b;width:18px;text-align:right;", sprintf("%02d", h)),
+            div(style = paste0("font-size:0.55rem;font-weight:600;color:", col, ";width:38px;"),
+              paste0(if (avg > 0) "+" else "", round(avg, 3), "%")),
+            div(style = paste0("height:8px;border-radius:2px;width:", bar_w, "%;background:", col, ";min-width:2px;")),
+            div(style = "font-size:0.5rem;color:#333;width:24px;text-align:right;", paste0(win, "%")))
+        })
+
+        # Current hour signal
+        current_txt <- if (!is.na(d$current_avg)) {
+          if (d$current_avg > 0.05) paste0("🟢 Сейчас ", sprintf("%02d", d$current_hour), ":00 UTC — исторически +", round(d$current_avg, 3), "% (", d$current_win, "% win)")
+          else if (d$current_avg < -0.05) paste0("🔴 Сейчас ", sprintf("%02d", d$current_hour), ":00 UTC — исторически ", round(d$current_avg, 3), "% (", d$current_win, "% win)")
+          else paste0("⚪ Сейчас ", sprintf("%02d", d$current_hour), ":00 UTC — нейтрально (", round(d$current_avg, 3), "%)")
+        } else "—"
+
+        best_signal <- if (d$best_avg > 0.05)
+          paste0("📈 Лучший час: ", sprintf("%02d", d$best_hour), ":00 UTC (+", round(d$best_avg, 3), "%, ", d$best_win, "% win)")
+          else "Нет явно лучшего часа"
+        worst_signal <- if (d$worst_avg < -0.05)
+          paste0("📉 Худший час: ", sprintf("%02d", d$worst_hour), ":00 UTC (", round(d$worst_avg, 3), "%, ", d$worst_win, "% win)")
+          else "Нет явно худшего часа"
+
+        div(style = paste0("border:1px solid ", BORDER, ";border-radius:16px;padding:20px;margin-bottom:16px;background:", CARD, ";"),
+          # Header
+          div(style = "display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;",
+            tags$span(style = "font-size:1.3rem;font-weight:800;color:#e6edf3;", sym_display),
+            div(style = "font-size:0.72rem;color:#555c6b;",
+              paste0(d$n_candles, " свечей · 2 года"))),
+          # 24h bars
+          div(style = "font-size:0.82rem;font-weight:600;color:#e6edf3;margin-bottom:8px;",
+            "🕐 Средний return по часу (UTC)"),
+          tagList(hour_bars),
+          div(style = "font-size:0.66rem;color:#555c6b;margin-top:6px;margin-bottom:14px;",
+            "Синяя рамка = текущий час · зелёный = рост, красный = падение"),
+          # Signals
+          div(style = paste0("padding:12px 16px;border-radius:10px;background:", CARD2, ";border:1px solid ", BORDER, ";"),
+            div(style = "font-size:0.85rem;font-weight:600;color:#58a6ff;margin-bottom:6px;",
+              "🎯 Рекомендации"),
+            div(style = "font-size:0.82rem;color:#e6edf3;line-height:1.7;",
+              div(style = paste0("color:", if (grepl("🟢", current_txt)) GREEN else if (grepl("🔴", current_txt)) RED else GRAY, ";font-weight:600;"),
+                current_txt),
+              div(best_signal),
+              div(worst_signal))
+          )
+        )
+      })
+
+      tagList(
+        tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+          tags$span(style = "color:#8b949e;font-size:0.85rem;",
+            "Почасовые паттерны для 6 монет (2 года, Binance). ",
+            "Какой час дня исторически самый прибыльный / убыточный. ",
+            "Синяя рамка = текущий час UTC. Сделка: 1 час (вход в лучший час, выход через час).")),
+        tagList(cards)
+      )
     }
   })
 

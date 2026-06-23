@@ -4,8 +4,9 @@
 # AND at runtime via start.sh when /data is a fresh volume (Railway).
 library(RSQLite)
 
-CSV_PATH <- Sys.getenv("CSV_PATH", "/opt/seed/all_markets_3yr.csv")
-DB_PATH  <- Sys.getenv("DB_PATH",  "/data/market.db")
+CSV_PATH     <- Sys.getenv("CSV_PATH", "/opt/seed/all_markets_3yr.csv")
+HOURLY_PATH  <- Sys.getenv("HOURLY_PATH", "/opt/seed/hourly_6coins_2yr.csv")
+DB_PATH      <- Sys.getenv("DB_PATH",  "/data/market.db")
 
 if (!file.exists(CSV_PATH)) stop(sprintf("Seed CSV not found: %s", CSV_PATH))
 dir.create(dirname(DB_PATH), recursive = TRUE, showWarnings = FALSE)
@@ -13,7 +14,7 @@ dir.create(dirname(DB_PATH), recursive = TRUE, showWarnings = FALSE)
 cat(sprintf("Building database from CSV...\n  CSV: %s\n  DB:  %s\n", CSV_PATH, DB_PATH))
 df <- read.csv(CSV_PATH, stringsAsFactors = FALSE)
 df <- df[!duplicated(df[, c("ticker", "date")]), ]
-cat(sprintf("  Rows: %d, Tickers: %d\n", nrow(df), length(unique(df$ticker))))
+cat(sprintf("  Daily rows: %d, Tickers: %d\n", nrow(df), length(unique(df$ticker))))
 
 con <- dbConnect(SQLite(), DB_PATH)
 
@@ -69,6 +70,21 @@ dbExecute(con, "
   )
 ")
 
+dbExecute(con, "
+  CREATE TABLE IF NOT EXISTS hourly_prices (
+    ticker    TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    date      TEXT NOT NULL,
+    hour      INTEGER NOT NULL,
+    open      REAL,
+    high      REAL,
+    low       REAL,
+    close     REAL NOT NULL,
+    volume    REAL,
+    PRIMARY KEY (ticker, timestamp)
+  )
+")
+
 dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_pairs_market ON pairs(market)")
 dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_pairs_score   ON pairs(score DESC)")
 
@@ -76,6 +92,21 @@ dbWriteTable(con, "prices", df, append = TRUE, row.names = FALSE)
 
 dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_prices_ticker ON prices(ticker)")
 dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_prices_date ON prices(date)")
+
+# Load hourly candles (6 coins × 2 years × 24h = ~105k rows)
+if (file.exists(HOURLY_PATH)) {
+  cat(sprintf("  Loading hourly candles from: %s\n", HOURLY_PATH))
+  hdf <- read.csv(HOURLY_PATH, stringsAsFactors = FALSE)
+  hdf <- hdf[!duplicated(hdf[, c("ticker", "timestamp")]), ]
+  # Keep only columns we need
+  hdf <- hdf[, c("ticker", "timestamp", "date", "hour", "open", "high", "low", "close", "volume")]
+  dbWriteTable(con, "hourly_prices", hdf, append = TRUE, row.names = FALSE)
+  dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_hourly_ticker ON hourly_prices(ticker)")
+  dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_hourly_hour   ON hourly_prices(hour)")
+  cat(sprintf("  Hourly rows: %d, Tickers: %d\n", nrow(hdf), length(unique(hdf$ticker))))
+} else {
+  cat("  Hourly CSV not found, skipping (optional)\n")
+}
 
 dbExecute(con, "INSERT INTO update_log (market, tickers_ok, rows_added, status, message)
   VALUES ('all', ?, ?, 'success', 'Initial build from CSV')",
