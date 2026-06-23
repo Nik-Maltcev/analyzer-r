@@ -852,7 +852,8 @@ ui <- page_navbar(
     div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
       radioButtons("scanner_type", NULL,
         choices = c("⚡ Lead-Lag" = "leadlag", "🎯 Mean Reversion" = "meanrev",
-                    "🔗 Corr Breakdown" = "corrbreak", "🚀 Momentum" = "momentum"),
+                    "🔗 Corr Breakdown" = "corrbreak", "🚀 Momentum" = "momentum",
+                    "🚨 Аномалии" = "anomaly"),
         selected = "leadlag", inline = TRUE)
     ),
     div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
@@ -2306,6 +2307,79 @@ server <- function(input, output, session) {
     df
   })
 
+  # ── 5. Anomaly: аномальные движения + их зависимости ────────────────────
+  anomaly_scan <- reactive({
+    pw <- price_wide(); req(pw)
+    if (ncol(pw) < 2) return(NULL)
+    rw <- as.data.frame(lapply(pw, function(x) c(NA, diff(log(as.numeric(x))))))
+    lookback <- 90  # days for baseline stats
+
+    # Step 1: find anomalies (|Z| > 2 on latest return vs rolling 90d stats)
+    anomalies <- list()
+    for (sym in colnames(rw)) {
+      x <- rw[[sym]]
+      x_clean <- x[!is.na(x)]
+      if (length(x_clean) < lookback + 5) next
+      hist_x <- tail(head(x_clean, length(x_clean) - 1), lookback)
+      mu <- mean(hist_x); sd_x <- sd(hist_x)
+      if (is.na(sd_x) || sd_x == 0) next
+      last_ret <- tail(x_clean, 1)
+      z <- (last_ret - mu) / sd_x
+      if (abs(z) < 2) next  # only anomalies
+      anomalies[[length(anomalies) + 1]] <- data.frame(
+        ticker = sym, ret_pct = round(last_ret * 100, 2),
+        z_score = round(z, 2), direction = if (z > 0) "📈 Аномальный рост" else "📉 Аномальное падение",
+        stringsAsFactors = FALSE)
+    }
+    if (length(anomalies) == 0) return(NULL)
+    anom_df <- do.call(rbind, anomalies)
+    anom_df <- anom_df[order(-abs(anom_df$z_score)), ]
+
+    # Step 2: for each anomaly, find followers (lag 1-3 on extreme moves)
+    followers <- list()
+    anom_tickers <- anom_df$ticker
+    other_tickers <- setdiff(colnames(rw), anom_tickers)
+    if (length(other_tickers) > 0 && length(anom_tickers) > 0) {
+      for (a in anom_tickers) {
+        xa <- rw[[a]]
+        for (b in other_tickers) {
+          xb <- rw[[b]]
+          ok <- !is.na(xa) & !is.na(xb)
+          if (sum(ok) < 60) next
+          xa_c <- xa[ok]; xb_c <- xb[ok]
+          # Lag xa by 1-3 days and check correlation on extreme moves only
+          for (lag in 1:3) {
+            if (length(xa_c) <= lag + 10) next
+            xa_lag <- head(xa_c, -lag)
+            xb_l   <- tail(xb_c, -lag)
+            if (length(xa_lag) < 30) next
+            # Correlation on extreme moves (|xa_lag| > 1.5sd)
+            sd_a <- sd(xa_lag)
+            extreme <- abs(xa_lag) > 1.5 * sd_a
+            if (sum(extreme) < 5) next
+            c_ext <- cor(xa_lag[extreme], xb_l[extreme])
+            if (is.na(c_ext) || abs(c_ext) < 0.4) next
+            followers[[length(followers) + 1]] <- data.frame(
+              anomaly = a, follower = b, lag = lag,
+              ext_corr = round(c_ext, 2),
+              anomaly_dir = if (anom_df$z_score[anom_df$ticker == a] > 0) "рост" else "падение",
+              follower_action = if (c_ext > 0) {
+                if (anom_df$z_score[anom_df$ticker == a] > 0) paste0("📈 Лонг ", b, " (после роста ", a, ")")
+                else paste0("📉 Шорт ", b, " (после падения ", a, ")")
+              } else {
+                if (anom_df$z_score[anom_df$ticker == a] > 0) paste0("📉 Шорт ", b, " (после роста ", a, ")")
+                else paste0("📈 Лонг ", b, " (после падения ", a, ")")
+              },
+              stringsAsFactors = FALSE)
+          }
+        }
+      }
+    }
+
+    list(anomalies = anom_df,
+         followers = if (length(followers) > 0) do.call(rbind, followers) else NULL)
+  })
+
   # ── Scanner UI dispatcher ────────────────────────────────────────────────
   output$scanner_ui <- renderUI({
     st <- input$scanner_type
@@ -2521,6 +2595,113 @@ server <- function(input, output, session) {
         tags$h6(style = "color:#e6edf3;margin:18px 0 12px;", "📋 Все инструменты по моментуму"),
         DTOutput("momentum_table")
       )
+
+    } else if (st == "anomaly") {
+      result <- anomaly_scan()
+      if (is.null(result)) return(placeholder_msg("Нет аномальных движений (|Z| > 2) на этом рынке."))
+      anom <- result$anomalies
+      foll <- result$followers
+      ci <- get_calc_inputs(input, "scancalc_")
+
+      # Anomaly cards
+      anom_cards <- lapply(seq_len(min(6, nrow(anom))), function(i) {
+        r <- anom[i, ]
+        z_col <- if (abs(r$z_score) >= 3) RED else ORANGE
+        s <- list(
+          signal_type = if (r$z_score > 0) "short_a" else "long_a",
+          z_now = r$z_score, halflife = 3, bt = NULL, strength = "Аномалия")
+        v <- calc_signal_pnl(s, ci$cap, ci$lev, ci$taker, ci$funding)
+        tags$div(style = paste0(
+          "border:2px solid ", z_col, ";border-radius:14px;padding:14px 16px;",
+          "margin-bottom:10px;background:", CARD, ";box-shadow:0 0 20px ", z_col, "22;"),
+          layout_columns(col_widths = c(4, 3, 3, 2),
+            div(
+              tags$div(style = paste0("font-size:1rem;font-weight:700;color:", z_col, ";"), r$direction),
+              tags$div(style = "font-size:0.85rem;color:#e6edf3;font-weight:600;", r$ticker)
+            ),
+            div(style = "text-align:center;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "Движение"),
+              tags$div(style = paste0("font-size:1.1rem;font-weight:700;color:",
+                                       if (r$ret_pct > 0) GREEN else RED, ";"),
+                paste0(if (r$ret_pct > 0) "+" else "", r$ret_pct, "%"))
+            ),
+            div(style = "text-align:center;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "Z-score"),
+              tags$div(style = paste0("font-size:1.3rem;font-weight:700;color:", z_col, ";"),
+                r$z_score),
+              tags$div(style = "font-size:0.68rem;color:#555c6b;", "vs 90д")
+            ),
+            div(style = "text-align:right;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "Реакция"),
+              tags$div(style = "font-size:0.78rem;color:#58a6ff;",
+                if (r$z_score > 0) "Шорт (откат)" else "Лонг (отскок)")
+            )
+          ),
+          calc_block_ui(v)
+        )
+      })
+
+      # Follower cards (dependencies)
+      foll_cards <- NULL
+      if (!is.null(foll) && nrow(foll) > 0) {
+        foll <- foll[order(-abs(foll$ext_corr)), ]
+        foll_top <- head(foll, 8)
+        foll_cards <- lapply(seq_len(nrow(foll_top)), function(i) {
+          r <- foll_top[i, ]
+          corr_col <- if (abs(r$ext_corr) >= 0.6) GREEN else if (abs(r$ext_corr) >= 0.5) ORANGE else BLUE
+          tags$div(style = paste0(
+            "border:1px solid ", BORDER, ";border-radius:14px;padding:14px 16px;",
+            "margin-bottom:10px;background:", CARD, ";"),
+            layout_columns(col_widths = c(5, 2, 2, 3),
+              div(
+                tags$span(style = "font-size:0.95rem;font-weight:700;color:#e6edf3;",
+                  r$anomaly, " → ", r$follower),
+                tags$br(),
+                tags$span(style = "font-size:0.78rem;color:#8b949e;",
+                  paste0("После аномального ", r$anomaly_dir, " ", r$anomaly))
+              ),
+              div(style = "text-align:center;",
+                tags$div(style = "font-size:0.72rem;color:#8b949e;", "Лаг"),
+                tags$div(style = "font-size:1rem;font-weight:700;color:#f7931a;",
+                  paste0(r$lag, " дн."))
+              ),
+              div(style = "text-align:center;",
+                tags$div(style = "font-size:0.72rem;color:#8b949e;", "Корр. на экстремумах"),
+                tags$div(style = paste0("font-size:1rem;font-weight:700;color:", corr_col, ";"),
+                  r$ext_corr)
+              ),
+              div(style = "text-align:right;",
+                tags$div(style = "font-size:0.72rem;color:#8b949e;", "Сигнал"),
+                tags$div(style = "font-size:0.82rem;font-weight:600;color:#58a6ff;",
+                  r$follower_action)
+              )
+            )
+          )
+        })
+      }
+
+      tagList(
+        tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+          tags$span(style = "color:#8b949e;font-size:0.85rem;",
+            "Аномалии = движения с |Z| > 2 относительно своей 90-дневной истории. ",
+            "Z > 3 (красный) — экстрим, возможен быстрый откат. ",
+            "Ниже — зависимости: инструменты, которые исторически реагировали на аномалии с лагом 1-3 дня.")),
+        tags$h6(style = "color:#e6edf3;margin-bottom:12px;font-size:0.88rem;",
+          paste0("🚨 Аномальные движения сегодня: ", nrow(anom), " инструментов")),
+        tagList(anom_cards),
+        if (!is.null(foll_cards)) tagList(
+          tags$h6(style = "color:#e6edf3;margin:18px 0 12px;font-size:0.88rem;",
+            "🔗 Зависимости: кто реагирует на аномалии с лагом"),
+          tagList(foll_cards)
+        ) else if (nrow(anom) > 0) tags$div(
+          style = "padding:14px;color:#555c6b;font-size:0.82rem;text-align:center;",
+          "Зависимостей с лагом 1-3 дня не найдено для текущих аномалий."),
+        tags$h6(style = "color:#e6edf3;margin:18px 0 12px;", "📋 Все аномалии"),
+        DTOutput("anomaly_table"),
+        if (!is.null(foll) && nrow(foll) > 0) tagList(
+          tags$h6(style = "color:#e6edf3;margin:18px 0 12px;", "📋 Все зависимости"),
+          DTOutput("anomaly_followers_table"))
+      )
     }
   })
 
@@ -2576,6 +2757,39 @@ server <- function(input, output, session) {
       style = "bootstrap5", class = "table-dark table-sm") |>
       formatStyle("7 дней %",
         color = styleInterval(c(-5, 5), c("#f85149", "#f7931a", "#3fb950")),
+        fontWeight = "bold")
+  })
+
+  output$anomaly_table <- renderDT({
+    res <- anomaly_scan(); req(res)
+    df <- res$anomalies
+    datatable(data.frame(
+      "Тикер" = df$ticker, "Движение %" = df$ret_pct,
+      "Z-score" = df$z_score, "Тип" = df$direction,
+      stringsAsFactors = FALSE, check.names = FALSE),
+      rownames = FALSE, options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
+      style = "bootstrap5", class = "table-dark table-sm") |>
+      formatStyle("Z-score",
+        color = styleInterval(c(-3, -2, 2, 3), c("#3fb950", "#f7931a", "#f7931a", "#f85149", "#f85149")),
+        fontWeight = "bold") |>
+      formatStyle("Движение %",
+        color = styleInterval(0, c("#f85149", "#3fb950")),
+        fontWeight = "bold")
+  })
+
+  output$anomaly_followers_table <- renderDT({
+    res <- anomaly_scan(); req(res, res$followers)
+    df <- res$followers
+    datatable(data.frame(
+      "Аномалия" = df$anomaly, "Ведомый" = df$follower,
+      "Лаг (дн.)" = df$lag, "Корр. на экстремумах" = df$ext_corr,
+      "После" = df$anomaly_dir, "Сигнал" = df$follower_action,
+      stringsAsFactors = FALSE, check.names = FALSE),
+      rownames = FALSE, options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
+      style = "bootstrap5", class = "table-dark table-sm") |>
+      formatStyle("Корр. на экстремумах",
+        color = styleInterval(c(-0.6, -0.4, 0.4, 0.6),
+          c("#3fb950", "#f7931a", "#f7931a", "#58a6ff", "#3fb950")),
         fontWeight = "bold")
   })
 
