@@ -3008,11 +3008,42 @@ server <- function(input, output, session) {
                     else if (grepl("Повышенная", res$regime)) ORANGE
                     else if (grepl("Низкая|спокойный", res$regime)) BLUE
                     else GREEN
-      strat_txt <- if (grepl("Высокая|бурный", res$regime))
-        "Стратегия: mean reversion работает лучше (быстрые возвраты), momentum рискованнее."
-        else if (grepl("Низкая|спокойный", res$regime))
-        "Стратегия: momentum работает лучше (тренды устойчивее), mean reversion слабее."
-        else "Обе стратегии в норме."
+
+      # Detailed strategy recommendations per regime
+      if (grepl("Высокая|бурный", res$regime)) {
+        recs <- list(
+          list("🎯 Mean Reversion — приоритет", "Быстрые возвраты после всплесков. Вход при |Z|>2, выход за 1-3 дня.", GREEN),
+          list("⚠ Pairs Trading — отлично", "Спреды расходятся сильнее = больше сигналов. Коинтеграция устойчива.", GREEN),
+          list("🚫 Momentum — опасно", "Тренды ломаются резко. Не держи дольше 2-3 дней.", RED),
+          list("📏 Размер позиции — уменьшить", "Высокая вола = широкий стоп. Сократи размер на 30-50%.", ORANGE))
+      } else if (grepl("Повышенная", res$regime)) {
+        recs <- list(
+          list("🎯 Mean Reversion — хорошо", "Возвраты работают, но медленнее. Hold 3-7 дней.", GREEN),
+          list("🤝 Pairs Trading — нормально", "Сигналы есть, но слабее. Фильтруй по |Z|>2.", ORANGE),
+          list("⚠ Momentum — осторожно", "Тренды есть, но хрупкие. Стоп-лосс обязателен.", ORANGE),
+          list("📏 Размер позиции — стандарт", "Обычный риск, без изменений.", GRAY))
+      } else if (grepl("Низкая|спокойный", res$regime)) {
+        recs <- list(
+          list("🚀 Momentum — приоритет", "Тренды устойчивые, держатся долго. Hold 7-14 дней.", GREEN),
+          list("🚫 Mean Reversion — слабо", "Отклонения маленькие, возвраты мелкие. |Z| редко > 2.", RED),
+          list("🤝 Pairs Trading — мало сигналов", "Спреды узкие, входы редкие. Жди расширения.", ORANGE),
+          list("📏 Размер позиции — можно увеличить", "Низкая вола = узкий стоп. Размер можно +20-30%.", GREEN))
+      } else {
+        recs <- list(
+          list("✅ Все стратегии в норме", "Mean reversion и momentum работают одинаково.", GRAY),
+          list("🤝 Pairs Trading — стабильно", "Обычное количество сигналов, стандартный hold.", GRAY),
+          list("📏 Размер позиции — стандарт", "Обычный риск.", GRAY))
+      }
+
+      rec_cards <- lapply(recs, function(r) {
+        div(style = paste0("display:flex;align-items:flex-start;gap:12px;padding:12px 16px;",
+                           "border-radius:10px;background:", CARD2, ";margin-bottom:8px;",
+                           "border-left:3px solid ", r[[3]], ";"),
+          div(style = paste0("font-size:0.88rem;font-weight:600;color:", r[[3]], ";min-width:200px;"),
+            r[[1]]),
+          div(style = "font-size:0.82rem;color:#adbac7;flex:1;",
+            r[[2]]))
+      })
 
       top_vol <- head(res$per_asset, 10)
       vol_bars <- lapply(seq_len(nrow(top_vol)), function(i) {
@@ -3027,6 +3058,7 @@ server <- function(input, output, session) {
       })
 
       tagList(
+        # Regime banner
         div(style = paste0("padding:18px 22px;border-radius:14px;border:2px solid ", regime_col,
                            ";background:", CARD, ";margin-bottom:18px;text-align:center;"),
           div(style = "font-size:0.8rem;color:#8b949e;margin-bottom:6px;", "Текущий режим рынка"),
@@ -3045,9 +3077,14 @@ server <- function(input, output, session) {
             div(style="text-align:center;",
               div(style="font-size:0.72rem;color:#8b949e;", "Период"),
               div(style="font-size:1.2rem;font-weight:700;color:#e6edf3;", "30 дней"))
-          ),
-          div(style = "font-size:0.82rem;color:#8b949e;margin-top:10px;", strat_txt)
+          )
         ),
+        # Recommendations
+        div(style = "padding:18px 22px;border-radius:14px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
+          div(style = "font-size:1rem;font-weight:700;color:#e6edf3;margin-bottom:14px;",
+            "📋 Рекомендации по стратегиям"),
+          tagList(rec_cards)),
+        # Top volatile
         tags$h6(style = "color:#e6edf3;margin-bottom:12px;", "📊 Топ-10 по волатильности (годовой %)"),
         tagList(vol_bars),
         tags$h6(style = "color:#e6edf3;margin:18px 0 12px;", "📋 Все инструменты"),
