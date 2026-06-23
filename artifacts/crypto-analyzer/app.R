@@ -3609,6 +3609,16 @@ server <- function(input, output, session) {
         round(sum(vals > 0) / length(vals) * 100)
       })
       dow_n <- sapply(0:6, function(d) sum(dow == d & !is.na(ret)))
+      dow_up <- sapply(0:6, function(d) {
+        vals <- ret[dow == d]
+        vals <- vals[!is.na(vals)]
+        sum(vals > 0)
+      })
+      dow_down <- sapply(0:6, function(d) {
+        vals <- ret[dow == d]
+        vals <- vals[!is.na(vals)]
+        sum(vals <= 0)
+      })
 
       # End of month
       is_eom <- dom >= 28
@@ -3660,6 +3670,7 @@ server <- function(input, output, session) {
 
       res[[sym]] <- list(
         sym = sym, dow_avg = dow_avg, dow_win = dow_win, dow_n = dow_n,
+        dow_up = dow_up, dow_down = dow_down,
         dow_names = dow_names, best_day = best_day, best_avg = best_avg,
         best_win = best_win, worst_day = worst_day, worst_avg = worst_avg,
         worst_win = worst_win, eom_avg = eom_avg, eom_win = eom_win,
@@ -3765,13 +3776,43 @@ server <- function(input, output, session) {
             streak_txt)),
 
         layout_columns(col_widths = c(7, 5),
-          # Left: day-of-week
+          # Left: day-of-week + up/down summary
           div(
             div(style = "font-size:0.82rem;font-weight:600;color:#e6edf3;margin-bottom:8px;",
               "📅 Средний return по дню недели"),
             tagList(dow_bars),
-            div(style = "font-size:0.68rem;color:#555c6b;margin-top:6px;",
-              paste0("Синяя рамка = сегодня (", d$today_name, ")"))
+            div(style = "font-size:0.68rem;color:#555c6b;margin-top:6px;margin-bottom:14px;",
+              paste0("Синяя рамка = сегодня (", d$today_name, ")")),
+            # Up/down days summary
+            div(style = paste0("padding:12px 14px;border-radius:10px;background:", CARD2,
+                               ";border:1px solid ", BORDER, ";"),
+              div(style = "font-size:0.82rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
+                "📊 В какие дни чаще росла / падала"),
+              layout_columns(col_widths = c(6, 6),
+                # Up days
+                div(
+                  div(style = paste0("font-size:0.78rem;font-weight:600;color:", GREEN, ";margin-bottom:6px;"),
+                    "📈 Чаще росла"),
+                  tagList(lapply(order(-d$dow_up)[1:3], function(i) {
+                    n_up <- d$dow_up[i]; n_tot <- d$dow_n[i]
+                    pct <- if (n_tot > 0) round(n_up / n_tot * 100) else 0
+                    div(style = "font-size:0.75rem;color:#adbac7;margin-bottom:3px;",
+                      paste0(d$dow_names[i], ": ", n_up, " из ", n_tot, " (", pct, "%)"))
+                  }))
+                ),
+                # Down days
+                div(
+                  div(style = paste0("font-size:0.78rem;font-weight:600;color:", RED, ";margin-bottom:6px;"),
+                    "📉 Чаще падала"),
+                  tagList(lapply(order(-d$dow_down)[1:3], function(i) {
+                    n_dn <- d$dow_down[i]; n_tot <- d$dow_n[i]
+                    pct <- if (n_tot > 0) round(n_dn / n_tot * 100) else 0
+                    div(style = "font-size:0.75rem;color:#adbac7;margin-bottom:3px;",
+                      paste0(d$dow_names[i], ": ", n_dn, " из ", n_tot, " (", pct, "%)"))
+                  }))
+                )
+              )
+            )
           ),
           # Right: monthly seasonality + stats
           div(
