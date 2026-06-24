@@ -827,9 +827,10 @@ ui <- page_navbar(
     div(style = "padding:14px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
       div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
         "Фильтры пар"),
-      layout_columns(col_widths = c(6, 6),
-        checkboxInput("mp_coint_only", "Только коинтегрированные пары", value = FALSE),
-        sliderInput("mp_min_corr", "Мин. корреляция", min = 50, max = 100, value = 50, step = 5, post = "%", width = "100%")
+      layout_columns(col_widths = c(4, 4, 4),
+        checkboxInput("mp_coint_only", "Только коинтегрированные", value = FALSE),
+        sliderInput("mp_min_corr", "Мин. корреляция", min = 50, max = 100, value = 50, step = 5, post = "%", width = "100%"),
+        sliderInput("mp_min_trades", "Мин. сделок в истории", min = 1, max = 20, value = 3, step = 1, width = "100%")
       )
     ),
     uiOutput("maxprofit_ui")
@@ -848,10 +849,11 @@ ui <- page_navbar(
     div(style = "padding:14px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
       div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
         "Фильтры пар"),
-      layout_columns(col_widths = c(4, 4, 4),
+      layout_columns(col_widths = c(3, 3, 3, 3),
         checkboxInput("short_coint_only", "Только коинтегрированные", value = FALSE),
         sliderInput("short_min_corr", "Мин. корреляция", min = 50, max = 100, value = 50, step = 5, post = "%", width = "100%"),
-        sliderInput("short_max_days", "Макс. дней в сделке", min = 1, max = 7, value = 7, step = 1, post = " дн.", width = "100%")
+        sliderInput("short_max_days", "Макс. дней в сделке", min = 1, max = 7, value = 7, step = 1, post = " дн.", width = "100%"),
+        sliderInput("short_min_trades", "Мин. сделок в истории", min = 1, max = 20, value = 3, step = 1, width = "100%")
       )
     ),
     uiOutput("shorttrades_ui")
@@ -1884,6 +1886,7 @@ server <- function(input, output, session) {
     if (is.null(df) || is.null(pw)) return(NULL)
 
     min_corr <- if (isTruthy(input$mp_min_corr)) input$mp_min_corr else 50
+    min_trades <- if (isTruthy(input$mp_min_trades)) input$mp_min_trades else 3
     good <- df[!is.na(df$corr) & abs(df$corr) >= min_corr / 100, , drop = FALSE]
     if (isTRUE(input$mp_coint_only)) {
       good <- good[!is.na(good$is_coint) & good$is_coint == TRUE, , drop = FALSE]
@@ -1905,6 +1908,8 @@ server <- function(input, output, session) {
       # If not enough similar, use all trades for this pair
       if (nrow(similar) < 3) similar <- th
       if (nrow(similar) == 0) next
+      # Filter by minimum trades (winrate from 1 trade is meaningless)
+      if (nrow(similar) < min_trades) next
 
       wins <- similar[similar$pnl_pct > 0, ]
       losses <- similar[similar$pnl_pct <= 0, ]
@@ -2121,6 +2126,7 @@ server <- function(input, output, session) {
 
     min_corr <- if (isTruthy(input$short_min_corr)) input$short_min_corr else 50
     max_days <- if (isTruthy(input$short_max_days)) input$short_max_days else 7
+    min_trades <- if (isTruthy(input$short_min_trades)) input$short_min_trades else 3
     good <- df[!is.na(df$corr) & abs(df$corr) >= min_corr / 100, , drop = FALSE]
     if (isTRUE(input$short_coint_only)) {
       good <- good[!is.na(good$is_coint) & good$is_coint == TRUE, , drop = FALSE]
@@ -2142,6 +2148,7 @@ server <- function(input, output, session) {
       # Only short historical trades (hold <= max_days)
       similar <- similar[similar$hold_days <= max_days, , drop = FALSE]
       if (nrow(similar) < 1) next
+      if (nrow(similar) < min_trades) next
 
       wins <- similar[similar$pnl_pct > 0, ]
       losses <- similar[similar$pnl_pct <= 0, ]

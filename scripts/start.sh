@@ -70,8 +70,26 @@ if [ -f "$DB_PATH" ] && [ -s "$DB_PATH" ]; then
   fi
 fi
 
-# Start cron daemon
-cron
+# ── Background daily updater (replaces cron — more reliable in Docker) ─────
+# Runs daily_update.R at 06:00 UTC (09:00 MSK) in a background loop.
+# All env vars are inherited, logs go to stdout (visible in Railway).
+(
+  echo "[updater] Background updater started, target: 06:00 UTC daily"
+  while true; do
+    current_h=$(date -u +%H)
+    current_m=$(date -u +%M)
+    if [ "$current_h" = "06" ] && [ "$current_m" = "00" ]; then
+      echo "[updater] $(date -u) — Running daily_update.R..."
+      /usr/local/bin/Rscript /scripts/daily_update.R 2>&1
+      echo "[updater] $(date -u) — daily_update.R finished."
+      # Sleep 90s to skip past this minute (avoid double-run)
+      sleep 90
+    fi
+    # Check every 30 seconds
+    sleep 30
+  done
+) &
+echo "[start.sh] Background updater launched (PID $!)"
 
 # Start Shiny app
 PORT="${PORT:-3000}"

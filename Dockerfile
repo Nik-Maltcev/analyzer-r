@@ -13,7 +13,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libharfbuzz-dev \
     libfribidi-dev \
     libsqlite3-dev \
-    cron \
     && rm -rf /var/lib/apt/lists/*
 
 # Install R packages
@@ -46,11 +45,6 @@ RUN Rscript /scripts/build_db.R
 
 # Copy app
 COPY artifacts/crypto-analyzer/ /app/
-
-# Setup cron job: daily at 06:00 UTC (09:00 MSK)
-RUN echo "0 6 * * * /usr/local/bin/Rscript /scripts/daily_update.R >> /data/cron.log 2>&1" > /etc/cron.d/daily-update \
-    && chmod 0644 /etc/cron.d/daily-update \
-    && crontab /etc/cron.d/daily-update
 
 # Startup script
 COPY scripts/start.sh /start.sh
