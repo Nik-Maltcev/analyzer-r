@@ -814,19 +814,6 @@ ui <- page_navbar(
     uiOutput("signals_ui")
   ),
 
-  # ── TAB 4: Понятные сигналы ─────────────────────────────────────────────
-  nav_panel("💡 Понятные сигналы",
-    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #30363d;background:#161b22;margin-bottom:18px;",
-      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:12px;",
-        "Настройки калькулятора (применяются ко всем сигналам)"),
-      calc_settings_ui("calc_"),
-      div(style = "font-size:0.72rem;color:#555;margin-top:8px;",
-        "MEXC Perpetual: taker 0.02%, maker 0.00%, финансирование ~0.01% / 8ч. ",
-        "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
-    ),
-    uiOutput("clear_signals_ui")
-  ),
-
   # ── TAB 5: Максимальный профит ──────────────────────────────────────────
   nav_panel("💎 Макс. профит",
     div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
@@ -1800,96 +1787,6 @@ server <- function(input, output, session) {
               options = list(pageLength = 25, dom = "tip", scrollX = TRUE,
                              order = list(list(1, "desc"))),
               style = "bootstrap5", class = "table-dark table-sm")
-  })
-
-  # ── ТАБ: Понятные сигналы ───────────────────────────────────────────────
-  clear_signals_data <- reactive({
-    df <- pairs_coint()
-    pw  <- price_wide()
-    if (is.null(df) || is.null(pw)) return(NULL)
-    active <- df[df$signal_type != "wait", , drop = FALSE]
-    if (nrow(active) == 0) return(NULL)
-    active <- active[order(-abs(active$z_now)), ]
-    active <- head(active, 10)
-
-    lapply(seq_len(nrow(active)), function(i) {
-      r  <- active[i, ]
-      hr <- if (!is.na(r$hedge_ratio)) r$hedge_ratio else 1
-      bt <- pair_backtest_stats(pw, r$A, r$B, hr)
-      list(
-        A = r$A, B = r$B,
-        signal = r$signal, signal_type = r$signal_type,
-        z_now = r$z_now, z_forecast = r$z_forecast,
-        strength = r$strength, is_coint = r$is_coint,
-        corr = round(abs(r$corr) * 100),
-        halflife = r$halflife, hedge_ratio = hr,
-        bt = bt
-      )
-    })
-  })
-
-  output$clear_signals_ui <- renderUI({
-    items <- clear_signals_data()
-    if (is.null(items)) return(placeholder_msg("Нет активных сигналов. Все пары в нейтральной зоне."))
-
-    ci <- get_calc_inputs(input, "calc_")
-
-    cards <- lapply(items, function(s) {
-      is_short <- isTRUE(s$signal_type == "short_a")
-      sig_col  <- if (is_short) RED else GREEN
-      sig_icon <- if (is_short) "📉" else "📈"
-
-      v <- calc_signal_pnl(s, ci$cap, ci$lev, ci$taker, ci$funding)
-
-      str_col <- switch(s$strength,
-        "Сильный"     = GREEN,
-        "Прогнозный"  = ORANGE,
-        "Формируется" = BLUE,
-        GRAY)
-
-      div(style = paste0(
-        "border:2px solid ", sig_col, ";border-radius:14px;padding:18px 20px;",
-        "margin-bottom:16px;background:", BG, ";box-shadow:0 0 20px ", sig_col, "22;"),
-        div(style = paste0("font-size:1.15rem;font-weight:700;color:", sig_col, ";margin-bottom:14px;"),
-          sig_icon, " ", s$signal),
-        layout_columns(col_widths = c(3, 3, 3, 3),
-          div(style = paste0("padding:12px;border-radius:8px;background:", CARD, ";border:1px solid ", BORDER, ";"),
-            div(style = "font-size:0.75rem;color:#8b949e;margin-bottom:4px;", "Когда входить"),
-            div(style = "font-size:0.95rem;font-weight:600;color:#e6edf3;", "Сейчас"),
-            div(style = "font-size:0.78rem;color:#555;", paste0("Z = ", s$z_now))
-          ),
-          div(style = paste0("padding:12px;border-radius:8px;background:", CARD, ";border:1px solid ", BORDER, ";"),
-            div(style = "font-size:0.75rem;color:#8b949e;margin-bottom:4px;", "Когда выходить"),
-            div(style = "font-size:0.85rem;font-weight:600;color:#e6edf3;", "TP: Z → ±0.5"),
-            div(style = "font-size:0.78rem;color:#555;", "SL: |Z| → 3.5")
-          ),
-          div(style = paste0("padding:12px;border-radius:8px;background:", CARD, ";border:1px solid ", BORDER, ";"),
-            div(style = "font-size:0.75rem;color:#8b949e;margin-bottom:4px;", "Сколько держать"),
-            div(style = "font-size:0.95rem;font-weight:600;color:#e6edf3;", v$hold_txt)
-          ),
-          div(style = paste0("padding:12px;border-radius:8px;background:", CARD, ";border:1px solid ", BORDER, ";"),
-            div(style = "font-size:0.75rem;color:#8b949e;margin-bottom:4px;", "Сила сигнала"),
-            div(style = paste0("font-size:0.95rem;font-weight:600;color:", str_col, ";"), s$strength),
-            div(style = "font-size:0.72rem;color:#555;", v$src_txt)
-          )
-        ),
-        calc_block_ui(v),
-        div(style = "margin-top:12px;font-size:0.8rem;color:#8b949e;",
-          badge(s$strength, str_col), "  ",
-          if (isTRUE(s$is_coint)) "✅ Коинтегрированы" else "⚠️ Не коинтегрированы",
-          "  ·  Корреляция: ", s$corr, "%",
-          if (!is.na(s$halflife)) paste0("  ·  Полупериод: ", s$halflife, " дн.") else "")
-      )
-    })
-
-    tagList(
-      tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #30363d;background:#0d1117;margin-bottom:18px;",
-        tags$span(style = "color:#8b949e;font-size:0.85rem;",
-          "Сигналы на основе Z-score спреда коинтегрированных пар. ",
-          "Вход при |Z| ≥ 2, TP при |Z| < 0.5, SL при |Z| ≥ 3.5. ",
-          "Профит — по истории backtest'а пары (или теоретический, если истории нет).")),
-      tagList(cards)
-    )
   })
 
   # ── ТАБ: Макс. профит (прогнозный) ──────────────────────────────────────
