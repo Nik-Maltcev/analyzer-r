@@ -866,13 +866,18 @@ ui <- page_navbar(
   # ── TAB 7: Сканеры ──────────────────────────────────────────────────────
   nav_panel("🔍 Сканеры",
     div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
-      radioButtons("scanner_type", NULL,
-        choices = c("⚡ Lead-Lag" = "leadlag", "🎯 Mean Reversion" = "meanrev",
-                    "🔗 Corr Breakdown" = "corrbreak", "🚀 Momentum" = "momentum",
-                    "🚨 Аномалии" = "anomaly", "📦 Volume" = "volume",
-                    "📉 Drawdown" = "drawdown", "🎯 Multi-TF" = "multitf",
-                    "🌊 Volatility" = "volatility", "🕐 Интрадей" = "intraday"),
-        selected = "leadlag", inline = TRUE)
+      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
+        "Выберите сканер:"),
+      div(style = "display:flex;flex-wrap:wrap;gap:6px;",
+        radioButtons("scanner_type", NULL,
+          choices = c("⚡ Lead-Lag" = "leadlag", "🎯 Mean Reversion" = "meanrev",
+                      "🔗 Corr Breakdown" = "corrbreak", "🚀 Momentum" = "momentum",
+                      "🚨 Аномалии" = "anomaly", "📦 Volume" = "volume",
+                      "📉 Drawdown" = "drawdown", "🎯 Multi-TF" = "multitf",
+                      "🌊 Volatility" = "volatility", "🕐 Интрадей" = "intraday"),
+          selected = "leadlag", inline = TRUE,
+          width = "100%")
+      )
     ),
     div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
       div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:12px;",
@@ -2906,6 +2911,7 @@ server <- function(input, output, session) {
 
   # ── Scanner UI dispatcher ────────────────────────────────────────────────
   output$scanner_ui <- renderUI({
+    tryCatch({
     st <- input$scanner_type
     if (is.null(st)) return(NULL)
 
@@ -3514,6 +3520,12 @@ server <- function(input, output, session) {
           p(style = "font-size:0.9rem;", "Ошибка интрадей-сканера: ", e$message))
       })
     }
+    }, error = function(e) {
+      div(style = "padding:40px;text-align:center;color:#f85149;",
+        tags$i(class = "fas fa-exclamation-triangle fa-2x", style = "margin-bottom:12px;display:block;"),
+        p(style = "font-size:0.9rem;", paste0("Ошибка сканера: ", conditionMessage(e))),
+        p(style = "font-size:0.78rem;color:#555c6b;", "Попробуйте переключить сканер или обновить страницу."))
+    })
   })
 
   # ── Scanner tables ───────────────────────────────────────────────────────
