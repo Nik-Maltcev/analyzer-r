@@ -2038,6 +2038,40 @@ server <- function(input, output, session) {
                   paste0("-", abs(r$avg_loss), "% · Z сейчас ", sprintf("%+.2f", r$z_now), " → ±3.5 · ", sl_distance, "σ до стопа")))
             ))
         },
+        # Per-leg price levels (for MEXC: where to set TP/SL for each coin)
+        {
+          pw <- price_wide()
+          ta_norm <- if (r$ticker_a %in% colnames(pw)) r$ticker_a else gsub("/", ".", r$ticker_a)
+          tb_norm <- if (r$ticker_b %in% colnames(pw)) r$ticker_b else gsub("/", ".", r$ticker_b)
+          price_a <- if (!is.null(pw) && ta_norm %in% colnames(pw)) tail(na.omit(as.numeric(pw[[ta_norm]])), 1) else NA
+          price_b <- if (!is.null(pw) && tb_norm %in% colnames(pw)) tail(na.omit(as.numeric(pw[[tb_norm]])), 1) else NA
+          is_long_a <- r$signal_type == "long_a"
+          # Per-leg price targets for MEXC: Long → TP up, SL down. Short → TP down, SL up.
+          if (!is.na(price_a) && !is.na(price_b)) {
+            rnd <- if (price_a >= 10) 2 else if (price_a >= 1) 3 else if (price_a >= 0.01) 4 else 6
+            rnd_b <- if (price_b >= 10) 2 else if (price_b >= 1) 3 else if (price_b >= 0.01) 4 else 6
+            tp_a <- if (is_long_a) round(price_a * (1 + r$avg_win / 100), rnd)
+                    else round(price_a * (1 - r$avg_win / 100), rnd)
+            sl_a <- if (is_long_a) round(price_a * (1 + r$avg_loss / 100), rnd)
+                    else round(price_a * (1 - r$avg_loss / 100), rnd)
+            tp_b <- if (!is_long_a) round(price_b * (1 + r$avg_win / 100), rnd_b)
+                    else round(price_b * (1 - r$avg_win / 100), rnd_b)
+            sl_b <- if (!is_long_a) round(price_b * (1 + r$avg_loss / 100), rnd_b)
+                    else round(price_b * (1 - r$avg_loss / 100), rnd_b)
+            div(style = paste0("margin-top:10px;padding:12px 14px;border-radius:10px;background:", CARD2,
+                               ";border:1px solid ", BORDER, ";"),
+              div(style = "font-size:0.82rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
+                "📊 Ценовые уровни для MEXC (текущая → TP / SL)"),
+              div(style = "font-size:0.8rem;line-height:1.8;",
+                div(style = paste0("color:", if (is_long_a) GREEN else RED, ";"),
+                  if (is_long_a) paste0("📈 Лонг ", r$ticker_a, ": $", price_a, " → TP $", tp_a, " (+", r$avg_win, "%) | SL $", sl_a, " (", r$avg_loss, "%)")
+                  else paste0("📉 Шорт ", r$ticker_a, ": $", price_a, " → TP $", tp_a, " (+", r$avg_win, "%) | SL $", sl_a, " (", r$avg_loss, "%)")),
+                div(style = paste0("color:", if (!is_long_a) GREEN else RED, ";"),
+                  if (!is_long_a) paste0("📈 Лонг ", r$ticker_b, ": $", price_b, " → TP $", tp_b, " (+", r$avg_win, "%) | SL $", sl_b, " (", r$avg_loss, "%)")
+                  else paste0("📉 Шорт ", r$ticker_b, ": $", price_b, " → TP $", tp_b, " (+", r$avg_win, "%) | SL $", sl_b, " (", r$avg_loss, "%)")))
+            )
+          }
+        },
         # Footer
         div(style = "margin-top:10px;font-size:0.78rem;color:#8b949e;",
           if (r$is_coint) "✅ Коинтегрированы" else "⚠️ Не коинтегрированы",
@@ -2172,6 +2206,7 @@ server <- function(input, output, session) {
 
       res[[length(res) + 1]] <- data.frame(
         pair = paste0(r$A, " / ", r$B),
+        ticker_a = r$A, ticker_b = r$B,
         signal = r$signal, signal_type = r$signal_type,
         z_now = z_now, z_forecast = r$z_forecast,
         direction = if (r$signal_type == "short_a")
@@ -2274,6 +2309,37 @@ server <- function(input, output, session) {
                 div(style = "font-size:0.72rem;color:#f85149;font-weight:500;",
                   paste0("-", abs(r$avg_loss), "% · Z сейчас ", sprintf("%+.2f", r$z_now), " → ±3.5 · ", sl_distance, "σ до стопа")))
             ))
+        },
+        # Per-leg price levels
+        {
+          pw <- price_wide()
+          ta_norm <- if (r$ticker_a %in% colnames(pw)) r$ticker_a else gsub("/", ".", r$ticker_a)
+          tb_norm <- if (r$ticker_b %in% colnames(pw)) r$ticker_b else gsub("/", ".", r$ticker_b)
+          price_a <- if (!is.null(pw) && ta_norm %in% colnames(pw)) tail(na.omit(as.numeric(pw[[ta_norm]])), 1) else NA
+          price_b <- if (!is.null(pw) && tb_norm %in% colnames(pw)) tail(na.omit(as.numeric(pw[[tb_norm]])), 1) else NA
+          is_long_a <- r$signal_type == "long_a"
+          if (!is.na(price_a) && !is.na(price_b)) {
+            rnd <- if (price_a >= 10) 2 else if (price_a >= 1) 3 else if (price_a >= 0.01) 4 else 6
+            rnd_b <- if (price_b >= 10) 2 else if (price_b >= 1) 3 else if (price_b >= 0.01) 4 else 6
+            tp_a <- if (is_long_a) round(price_a * (1 + r$avg_win / 100), rnd)
+                    else round(price_a * (1 - r$avg_win / 100), rnd)
+            sl_a <- if (is_long_a) round(price_a * (1 + r$avg_loss / 100), rnd)
+                    else round(price_a * (1 - r$avg_loss / 100), rnd)
+            tp_b <- if (!is_long_a) round(price_b * (1 + r$avg_win / 100), rnd_b)
+                    else round(price_b * (1 - r$avg_win / 100), rnd_b)
+            sl_b <- if (!is_long_a) round(price_b * (1 + r$avg_loss / 100), rnd_b)
+                    else round(price_b * (1 - r$avg_loss / 100), rnd_b)
+            div(style = paste0("margin-top:10px;padding:12px 14px;border-radius:10px;background:", CARD2,
+                               ";border:1px solid ", BORDER, ";"),
+              div(style = "font-size:0.82rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
+                "📊 Ценовые уровни для MEXC (текущая → TP / SL)"),
+              div(style = "font-size:0.8rem;line-height:1.8;",
+                div(style = paste0("color:", if (is_long_a) GREEN else RED, ";"),
+                  paste0(if (is_long_a) "📈 Лонг " else "📉 Шорт ", r$ticker_a, ": $", price_a, " → TP $", tp_a, " (+", r$avg_win, "%) | SL $", sl_a, " (", r$avg_loss, "%)")),
+                div(style = paste0("color:", if (!is_long_a) GREEN else RED, ";"),
+                  paste0(if (!is_long_a) "📈 Лонг " else "📉 Шорт ", r$ticker_b, ": $", price_b, " → TP $", tp_b, " (+", r$avg_win, "%) | SL $", sl_b, " (", r$avg_loss, "%)")))
+            )
+          }
         },
         div(style = "margin-top:10px;font-size:0.78rem;color:#8b949e;",
           if (is_fast) "⚡ Быстрая сделка (≤3 дней)" else "",
