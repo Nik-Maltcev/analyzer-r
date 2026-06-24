@@ -86,6 +86,12 @@ if [ -f "$DB_PATH" ] && [ -s "$DB_PATH" ]; then
   fi
 fi
 
+# ── Ensure favorites table exists ──────────────────────────────────────────
+if [ -f "$DB_PATH" ] && [ -s "$DB_PATH" ]; then
+  echo "[start.sh] Checking favorites table..."
+  Rscript /scripts/load_favorites.R
+fi
+
 # ── Background daily updater (replaces cron — more reliable in Docker) ─────
 # Runs daily_update.R at 06:00 UTC (09:00 MSK) in a background loop.
 # All env vars are inherited, logs go to stdout (visible in Railway).
