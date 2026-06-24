@@ -949,6 +949,46 @@ server <- function(input, output, session) {
         tags$span(style = "color:#f85149;font-weight:600;", "⚠ БД пуста или повреждена")
       ))
     }
+
+    # Last data update (from update_log)
+    last_update <- tryCatch({
+      r <- dbGetQuery(con, "SELECT timestamp, market, rows_added, status FROM update_log ORDER BY timestamp DESC LIMIT 1")
+      if (nrow(r) > 0) r else NULL
+    }, error = function(e) NULL)
+
+    # Last analysis computation (from pairs.computed_at)
+    last_analysis <- tryCatch({
+      r <- dbGetQuery(con, "SELECT computed_at FROM pairs ORDER BY computed_at DESC LIMIT 1")
+      if (nrow(r) > 0 && !is.na(r$computed_at[1])) r$computed_at[1] else NULL
+    }, error = function(e) NULL)
+
+    # Format timestamps nicely
+    fmt_ts <- function(ts) {
+      if (is.null(ts) || is.na(ts)) return("—")
+      # Parse and format: "2026-06-24 06:00:12" -> "24.06 09:00 МСК"
+      tryCatch({
+        dt <- as.POSIXct(ts, tz = "UTC")
+        msk <- format(as.POSIXct(dt, tz = "UTC"), tz = "Europe/Moscow", "%d.%m %H:%M")
+        paste0(msk, " МСК")
+      }, error = function(e) as.character(ts))
+    }
+
+    # Next update time
+    now <- Sys.time()
+    next_update <- tryCatch({
+      today_6utc <- as.POSIXct(paste(format(as.Date(now), "%Y-%m-%d"), "06:00:00"), tz = "UTC")
+      if (now < today_6utc) today_6utc else today_6utc + 86400
+    }, error = function(e) NULL)
+    next_txt <- if (!is.null(next_update))
+      paste0(format(as.POSIXct(next_update, tz = "UTC"), tz = "Europe/Moscow", "%d.%m %H:%M"), " МСК")
+      else "—"
+
+    # Update status (fresh or stale)
+    is_fresh <- !is.null(last_update) && !is.na(last_update$timestamp[1]) &&
+      (as.numeric(difftime(now, as.POSIXct(last_update$timestamp[1], tz = "UTC"), units = "hours")) < 26)
+    update_col <- if (is_fresh) "#3fb950" else "#f7931a"
+    update_icon <- if (is_fresh) "✓" else "⚠"
+
     div(style = "padding:14px 16px;border-radius:10px;border:1px solid #30363d;background:#0d1117;",
       tags$span(style = "color:#3fb950;font-weight:600;", "✓ БД подключена"),
       tags$br(),
@@ -957,7 +997,28 @@ server <- function(input, output, session) {
                format(stats$n_rows, big.mark = " "), " записей · ",
                stats$min_d, " — ", stats$max_d)),
       tags$br(),
-      tags$code(style = "color:#555;font-size:0.75rem;", DB_PATH)
+      tags$code(style = "color:#555;font-size:0.75rem;", DB_PATH),
+      tags$hr(style = "border-color:#30363d;margin:10px 0;"),
+      # Last update
+      tags$div(style = "display:flex;align-items:center;gap:8px;margin-bottom:6px;",
+        tags$span(style = paste0("color:", update_col, ";font-size:0.82rem;font-weight:600;"),
+          paste0(update_icon, " Данные обновлены:")),
+        tags$span(style = "color:#adbac7;font-size:0.82rem;",
+          fmt_ts(last_update$timestamp[1])),
+        if (!is.null(last_update) && !is.na(last_update$rows_added[1]))
+          tags$span(style = "color:#555;font-size:0.72rem;",
+            paste0("(+", last_update$rows_added[1], " строк)"))),
+      # Last analysis
+      tags$div(style = "display:flex;align-items:center;gap:8px;margin-bottom:6px;",
+        tags$span(style = "color:#3fb950;font-size:0.82rem;font-weight:600;",
+          "✓ Анализ пересчитан:"),
+        tags$span(style = "color:#adbac7;font-size:0.82rem;",
+          fmt_ts(last_analysis))),
+      # Next update
+      tags$div(style = "display:flex;align-items:center;gap:8px;",
+        tags$span(style = "color:#58a6ff;font-size:0.82rem;font-weight:600;",
+          "⏰ Следующее обновление:"),
+        tags$span(style = "color:#adbac7;font-size:0.82rem;", next_txt))
     )
   })
 
