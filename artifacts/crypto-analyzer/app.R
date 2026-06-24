@@ -877,11 +877,6 @@ ui <- page_navbar(
   # ── TAB 9: Риск ─────────────────────────────────────────────────────────
   nav_panel("🛡️ Риск",
     uiOutput("risk_ui")
-  ),
-
-  # ── TAB 10: Топ-6 монет ─────────────────────────────────────────────────
-  nav_panel("⭐ Топ-6 монет",
-    uiOutput("top6_ui")
   )
 )
 
@@ -3695,25 +3690,41 @@ server <- function(input, output, session) {
     }
 
     tagList(
-      tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+      tags$div(style = "padding:14px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
         tags$span(style = "color:#8b949e;font-size:0.85rem;",
-          "Анализ риска портфеля: корреляционная матрица, ложные пробои (liquidity sweep), ",
-          "кластеры корреляции для управления диверсификацией.")),
+          "🛡️ Это вкладка управления риском — не торговых сигналов. ",
+          "Здесь 3 блока: ложные пробои (где есть сигнал), корреляция между активами ",
+          "(чтобы не открыть 5 одинаковых позиций), и кластеры риска.")),
       # Liquidity sweep
-      tags$h6(style = "color:#e6edf3;margin-bottom:12px;font-size:0.88rem;",
+      tags$h6(style = "color:#e6edf3;margin-bottom:6px;font-size:0.88rem;",
         "🎯 Liquidity Sweep — ложные пробои"),
+      tags$div(style = "padding:10px 16px;border-radius:8px;background:#0a0e14;border:1px solid #1c2333;margin-bottom:14px;",
+        tags$span(style = "color:#8b949e;font-size:0.78rem;",
+          "Цена пробила 20-дневный уровень, но вернулась обратно. ",
+          "Шорт после ложного пробоя вверх (откат), лонг после ложного пробоя вниз (отскок). ",
+          "Держать 2-5 дней до возврата к среднему.")),
       if (!is.null(sweep_cards)) tagList(sweep_cards) else div(
         style = "padding:20px;text-align:center;color:#555c6b;font-size:0.85rem;",
         "Ложных пробоев 20-дневных уровней сегодня не найдено."),
       # Correlation heatmap
-      tags$h6(style = "color:#e6edf3;margin:18px 0 12px;font-size:0.88rem;",
+      tags$h6(style = "color:#e6edf3;margin:18px 0 6px;font-size:0.88rem;",
         "🔥 Корреляционная матрица доходностей"),
+      tags$div(style = "padding:10px 16px;border-radius:8px;background:#0a0e14;border:1px solid #1c2333;margin-bottom:14px;",
+        tags$span(style = "color:#8b949e;font-size:0.78rem;",
+          "Какие активы двигаются вместе. Синий = корреляция (в одну сторону), красный = обратная. ",
+          "Если открыл лонг по BTC и лонг по ETH (корреляция 85%) — ",
+          "по сути это одна позиция с двойным риском. Выбирай активы с низкой корреляцией.")),
       if (!is.null(cor_html)) cor_html else div(
         style = "padding:20px;text-align:center;color:#555c6b;font-size:0.85rem;",
         "Недостаточно инструментов для матрицы."),
       # Clusters
-      tags$h6(style = "color:#e6edf3;margin:18px 0 12px;font-size:0.88rem;",
+      tags$h6(style = "color:#e6edf3;margin:18px 0 6px;font-size:0.88rem;",
         "📊 Кластеры высокой корреляции (>70%)"),
+      tags$div(style = "padding:10px 16px;border-radius:8px;background:#0a0e14;border:1px solid #1c2333;margin-bottom:14px;",
+        tags$span(style = "color:#8b949e;font-size:0.78rem;",
+          "Пары активов с корреляцией > 70%. Правило: не более 1 позиции из каждого кластера. ",
+          "Если BTC/ETH = 0.85 — открывай только одну, не обе. ",
+          "Это снижает риск в 2 раза без потери доходности.")),
       if (!is.null(cluster_block)) cluster_block else div(
         style = "padding:20px;text-align:center;color:#3fb950;font-size:0.85rem;",
         "✅ Высоких корреляций не найдено — портфель хорошо диверсифицирован.")
@@ -3734,324 +3745,6 @@ server <- function(input, output, session) {
         color = styleInterval(c(-0.8, -0.7, 0.7, 0.8),
           c("#f85149", "#f7931a", "#f7931a", "#f7931a", "#f85149")),
         fontWeight = "bold")
-  })
-
-  # ══════════════════════════════════════════════════════════════════════════
-  # ТАБ: Топ-6 монет — глубокие паттерны XRP, SOL, BTC, ETH, DOGE, BNB
-  # ══════════════════════════════════════════════════════════════════════════
-  # pivot_wider replaces '/' with '.' in column names (R make.names behavior)
-  TOP6_COINS <- c("BTC.USD", "ETH.USD", "BNB.USD", "SOL.USD", "XRP.USD", "DOGE.USD")
-
-  top6_data <- reactive({
-    pw <- price_wide(); req(pw)
-    available <- intersect(TOP6_COINS, colnames(pw))
-    if (length(available) < 2) return(NULL)
-
-    res <- list()
-    for (sym in available) {
-      x <- as.numeric(pw[[sym]])
-      dates <- as.Date(rownames(pw))
-      ok <- !is.na(x) & x > 0
-      x <- x[ok]; dates <- dates[ok]
-      if (length(x) < 100) next
-      ret <- c(NA, diff(log(x)))
-      dow <- as.integer(format(dates, "%w"))
-      dom <- as.integer(format(dates, "%d"))
-
-      dow_names <- c("Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб")
-      dow_avg <- sapply(0:6, function(d) {
-        vals <- ret[dow == d]
-        if (length(vals) < 5) return(NA)
-        mean(vals, na.rm = TRUE) * 100
-      })
-      dow_win <- sapply(0:6, function(d) {
-        vals <- ret[dow == d]
-        vals <- vals[!is.na(vals)]
-        if (length(vals) < 5) return(NA)
-        round(sum(vals > 0) / length(vals) * 100)
-      })
-      dow_n <- sapply(0:6, function(d) sum(dow == d & !is.na(ret)))
-      dow_up <- sapply(0:6, function(d) {
-        vals <- ret[dow == d]
-        vals <- vals[!is.na(vals)]
-        sum(vals > 0)
-      })
-      dow_down <- sapply(0:6, function(d) {
-        vals <- ret[dow == d]
-        vals <- vals[!is.na(vals)]
-        sum(vals <= 0)
-      })
-
-      # End of month
-      is_eom <- dom >= 28
-      eom_ret <- ret[is_eom]
-      eom_avg <- if (sum(!is.na(eom_ret)) > 5) mean(eom_ret, na.rm = TRUE) * 100 else NA
-      eom_win <- if (sum(!is.na(eom_ret)) > 5) round(sum(eom_ret > 0, na.rm = TRUE) / sum(!is.na(eom_ret)) * 100) else NA
-      non_eom_ret <- ret[!is_eom]
-      non_eom_avg <- if (sum(!is.na(non_eom_ret)) > 5) mean(non_eom_ret, na.rm = TRUE) * 100 else NA
-
-      # Consecutive up/down streaks
-      ret_clean <- ret[!is.na(ret)]
-      streaks <- rle(ret_clean > 0)
-      up_streaks <- streaks$lengths[streaks$values]
-      down_streaks <- streaks$lengths[!streaks$values]
-      avg_up <- if (length(up_streaks) > 0) round(mean(up_streaks), 1) else NA
-      max_up <- if (length(up_streaks) > 0) max(up_streaks) else NA
-      avg_down <- if (length(down_streaks) > 0) round(mean(down_streaks), 1) else NA
-      max_down <- if (length(down_streaks) > 0) max(down_streaks) else NA
-      current_streak <- tail(streaks$lengths, 1) * ifelse(tail(streaks$values, 1), 1, -1)
-
-      # Best/worst day
-      best_idx <- which.max(dow_avg)
-      worst_idx <- which.min(dow_avg)
-      best_day <- dow_names[best_idx]
-      worst_day <- dow_names[worst_idx]
-      best_avg <- dow_avg[best_idx]
-      worst_avg <- dow_avg[worst_idx]
-      best_win <- dow_win[best_idx]
-      worst_win <- dow_win[worst_idx]
-
-      # Monthly seasonality (avg return per month)
-      month <- as.integer(format(dates, "%m"))
-      month_names <- c("Янв","Фев","Мар","Апр","Май","Июн","Июл","Авг","Сен","Окт","Ноя","Дек")
-      month_avg <- sapply(1:12, function(m) {
-        vals <- ret[month == m]
-        if (length(vals) < 3) return(NA)
-        mean(vals, na.rm = TRUE) * 100
-      })
-
-      # Today's day name
-      today_dow <- as.integer(format(Sys.Date(), "%w"))
-      today_name <- dow_names[today_dow + 1]
-      today_avg <- dow_avg[today_dow + 1]
-      today_win <- dow_win[today_dow + 1]
-
-      # Current month
-      today_month <- as.integer(format(Sys.Date(), "%m"))
-      current_month_avg <- month_avg[today_month]
-
-      res[[sym]] <- list(
-        sym = sym, dow_avg = dow_avg, dow_win = dow_win, dow_n = dow_n,
-        dow_up = dow_up, dow_down = dow_down,
-        dow_names = dow_names, best_day = best_day, best_avg = best_avg,
-        best_win = best_win, worst_day = worst_day, worst_avg = worst_avg,
-        worst_win = worst_win, eom_avg = eom_avg, eom_win = eom_win,
-        non_eom_avg = non_eom_avg, avg_up = avg_up, max_up = max_up,
-        avg_down = avg_down, max_down = max_down, current_streak = current_streak,
-        month_avg = month_avg, month_names = month_names,
-        today_name = today_name, today_avg = today_avg, today_win = today_win,
-        current_month_avg = current_month_avg,
-        last_price = tail(x, 1), n_days = length(x))
-    }
-    res
-  })
-
-  output$top6_ui <- renderUI({
-    data <- top6_data()
-    if (is.null(data) || length(data) == 0) {
-      # Diagnostic: show what's available
-      pw <- tryCatch(price_wide(), error = function(e) NULL)
-      avail <- if (!is.null(pw)) colnames(pw) else NULL
-      crypto_avail <- if (!is.null(avail)) grep("BTC|ETH|BNB|SOL|XRP|DOGE", avail, value = TRUE) else NULL
-      diag_txt <- if (!is.null(avail) && length(avail) > 0)
-        paste0("Доступно тикеров: ", length(avail), ". Первые 5: ", paste(head(avail, 5), collapse = ", "))
-        else "price_wide() вернул NULL — БД пуста или market_type не crypto"
-      if (length(crypto_avail) > 0)
-        diag_txt <- paste0(diag_txt, " | Найдено похоже: ", paste(crypto_avail, collapse = ", "))
-      return(div(
-        placeholder_msg("Топ-6 монет не найдены в данных."),
-        div(style = "text-align:center;padding:20px;color:#f85149;font-size:0.85rem;",
-          "Диагностика: ", diag_txt,
-          br(), "Ищем: ", paste(TOP6_COINS, collapse = ", "),
-          br(), "Рынок: ", input$market_type)
-      ))
-    }
-
-    # Build per-coin cards
-    cards <- lapply(data, function(d) {
-      # Day-of-week bars
-      dow_bars <- lapply(1:7, function(i) {
-        avg <- d$dow_avg[i]
-        win <- d$dow_win[i]
-        n <- d$dow_n[i]
-        if (is.na(avg)) return(div(style="height:24px;"))
-        col <- if (avg > 0.2) GREEN else if (avg < -0.2) RED else GRAY
-        bar_w <- min(abs(avg) / 2 * 100, 100)
-        is_today <- d$dow_names[i] == d$today_name
-        border <- if (is_today) paste0("border:2px solid ", BLUE, ";") else "border:1px solid #1c2333;"
-        div(style = paste0("display:flex;align-items:center;gap:8px;margin-bottom:4px;padding:4px 8px;border-radius:6px;background:", CARD2, ";", border),
-          div(style = "font-size:0.72rem;color:#adbac7;width:24px;font-weight:600;", d$dow_names[i]),
-          div(style = paste0("font-size:0.78rem;font-weight:600;color:", col, ";width:55px;"),
-            paste0(if (avg > 0) "+" else "", round(avg, 2), "%")),
-          div(style = paste0("height:14px;border-radius:3px;width:", bar_w, "%;background:", col, ";min-width:4px;")),
-          div(style = "font-size:0.66rem;color:#555c6b;margin-left:auto;", paste0(win, "% win · ", n, " дн.")))
-      })
-
-      # Monthly seasonality mini-bars
-      month_bars <- lapply(1:12, function(i) {
-        avg <- d$month_avg[i]
-        if (is.na(avg)) return(div(style="font-size:0.55rem;color:#333;width:22px;text-align:center;","—"))
-        col <- if (avg > 0.2) GREEN else if (avg < -0.2) RED else GRAY
-        is_current <- d$month_names[i] == d$month_names[as.integer(format(Sys.Date(), "%m"))]
-        div(style = paste0("text-align:center;width:24px;"),
-          div(style = paste0("font-size:0.55rem;color:#555c6b;"), substr(d$month_names[i], 1, 1)),
-          div(style = paste0("font-size:0.6rem;font-weight:600;color:", col, ";",
-                             if (is_current) paste0("border-bottom:2px solid ", BLUE, ";") else ""),
-            paste0(if (avg > 0) "+" else "", round(avg, 1))))
-      })
-
-      # Signal
-      today_txt <- if (!is.na(d$today_avg)) {
-        if (d$today_avg > 0.3) paste0("🟢 Сегодня ", d$today_name, " — исторически +", round(d$today_avg, 2), "% (", d$today_win, "% win)")
-        else if (d$today_avg < -0.3) paste0("🔴 Сегодня ", d$today_name, " — исторически ", round(d$today_avg, 2), "% (", d$today_win, "% win)")
-        else paste0("⚪ Сегодня ", d$today_name, " — нейтрально (", round(d$today_avg, 2), "%)")
-      } else "—"
-
-      streak_txt <- if (d$current_streak > 0)
-        paste0("📈 Рост ", d$current_streak, " дн. подряд (макс был ", d$max_up, ")")
-        else if (d$current_streak < 0)
-        paste0("📉 Падение ", abs(d$current_streak), " дн. подряд (макс был ", d$max_down, ")")
-        else "—"
-
-      best_signal <- if (d$best_avg > 0.3)
-        paste0("📈 Лучшая покупка: ", d$best_day, " (+", round(d$best_avg, 2), "%, ", d$best_win, "% win)")
-        else "Нет явно лучшего дня"
-      worst_signal <- if (d$worst_avg < -0.3)
-        paste0("📉 Худший день: ", d$worst_day, " (", round(d$worst_avg, 2), "%, ", d$worst_win, "% win)")
-        else "Нет явно худшего дня"
-
-      eom_txt <- if (!is.na(d$eom_avg))
-        paste0("Конец месяца: ", if (d$eom_avg > 0) "+" else "", round(d$eom_avg, 2),
-               "% (", d$eom_win, "% win) vs обычные ", round(d$non_eom_avg, 2), "%")
-        else "Нет данных по концу месяца"
-
-      div(style = paste0("border:1px solid ", BORDER, ";border-radius:16px;padding:20px;margin-bottom:16px;background:", CARD, ";"),
-        # Header
-        div(style = "display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;",
-          div(
-            tags$span(style = "font-size:1.3rem;font-weight:800;color:#e6edf3;", sub("\\.", "/", d$sym)),
-            tags$span(style = "font-size:0.75rem;color:#555c6b;margin-left:8px;",
-              paste0("$", format(round(d$last_price, 4), nsmall = ifelse(d$last_price < 1, 4, 2)),
-                     " · ", d$n_days, " дней истории"))),
-          div(style = paste0("font-size:0.78rem;font-weight:600;color:",
-                             if (d$current_streak > 0) GREEN else if (d$current_streak < 0) RED else GRAY, ";"),
-            streak_txt)),
-
-        layout_columns(col_widths = c(7, 5),
-          # Left: day-of-week + up/down summary
-          div(
-            div(style = "font-size:0.82rem;font-weight:600;color:#e6edf3;margin-bottom:8px;",
-              "📅 Средний return по дню недели"),
-            tagList(dow_bars),
-            div(style = "font-size:0.68rem;color:#555c6b;margin-top:6px;margin-bottom:14px;",
-              paste0("Синяя рамка = сегодня (", d$today_name, ")")),
-            # Up/down days summary
-            div(style = paste0("padding:12px 14px;border-radius:10px;background:", CARD2,
-                               ";border:1px solid ", BORDER, ";"),
-              div(style = "font-size:0.82rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
-                "📊 В какие дни чаще росла / падала"),
-              layout_columns(col_widths = c(6, 6),
-                # Up days
-                div(
-                  div(style = paste0("font-size:0.78rem;font-weight:600;color:", GREEN, ";margin-bottom:6px;"),
-                    "📈 Чаще росла"),
-                  tagList(lapply(order(-d$dow_up)[1:3], function(i) {
-                    n_up <- d$dow_up[i]; n_tot <- d$dow_n[i]
-                    pct <- if (n_tot > 0) round(n_up / n_tot * 100) else 0
-                    div(style = "font-size:0.75rem;color:#adbac7;margin-bottom:3px;",
-                      paste0(d$dow_names[i], ": ", n_up, " из ", n_tot, " (", pct, "%)"))
-                  }))
-                ),
-                # Down days
-                div(
-                  div(style = paste0("font-size:0.78rem;font-weight:600;color:", RED, ";margin-bottom:6px;"),
-                    "📉 Чаще падала"),
-                  tagList(lapply(order(-d$dow_down)[1:3], function(i) {
-                    n_dn <- d$dow_down[i]; n_tot <- d$dow_n[i]
-                    pct <- if (n_tot > 0) round(n_dn / n_tot * 100) else 0
-                    div(style = "font-size:0.75rem;color:#adbac7;margin-bottom:3px;",
-                      paste0(d$dow_names[i], ": ", n_dn, " из ", n_tot, " (", pct, "%)"))
-                  }))
-                )
-              )
-            )
-          ),
-          # Right: monthly seasonality + stats
-          div(
-            div(style = "font-size:0.82rem;font-weight:600;color:#e6edf3;margin-bottom:8px;",
-              "🗓 Сезонность по месяцам"),
-            div(style = "display:flex;flex-wrap:wrap;gap:2px;margin-bottom:14px;",
-              tagList(month_bars)),
-            div(style = "font-size:0.68rem;color:#555c6b;margin-bottom:10px;",
-              "Синяя линия = текущий месяц"),
-            # Stats
-            div(style = "font-size:0.78rem;color:#adbac7;line-height:1.6;",
-              div(paste0("📊 Серии: средний рост ", d$avg_up, " дн. (макс ", d$max_up,
-                         "), среднее падение ", d$avg_down, " дн. (макс ", d$max_down, ")")),
-              div(eom_txt))
-          )
-        ),
-        # Signals
-        div(style = paste0("margin-top:14px;padding:12px 16px;border-radius:10px;background:",
-                           CARD2, ";border:1px solid ", BORDER, ";"),
-          div(style = "font-size:0.85rem;font-weight:600;color:#58a6ff;margin-bottom:6px;",
-            "🎯 Рекомендации"),
-          div(style = "font-size:0.82rem;color:#e6edf3;line-height:1.7;",
-            div(style = paste0("color:", if (grepl("🟢", today_txt)) GREEN else if (grepl("🔴", today_txt)) RED else GRAY, ";font-weight:600;"),
-              today_txt),
-            div(best_signal),
-            div(worst_signal))
-        )
-      )
-    })
-
-    # Correlation between the 6 coins
-    pw <- price_wide()
-    available <- intersect(TOP6_COINS, colnames(pw))
-    corr_block <- NULL
-    if (length(available) >= 2) {
-      rw <- as.data.frame(lapply(pw[, available, drop = FALSE], function(x) c(NA, diff(log(as.numeric(x))))))
-      cm <- cor(rw, use = "pairwise.complete.obs")
-      corr_rows <- list()
-      for (i in seq_len(nrow(cm))) {
-        cells <- list()
-        for (j in seq_len(ncol(cm))) {
-          v <- cm[i, j]
-          if (i == j) {
-            col <- "#1c2333"; txt <- "—"
-          } else {
-            txt <- sprintf("%.2f", v)
-            col <- if (v > 0.7) "rgba(88,166,255,0.3)" else if (v > 0.4) "rgba(88,166,255,0.15)"
-                   else if (v < -0.4) "rgba(248,81,73,0.15)" else "transparent"
-          }
-          cells[[j]] <- div(style = paste0("padding:6px 10px;text-align:center;font-size:0.72rem;",
-                                            "background:", col, ";border-radius:4px;color:#adbac7;"), txt)
-        }
-        corr_rows[[i]] <- div(style = "display:flex;gap:4px;margin-bottom:4px;align-items:center;",
-          div(style = "font-size:0.72rem;color:#e6edf3;width:70px;font-weight:600;", rownames(cm)[i]),
-          tagList(cells))
-      }
-      # Header row
-      header_cells <- lapply(colnames(cm), function(x)
-        div(style = "font-size:0.65rem;color:#555c6b;width:50px;text-align:center;", substr(gsub("/USD", "", x), 1, 3)))
-      corr_block <- div(style = paste0("padding:18px 20px;border-radius:14px;border:1px solid ", BORDER,
-                                       ";background:", CARD, ";margin-top:16px;margin-bottom:16px;"),
-        div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:12px;",
-          "🔗 Корреляция между монетами"),
-        div(style = "display:flex;gap:4px;margin-bottom:6px;padding-left:74px;", tagList(header_cells)),
-        tagList(corr_rows),
-        div(style = "font-size:0.72rem;color:#555c6b;margin-top:8px;",
-          "Синий = положительная (двигаются вместе), красный = отрицательная. > 0.7 = не открывай одновременно."))
-    }
-
-    tagList(
-      tags$div(style = "padding:14px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
-        tags$span(style = "color:#8b949e;font-size:0.85rem;",
-          "Глубокий анализ 6 монет: день недели, сезонность по месяцам, серии роста/падения, ",
-          "конец месяца. Синяя рамка = сегодня. Рекомендации — на основе 3 лет истории.")),
-      tagList(cards),
-      corr_block
-    )
   })
 
 }
