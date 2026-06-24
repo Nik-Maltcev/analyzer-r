@@ -2002,6 +2002,30 @@ server <- function(input, output, session) {
               paste0(if (r$avg_pnl > 0) "+" else "", r$avg_pnl, "% · ",
                      "лучшая: +", r$best_pnl, "% · худшая: ", r$worst_pnl, "%")))
         ),
+        # TP / SL block
+        {
+          tp_gross <- round(pos_size * r$avg_win / 100, 2)
+          sl_gross <- round(pos_size * abs(r$avg_loss) / 100, 2)
+          tp_net <- round(tp_gross - r$exp_comm - r$exp_funding, 2)
+          sl_net <- round(-(sl_gross + r$exp_comm + r$exp_funding), 2)
+          div(style = "margin-top:10px;",
+            layout_columns(col_widths = c(6, 6),
+              div(style = paste0("text-align:center;padding:10px;border-radius:8px;",
+                                 "background:#0f2a1a;border:1px solid ", GREEN, ";"),
+                div(style = "font-size:0.72rem;color:#8b949e;", "🎯 Тейк-профит (TP)"),
+                div(style = paste0("font-size:1.2rem;font-weight:700;color:", GREEN, ";"),
+                  paste0("+$", fmt(tp_net))),
+                div(style = "font-size:0.68rem;color:#555c6b;",
+                  paste0("+", r$avg_win, "% · выход при |Z| < 0.5"))),
+              div(style = paste0("text-align:center;padding:10px;border-radius:8px;",
+                                 "background:#2a0f0f;border:1px solid ", RED, ";"),
+                div(style = "font-size:0.72rem;color:#8b949e;", "🛑 Стоп-лосс (SL)"),
+                div(style = paste0("font-size:1.2rem;font-weight:700;color:", RED, ";"),
+                  paste0("$", fmt(sl_net))),
+                div(style = "font-size:0.68rem;color:#555c6b;",
+                  paste0("-", abs(r$avg_loss), "% · стоп при |Z| ≥ 3.5")))
+            ))
+        },
         # Footer
         div(style = "margin-top:10px;font-size:0.78rem;color:#8b949e;",
           if (r$is_coint) "✅ Коинтегрированы" else "⚠️ Не коинтегрированы",
@@ -2061,13 +2085,16 @@ server <- function(input, output, session) {
     tdf$exp_comm  <- round(4 * leg_size * ci$taker / 100, 2)
     tdf$exp_funding <- round(pos_size * ci$funding / 100 * tdf$avg_hold * 3, 2)
     tdf$exp_net   <- round(tdf$exp_gross - tdf$exp_comm - tdf$exp_funding, 2)
+    tdf$tp_net <- round(pos_size * tdf$avg_win / 100 - tdf$exp_comm - tdf$exp_funding, 2)
+    tdf$sl_net <- round(-(pos_size * abs(tdf$avg_loss) / 100 + tdf$exp_comm + tdf$exp_funding), 2)
 
     out <- data.frame(
       "Пара" = tdf$pair, "Сигнал" = tdf$signal,
       "Z сейчас" = tdf$z_now, "Win rate %" = tdf$win_rate,
-      "Сделок в истории" = tdf$n_hist, "Ср. профит %" = tdf$avg_pnl,
+      "Сделок" = tdf$n_hist, "Ср. профит %" = tdf$avg_pnl,
       "Ср. дней" = tdf$avg_hold, "Выход к" = tdf$exit_date,
-      "Лучший %" = tdf$best_pnl, "Худший %" = tdf$worst_pnl,
+      "TP %" = tdf$avg_win, "TP $" = tdf$tp_net,
+      "SL %" = tdf$avg_loss, "SL $" = tdf$sl_net,
       "Прогноз $" = tdf$exp_net,
       stringsAsFactors = FALSE, check.names = FALSE)
     datatable(out, rownames = FALSE,
@@ -2078,6 +2105,10 @@ server <- function(input, output, session) {
         color = styleInterval(0, c("#f85149", "#3fb950")), fontWeight = "bold") |>
       formatStyle("Прогноз $",
         color = styleInterval(0, c("#f85149", "#3fb950")), fontWeight = "bold") |>
+      formatStyle("TP $",
+        color = styleInterval(0, c("#f85149", "#3fb950")), fontWeight = "bold") |>
+      formatStyle("SL $",
+        color = styleInterval(0, c("#3fb950", "#f85149")), fontWeight = "bold") |>
       formatStyle("Win rate %",
         color = styleInterval(c(50, 70), c("#f85149", "#f7931a", "#3fb950")), fontWeight = "bold")
   })
@@ -2117,8 +2148,12 @@ server <- function(input, output, session) {
       avg_pnl <- mean(similar$pnl_pct)
       avg_hold <- round(mean(similar$hold_days))
       win_rate <- round(nrow(wins) / nrow(similar) * 100)
+      avg_win <- if (nrow(wins) > 0) mean(wins$pnl_pct) else 0
+      avg_loss <- if (nrow(losses) > 0) mean(losses$pnl_pct) else 0
       best_pnl <- max(similar$pnl_pct)
       worst_pnl <- min(similar$pnl_pct)
+      tp_count <- sum(similar$result == "Тейк-профит")
+      sl_count <- sum(similar$result == "Стоп-лосс")
       exit_date <- format(Sys.Date() + avg_hold, "%d.%m.%Y")
 
       res[[length(res) + 1]] <- data.frame(
@@ -2129,7 +2164,9 @@ server <- function(input, output, session) {
           paste0("Шорт ", r$A, " / Лонг ", r$B) else paste0("Лонг ", r$A, " / Шорт ", r$B),
         n_hist = nrow(similar), win_rate = win_rate,
         avg_pnl = round(avg_pnl, 2), avg_hold = avg_hold,
+        avg_win = round(avg_win, 2), avg_loss = round(avg_loss, 2),
         best_pnl = round(best_pnl, 2), worst_pnl = round(worst_pnl, 2),
+        tp_count = tp_count, sl_count = sl_count,
         exit_date = exit_date, halflife = r$halflife,
         is_coint = r$is_coint, corr = round(abs(r$corr) * 100),
         stringsAsFactors = FALSE)
@@ -2189,7 +2226,7 @@ server <- function(input, output, session) {
           div(style = paste0("padding:12px;border-radius:8px;background:", CARD2, ";border:1px solid ", BORDER, ";"),
             div(style = "font-size:0.72rem;color:#8b949e;", "По истории"),
             div(style = paste0("font-size:1.1rem;font-weight:700;color:", wr_col, ";"), paste0(r$win_rate, "% win")),
-            div(style = "font-size:0.68rem;color:#555c6b;", paste0(r$n_hist, " коротких сделок"))),
+            div(style = "font-size:0.68rem;color:#555c6b;", paste0(r$n_hist, " коротких сделок · ТП:", r$tp_count, " СЛ:", r$sl_count))),
           div(style = paste0("padding:12px;border-radius:8px;background:", CARD2, ";border:1px solid ", BORDER, ";"),
             div(style = "font-size:0.72rem;color:#8b949e;", "Ожид. профит"),
             div(style = paste0("font-size:1.3rem;font-weight:700;color:", pnl_col, ";"),
@@ -2197,6 +2234,30 @@ server <- function(input, output, session) {
             div(style = "font-size:0.68rem;color:#555c6b;",
               paste0(if (r$avg_pnl > 0) "+" else "", r$avg_pnl, "% · лучшая: +", r$best_pnl, "%")))
         ),
+        # TP / SL block
+        {
+          tp_gross <- round(pos_size * r$avg_win / 100, 2)
+          sl_gross <- round(pos_size * abs(r$avg_loss) / 100, 2)
+          tp_net <- round(tp_gross - r$exp_comm - r$exp_funding, 2)
+          sl_net <- round(-(sl_gross + r$exp_comm + r$exp_funding), 2)
+          div(style = "margin-top:10px;",
+            layout_columns(col_widths = c(6, 6),
+              div(style = paste0("text-align:center;padding:10px;border-radius:8px;",
+                                 "background:#0f2a1a;border:1px solid ", GREEN, ";"),
+                div(style = "font-size:0.72rem;color:#8b949e;", "🎯 Тейк-профит (TP)"),
+                div(style = paste0("font-size:1.2rem;font-weight:700;color:", GREEN, ";"),
+                  paste0("+$", fmt(tp_net))),
+                div(style = "font-size:0.68rem;color:#555c6b;",
+                  paste0("+", r$avg_win, "% · выход при |Z| < 0.5"))),
+              div(style = paste0("text-align:center;padding:10px;border-radius:8px;",
+                                 "background:#2a0f0f;border:1px solid ", RED, ";"),
+                div(style = "font-size:0.72rem;color:#8b949e;", "🛑 Стоп-лосс (SL)"),
+                div(style = paste0("font-size:1.2rem;font-weight:700;color:", RED, ";"),
+                  paste0("$", fmt(sl_net))),
+                div(style = "font-size:0.68rem;color:#555c6b;",
+                  paste0("-", abs(r$avg_loss), "% · стоп при |Z| ≥ 3.5")))
+            ))
+        },
         div(style = "margin-top:10px;font-size:0.78rem;color:#8b949e;",
           if (is_fast) "⚡ Быстрая сделка (≤3 дней)" else "",
           if (r$is_coint) "  ✅ Коинтегрированы" else "  ⚠️ Не коинтегрированы",
@@ -2252,13 +2313,16 @@ server <- function(input, output, session) {
     tdf$exp_comm  <- round(4 * leg_size * ci$taker / 100, 2)
     tdf$exp_funding <- round(pos_size * ci$funding / 100 * tdf$avg_hold * 3, 2)
     tdf$exp_net   <- round(tdf$exp_gross - tdf$exp_comm - tdf$exp_funding, 2)
+    tdf$tp_net <- round(pos_size * tdf$avg_win / 100 - tdf$exp_comm - tdf$exp_funding, 2)
+    tdf$sl_net <- round(-(pos_size * abs(tdf$avg_loss) / 100 + tdf$exp_comm + tdf$exp_funding), 2)
 
     out <- data.frame(
       "Пара" = tdf$pair, "Сигнал" = tdf$signal,
       "Z сейчас" = tdf$z_now, "Win rate %" = tdf$win_rate,
       "Сделок" = tdf$n_hist, "Ср. профит %" = tdf$avg_pnl,
       "Дней" = tdf$avg_hold, "Выход к" = tdf$exit_date,
-      "Лучший %" = tdf$best_pnl, "Худший %" = tdf$worst_pnl,
+      "TP %" = tdf$avg_win, "TP $" = tdf$tp_net,
+      "SL %" = tdf$avg_loss, "SL $" = tdf$sl_net,
       "Прогноз $" = tdf$exp_net,
       stringsAsFactors = FALSE, check.names = FALSE)
     datatable(out, rownames = FALSE,
@@ -2269,6 +2333,10 @@ server <- function(input, output, session) {
         color = styleInterval(0, c("#f85149", "#3fb950")), fontWeight = "bold") |>
       formatStyle("Прогноз $",
         color = styleInterval(0, c("#f85149", "#3fb950")), fontWeight = "bold") |>
+      formatStyle("TP $",
+        color = styleInterval(0, c("#f85149", "#3fb950")), fontWeight = "bold") |>
+      formatStyle("SL $",
+        color = styleInterval(0, c("#3fb950", "#f85149")), fontWeight = "bold") |>
       formatStyle("Win rate %",
         color = styleInterval(c(50, 70), c("#f85149", "#f7931a", "#3fb950")), fontWeight = "bold") |>
       formatStyle("Дней",
