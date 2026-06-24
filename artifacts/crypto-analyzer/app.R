@@ -2013,6 +2013,9 @@ server <- function(input, output, session) {
           sl_gross <- round(pos_size * abs(r$avg_loss) / 100, 2)
           tp_net <- round(tp_gross - r$exp_comm - r$exp_funding, 2)
           sl_net <- round(-(sl_gross + r$exp_comm + r$exp_funding), 2)
+          z_abs <- abs(r$z_now)
+          tp_distance <- round(z_abs - 0.5, 2)
+          sl_distance <- round(3.5 - z_abs, 2)
           div(style = "margin-top:10px;",
             layout_columns(col_widths = c(6, 6),
               div(style = paste0("text-align:center;padding:10px;border-radius:8px;",
@@ -2020,15 +2023,15 @@ server <- function(input, output, session) {
                 div(style = "font-size:0.72rem;color:#8b949e;", "🎯 Тейк-профит (TP)"),
                 div(style = paste0("font-size:1.2rem;font-weight:700;color:", GREEN, ";"),
                   paste0("+$", fmt(tp_net))),
-                div(style = "font-size:0.68rem;color:#555c6b;",
-                  paste0("+", r$avg_win, "% · выход при |Z| < 0.5"))),
+                div(style = "font-size:0.72rem;color:#56d364;font-weight:500;",
+                  paste0("+", r$avg_win, "% · Z сейчас ", sprintf("%+.2f", r$z_now), " → ±0.5 · ", tp_distance, "σ до цели"))),
               div(style = paste0("text-align:center;padding:10px;border-radius:8px;",
                                  "background:#2a0f0f;border:1px solid ", RED, ";"),
                 div(style = "font-size:0.72rem;color:#8b949e;", "🛑 Стоп-лосс (SL)"),
                 div(style = paste0("font-size:1.2rem;font-weight:700;color:", RED, ";"),
                   paste0("$", fmt(sl_net))),
-                div(style = "font-size:0.68rem;color:#555c6b;",
-                  paste0("-", abs(r$avg_loss), "% · стоп при |Z| ≥ 3.5")))
+                div(style = "font-size:0.72rem;color:#f85149;font-weight:500;",
+                  paste0("-", abs(r$avg_loss), "% · Z сейчас ", sprintf("%+.2f", r$z_now), " → ±3.5 · ", sl_distance, "σ до стопа")))
             ))
         },
         # Footer
@@ -2247,6 +2250,9 @@ server <- function(input, output, session) {
           sl_gross <- round(pos_size * abs(r$avg_loss) / 100, 2)
           tp_net <- round(tp_gross - r$exp_comm - r$exp_funding, 2)
           sl_net <- round(-(sl_gross + r$exp_comm + r$exp_funding), 2)
+          z_abs <- abs(r$z_now)
+          tp_distance <- round(z_abs - 0.5, 2)
+          sl_distance <- round(3.5 - z_abs, 2)
           div(style = "margin-top:10px;",
             layout_columns(col_widths = c(6, 6),
               div(style = paste0("text-align:center;padding:10px;border-radius:8px;",
@@ -2254,15 +2260,15 @@ server <- function(input, output, session) {
                 div(style = "font-size:0.72rem;color:#8b949e;", "🎯 Тейк-профит (TP)"),
                 div(style = paste0("font-size:1.2rem;font-weight:700;color:", GREEN, ";"),
                   paste0("+$", fmt(tp_net))),
-                div(style = "font-size:0.68rem;color:#555c6b;",
-                  paste0("+", r$avg_win, "% · выход при |Z| < 0.5"))),
+                div(style = "font-size:0.72rem;color:#56d364;font-weight:500;",
+                  paste0("+", r$avg_win, "% · Z сейчас ", sprintf("%+.2f", r$z_now), " → ±0.5 · ", tp_distance, "σ до цели"))),
               div(style = paste0("text-align:center;padding:10px;border-radius:8px;",
                                  "background:#2a0f0f;border:1px solid ", RED, ";"),
                 div(style = "font-size:0.72rem;color:#8b949e;", "🛑 Стоп-лосс (SL)"),
                 div(style = paste0("font-size:1.2rem;font-weight:700;color:", RED, ";"),
                   paste0("$", fmt(sl_net))),
-                div(style = "font-size:0.68rem;color:#555c6b;",
-                  paste0("-", abs(r$avg_loss), "% · стоп при |Z| ≥ 3.5")))
+                div(style = "font-size:0.72rem;color:#f85149;font-weight:500;",
+                  paste0("-", abs(r$avg_loss), "% · Z сейчас ", sprintf("%+.2f", r$z_now), " → ±3.5 · ", sl_distance, "σ до стопа")))
             ))
         },
         div(style = "margin-top:10px;font-size:0.78rem;color:#8b949e;",
