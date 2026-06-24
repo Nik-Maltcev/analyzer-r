@@ -902,6 +902,11 @@ ui <- page_navbar(
       div(style = "font-size:0.72rem;color:#555c6b;margin-top:8px;",
         "AI получит: активные сигналы, рынок, волатильность, лучшие пары. Ответ — конкретные сделки с входом/выходом/размером.")),
     uiOutput("ai_result_ui")
+  ),
+
+  # ── TAB 9: Избранное ────────────────────────────────────────────────────
+  nav_panel("⭐ Избранное",
+    uiOutput("favorites_ui")
   )
 )
 
@@ -1245,10 +1250,10 @@ server <- function(input, output, session) {
               badge(hl_lbl, hl_col)
             else
               badge("Полупериод: нет данных", GRAY)
+            )
           )
         )
-      )
-    })
+      })
     tagList(tagList(rows))
   })
 
@@ -1756,10 +1761,22 @@ server <- function(input, output, session) {
         halflife = r$halflife, bt = bt, strength = r$strength
       )
       v <- calc_signal_pnl(s, ci$cap, ci$lev, ci$taker, ci$funding)
+      pair_id <- paste0(gsub("/", ".", r$A), "_", gsub("/", ".", r$B))
 
       tags$div(style = paste0(
         "border:1px solid ", sig_col, ";border-radius:10px;padding:14px 16px;",
         "margin-bottom:10px;background:", BG, ";"),
+        # Star + header row
+        div(style = "display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;",
+          tags$span(style = paste0("font-size:1.05rem;font-weight:700;color:", sig_col, ";"),
+            sig_icon, " ", r$signal),
+          tags$button(
+            class = "btn btn-link btn-sm",
+            style = "color:#f7931a;font-size:1.2rem;padding:0;border:none;background:none;cursor:pointer;",
+            onclick = sprintf("Shiny.setInputValue('fav_toggle', '%s', {priority:'event'})", pair_id),
+            title = "Добавить в избранное",
+            tags$i(id = paste0("fav_icon_", pair_id), class = "far fa-star"))
+        ),
         layout_columns(col_widths = c(6, 3, 3),
           div(
             tags$span(style = paste0("font-size:1.05rem;font-weight:700;color:", sig_col, ";"),
@@ -1817,6 +1834,246 @@ server <- function(input, output, session) {
               options = list(pageLength = 25, dom = "tip", scrollX = TRUE,
                              order = list(list(1, "desc"))),
               style = "bootstrap5", class = "table-dark table-sm")
+  })
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # ТАБ: Избранное — трекинг сигналов
+  # ══════════════════════════════════════════════════════════════════════════
+  observeEvent(input$fav_toggle, {
+    pair_id <- input$fav_toggle
+    if (is.null(pair_id) || nchar(pair_id) < 3) return()
+
+    # Parse pair_id: "BTC.USD_ETH.USD" -> ta="BTC/USD", tb="ETH/USD"
+    parts <- strsplit(pair_id, "_")[[1]]
+    ta <- gsub("\\.", "/", parts[1])
+    tb <- gsub("\\.", "/", parts[2])
+
+    con <- dbConnect(SQLite(), DB_PATH)
+    on.exit(dbDisconnect(con))
+
+    # Check if already in favorites
+    existing <- dbGetQuery(con,
+      "SELECT id, status FROM favorites WHERE ticker_a = ? AND ticker_b = ? AND status = 'active'",
+      params = list(ta, tb))
+
+    if (nrow(existing) > 0) {
+      # Remove from favorites
+      dbExecute(con, "DELETE FROM favorites WHERE id = ?", params = list(existing$id[1]))
+      showNotification(paste0("Убрано из избранного: ", ta, " / ", tb), type = "message", duration = 3)
+      return()
+    }
+
+    # Add to favorites: get current prices + signal info
+    pc <- pairs_coint()
+    pw <- price_wide()
+    if (is.null(pc) || is.null(pw)) return()
+
+    # Find the signal
+    ta_dot <- gsub("/", ".", ta); tb_dot <- gsub("/", ".", tb)
+    sig <- pc[pc$A == ta & pc$B == tb, ]
+    if (nrow(sig) == 0) {
+      # Try reversed
+      sig <- pc[pc$A == tb & pc$B == ta, ]
+    }
+    if (nrow(sig) == 0) {
+      showNotification("Сигнал не найден в данных", type = "error")
+      return()
+    }
+    sig <- sig[1, ]
+
+    # Get last prices
+    price_a <- if (ta_dot %in% colnames(pw)) tail(na.omit(as.numeric(pw[[ta_dot]])), 1) else NA
+    price_b <- if (tb_dot %in% colnames(pw)) tail(na.omit(as.numeric(pw[[tb_dot]])), 1) else NA
+
+    dbExecute(con, "
+      INSERT INTO favorites (pair, ticker_a, ticker_b, signal, signal_type,
+        z_at_entry, price_a_entry, price_b_entry, entry_time, status, halflife, corr)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 'active', ?, ?)",
+      params = list(
+        paste0(ta, " / ", tb), ta, tb, sig$signal, sig$signal_type,
+        sig$z_now, price_a, price_b,
+        sig$halflife, round(abs(sig$corr) * 100))
+    )
+
+    showNotification(paste0("Добавлено в избранное: ", ta, " / ", tb), type = "message", duration = 3)
+  })
+
+  # ── Favorites data (with live P&L) ────────────────────────────────────────
+  favorites_data <- reactive({
+    if (!file.exists(DB_PATH)) return(NULL)
+    con <- dbConnect(SQLite(), DB_PATH)
+    on.exit(dbDisconnect(con))
+    tables <- dbGetQuery(con, "SELECT name FROM sqlite_master WHERE type='table' AND name='favorites'")$name
+    if (!"favorites" %in% tables) return(NULL)
+
+    favs <- dbGetQuery(con, "SELECT * FROM favorites ORDER BY created_at DESC")
+    if (nrow(favs) == 0) return(NULL)
+
+    # Compute live P&L for active entries
+    pw <- tryCatch(price_wide(), error = function(e) NULL)
+    if (!is.null(pw)) {
+      for (i in seq_len(nrow(favs))) {
+        if (favs$status[i] != "active") next
+        ta_dot <- gsub("/", ".", favs$ticker_a[i])
+        tb_dot <- gsub("/", ".", favs$ticker_b[i])
+        pa_now <- if (ta_dot %in% colnames(pw)) tail(na.omit(as.numeric(pw[[ta_dot]])), 1) else NA
+        pb_now <- if (tb_dot %in% colnames(pw)) tail(na.omit(as.numeric(pw[[tb_dot]])), 1) else NA
+        if (is.na(pa_now) || is.na(pb_now)) next
+
+        is_long_a <- favs$signal_type[i] == "long_a"
+        pnl_a <- if (is_long_a) (pa_now / favs$price_a_entry[i] - 1) * 100
+                 else (favs$price_a_entry[i] / pa_now - 1) * 100
+        pnl_b <- if (!is_long_a) (pb_now / favs$price_b_entry[i] - 1) * 100
+                 else (favs$price_b_entry[i] / pb_now - 1) * 100
+        favs$pnl_a[i] <- round(pnl_a, 2)
+        favs$pnl_b[i] <- round(pnl_b, 2)
+        favs$pnl_total[i] <- round((pnl_a + pnl_b) / 2, 2)
+        favs$price_a_now[i] <- pa_now
+        favs$price_b_now[i] <- pb_now
+
+        # Check if HL expired
+        if (!is.na(favs$halflife[i]) && favs$halflife[i] > 0) {
+          entry_t <- as.POSIXct(favs$entry_time[i])
+          if (!is.na(entry_t)) {
+            days_held <- as.numeric(difftime(Sys.time(), entry_t, units = "days"))
+            favs$days_held[i] <- round(days_held, 1)
+            favs$hl_remaining[i] <- max(0, favs$halflife[i] - days_held)
+          }
+        }
+      }
+    }
+    favs
+  })
+
+  output$favorites_ui <- renderUI({
+    df <- favorites_data()
+    if (is.null(df) || nrow(df) == 0)
+      return(placeholder_msg("Избранное пусто. Нажимайте ⭐ на карточках сигналов, чтобы добавить."))
+
+    active <- df[df$status == "active", ]
+    closed <- df[df$status != "active", ]
+
+    fmt <- function(x) format(x, big.mark = " ", scientific = FALSE, trim = TRUE)
+
+    # Active favorites cards
+    active_cards <- if (nrow(active) > 0) {
+      lapply(seq_len(nrow(active)), function(i) {
+        r <- active[i, ]
+        is_long <- r$signal_type == "long_a"
+        sig_col <- if (is_long) GREEN else RED
+        sig_icon <- if (is_long) "📈" else "📉"
+        pnl_col <- if (!is.na(r$pnl_total) && r$pnl_total > 0) GREEN else if (!is.na(r$pnl_total)) RED else GRAY
+
+        tags$div(style = paste0("border:1px solid ", sig_col, ";border-radius:14px;padding:14px 16px;",
+          "margin-bottom:10px;background:", CARD, ";"),
+          layout_columns(col_widths = c(5, 3, 4),
+            div(
+              tags$span(style = paste0("font-size:1rem;font-weight:700;color:", sig_col, ";"),
+                sig_icon, " ", r$signal),
+              tags$br(),
+              tags$span(style = "font-size:0.82rem;color:#8b949e;",
+                paste0(r$ticker_a, " / ", r$ticker_b, " · корр: ", r$corr, "%",
+                       if (!is.na(r$halflife)) paste0(" · HL: ", r$halflife, "д") else "")),
+              tags$br(),
+              tags$span(style = "font-size:0.78rem;color:#555c6b;",
+                paste0("Вход: $", r$price_a_entry, " / $", r$price_b_entry))
+            ),
+            div(style = "text-align:center;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;", "Живой P&L"),
+              tags$div(style = paste0("font-size:1.4rem;font-weight:700;color:", pnl_col, ";"),
+                if (!is.na(r$pnl_total)) paste0(if (r$pnl_total > 0) "+" else "", r$pnl_total, "%") else "—"),
+              if (!is.na(r$pnl_a)) tags$div(style = "font-size:0.68rem;color:#555c6b;",
+                paste0(r$ticker_a, ": ", if (r$pnl_a > 0) "+" else "", r$pnl_a, "%"))
+            ),
+            div(style = "text-align:right;",
+              tags$div(style = "font-size:0.72rem;color:#8b949e;",
+                paste0("Сейчас: $", r$price_a_now, " / $", r$price_b_now)),
+              if (!is.na(r$days_held))
+                tags$div(style = paste0("font-size:0.78rem;font-weight:600;color:",
+                  if (!is.na(r$hl_remaining) && r$hl_remaining <= 0) RED else ORANGE, ";"),
+                  paste0(r$days_held, " дн. · HL: ", r$halflife, "д")),
+              tags$button(
+                class = "btn btn-sm btn-link",
+                style = "color:#f85149;font-size:0.8rem;padding:2px 8px;",
+                onclick = sprintf("Shiny.setInputValue('fav_close', '%d', {priority:'event'})", r$id),
+                "✕ Закрыть")
+            )
+          )
+        )
+      })
+    } else NULL
+
+    # Closed history
+    hist_cards <- NULL
+    if (nrow(closed) > 0) {
+      closed <- head(closed[order(-as.Date(closed$exit_time)), ], 10)
+      hist_cards <- lapply(seq_len(min(5, nrow(closed))), function(i) {
+        r <- closed[i, ]
+        pnl_col <- if (!is.na(r$exit_pnl_pct) && r$exit_pnl_pct > 0) GREEN else RED
+        tags$div(style = paste0("border:1px solid ", BORDER, ";border-radius:8px;padding:10px 14px;",
+          "margin-bottom:6px;background:", CARD2, ";"),
+          div(style = "display:flex;align-items:center;justify-content:space-between;",
+            div(style = "font-size:0.85rem;color:#e6edf3;",
+              tags$span(style = "font-weight:600;", r$pair),
+              tags$span(style = "font-size:0.72rem;color:#555c6b;margin-left:10px;",
+                paste0(r$entry_time, " → ", r$exit_time))),
+            div(style = "text-align:right;",
+              tags$span(style = "font-size:0.72rem;color:#8b949e;margin-right:10px;", r$status),
+              tags$span(style = paste0("font-size:0.9rem;font-weight:700;color:", pnl_col, ";"),
+                if (!is.na(r$exit_pnl_pct)) paste0(if (r$exit_pnl_pct > 0) "+" else "", r$exit_pnl_pct, "%") else "—"))
+          ))
+      })
+    }
+
+    tagList(
+      tags$div(style = "padding:12px 18px;border-radius:10px;border:1px solid #1c2333;background:#0a0e14;margin-bottom:18px;",
+        tags$span(style = "color:#8b949e;font-size:0.82rem;",
+          "⭐ Избранное — трекинг реального P&L. Цены входа фиксируются при добавлении. ",
+          "P&L обновляется на основе текущих рыночных цен. Закрывай позиции по TP/SL вручную.")),
+      if (!is.null(active_cards)) tagList(
+        tags$h6(style = "color:#e6edf3;margin-bottom:12px;",
+          paste0("📊 Активные: ", nrow(active), " позиций")),
+        tagList(active_cards)),
+      if (!is.null(hist_cards)) tagList(
+        tags$h6(style = "color:#e6edf3;margin:18px 0 12px;",
+          paste0("📋 История (последние)")),
+        tagList(hist_cards))
+    )
+  })
+
+  # Close/delete handlers
+  observeEvent(input$fav_close, {
+    id <- as.integer(input$fav_close)
+    pw <- price_wide()
+    con <- dbConnect(SQLite(), DB_PATH)
+    on.exit(dbDisconnect(con))
+    fav <- dbGetQuery(con, "SELECT * FROM favorites WHERE id = ?", params = list(id))
+    if (nrow(fav) == 0) return()
+
+    # Get current prices for exit
+    ta_dot <- gsub("/", ".", fav$ticker_a); tb_dot <- gsub("/", ".", fav$ticker_b)
+    pe_a <- if (ta_dot %in% colnames(pw)) tail(na.omit(as.numeric(pw[[ta_dot]])), 1) else NA
+    pe_b <- if (tb_dot %in% colnames(pw)) tail(na.omit(as.numeric(pw[[tb_dot]])), 1) else NA
+
+    is_long <- fav$signal_type == "long_a"
+    pnl_a <- if (is_long) (pe_a / fav$price_a_entry - 1) * 100 else (fav$price_a_entry / pe_a - 1) * 100
+    pnl_b <- if (!is_long) (pe_b / fav$price_b_entry - 1) * 100 else (fav$price_b_entry / pe_b - 1) * 100
+    pnl_t <- round((pnl_a + pnl_b) / 2, 2)
+
+    dbExecute(con, "
+      UPDATE favorites SET status = 'closed', exit_time = datetime('now'),
+        exit_price_a = ?, exit_price_b = ?, exit_pnl_pct = ?
+      WHERE id = ?",
+      params = list(pe_a, pe_b, pnl_t, id))
+    showNotification(paste0("Закрыто: ", fav$pair, " (", pnl_t, "%)"), type = "message")
+  })
+
+  observeEvent(input$fav_delete, {
+    id <- as.integer(input$fav_delete)
+    con <- dbConnect(SQLite(), DB_PATH)
+    on.exit(dbDisconnect(con))
+    dbExecute(con, "DELETE FROM favorites WHERE id = ?", params = list(id))
+    showNotification("Удалено из истории", type = "message")
   })
 
   # ── ТАБ: Макс. профит (прогнозный) ──────────────────────────────────────
