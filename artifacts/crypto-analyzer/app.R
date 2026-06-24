@@ -811,6 +811,12 @@ ui <- page_navbar(
         "MEXC Perpetual: taker 0.02%, maker 0.00%, финансирование ~0.01% / 8ч. ",
         "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
     ),
+    div(style = "padding:12px 20px;border-radius:12px;border:1px solid #30363d;background:#161b22;margin-bottom:18px;",
+      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:6px;", "Режим:"),
+      radioButtons("signals_mode", NULL,
+        choices = c("🚦 Сигналы" = "all", "💎 Прогноз" = "forecast", "⚡ Быстрые (<7д)" = "short"),
+        selected = "all", inline = TRUE)
+    ),
     uiOutput("signals_ui")
   ),
 
@@ -1669,22 +1675,46 @@ server <- function(input, output, session) {
   output$signals_ui <- renderUI({
     df <- pairs_coint()
     if (is.null(df) || nrow(df) == 0) return(placeholder_msg("Анализ не рассчитан. Проверьте БД."))
-    tagList(
-      card(
-        card_header("🚦 Торговые сигналы на завтра"),
-        card_body(
-          p(style = "color:#8b949e;font-size:0.85rem;",
-            "Сигналы формируются на основе Z-score спреда коинтегрированных пар. ",
-            "Вход при |Z| > 2, выход при |Z| < 0.5. Прогноз — AR(1) модель."),
-          checkboxInput("signals_coint_only", "Только коинтегрированные пары", value = TRUE),
-          sliderInput("signals_min_corr", "Мин. корреляция", min = 50, max = 100, value = 70, step = 5, post = "%", width = "100%"),
-          uiOutput("signals_active"),
-          hr(),
-          tags$h6(style = "color:#e6edf3;margin-top:16px;", "📋 Все пары — сводная таблица"),
-          DTOutput("signals_table")
+    mode <- if (isTruthy(input$signals_mode)) input$signals_mode else "all"
+
+    if (mode == "all") {
+      # Existing signals view
+      tagList(
+        card(
+          card_header("🚦 Торговые сигналы на завтра"),
+          card_body(
+            p(style = "color:#8b949e;font-size:0.85rem;",
+              "Сигналы формируются на основе Z-score спреда коинтегрированных пар. ",
+              "Вход при |Z| > 2, выход при |Z| < 0.5. Прогноз — AR(1) модель."),
+            checkboxInput("signals_coint_only", "Только коинтегрированные пары", value = TRUE),
+            sliderInput("signals_min_corr", "Мин. корреляция", min = 50, max = 100, value = 70, step = 5, post = "%", width = "100%"),
+            uiOutput("signals_active"),
+            hr(),
+            tags$h6(style = "color:#e6edf3;margin-top:16px;", "📋 Все пары — сводная таблица"),
+            DTOutput("signals_table")
+          )
         )
       )
-    )
+    } else if (mode == "forecast") {
+      tdf <- forecast_trades()
+      if (is.null(tdf) || nrow(tdf) == 0)
+        return(placeholder_msg("Нет активных сигналов для прогноза."))
+      tagList(
+        card(card_header(paste0("💎 Прогноз: ", nrow(tdf), " активных сигналов")),
+          card_body(DTOutput("maxprofit_table")))
+      )
+    } else if (mode == "short") {
+      tdf <- shortforecast_data()
+      md <- if (isTruthy(input$short_max_days)) input$short_max_days else 7
+      if (is.null(tdf) || nrow(tdf) == 0)
+        return(placeholder_msg(sprintf("Нет сигналов с прогнозом до %d дней.", md)))
+      tagList(
+        card(card_header(sprintf("⚡ Быстрые (%d дн.): %d сигналов", md, nrow(tdf))),
+          card_body(
+            sliderInput("short_max_days", "Макс. дней в сделке", min = 1, max = 7, value = md, step = 1, post = " дн.", width = "100%"),
+            DTOutput("shorttrades_table")))
+      )
+    }
   })
 
   output$signals_active <- renderUI({
@@ -1856,6 +1886,14 @@ server <- function(input, output, session) {
     }
     if (length(res) == 0) return(NULL)
     tdf <- do.call(rbind, res)
+    # Deduplicate: normalize pair key (A/B = B/A)
+    tdf$pair_key <- sapply(seq_len(nrow(tdf)), function(j) {
+      x <- sort(c(tdf$ticker_a[j], tdf$ticker_b[j]))
+      paste0(x[1], "/", x[2])
+    })
+    tdf <- tdf[order(-abs(tdf$z_now)), ]
+    tdf <- tdf[!duplicated(tdf$pair_key), ]
+    tdf$pair_key <- NULL
     tdf[order(-tdf$avg_pnl), ]
   })
 
@@ -2130,6 +2168,14 @@ server <- function(input, output, session) {
     }
     if (length(res) == 0) return(NULL)
     tdf <- do.call(rbind, res)
+    # Deduplicate: normalize pair key (A/B = B/A)
+    tdf$pair_key <- sapply(seq_len(nrow(tdf)), function(j) {
+      x <- sort(c(tdf$ticker_a[j], tdf$ticker_b[j]))
+      paste0(x[1], "/", x[2])
+    })
+    tdf <- tdf[order(-abs(tdf$z_now)), ]
+    tdf <- tdf[!duplicated(tdf$pair_key), ]
+    tdf$pair_key <- NULL
     tdf[order(-tdf$avg_pnl), ]
   })
 
