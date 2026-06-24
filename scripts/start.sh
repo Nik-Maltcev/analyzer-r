@@ -70,6 +70,22 @@ if [ -f "$DB_PATH" ] && [ -s "$DB_PATH" ]; then
   fi
 fi
 
+# ── Load Russian stocks if not already loaded ───────────────────────────────
+# Same for RU market data: DB may predate this feature.
+if [ -f "$DB_PATH" ] && [ -s "$DB_PATH" ]; then
+  ru_count=$(Rscript --slave -e "cat(tryCatch({v<-RSQLite::dbConnect(RSQLite::SQLite(),'${DB_PATH}');on.exit(RSQLite::dbDisconnect(v));RSQLite::dbGetQuery(v,\"SELECT COUNT(*) AS n FROM prices WHERE market='ru'\")\$n},error=function(e)-1L))" 2>/dev/null)
+  echo "[start.sh] RU market row count: ${ru_count}"
+  if [ -z "$ru_count" ] || [ "$ru_count" -lt 1 ] 2>/dev/null; then
+    echo "[start.sh] Loading Russian stocks..."
+    Rscript /scripts/load_ru.R
+    echo "[start.sh] RU load done."
+    # Also need to compute pairs for the new RU market
+    echo "[start.sh] Computing RU pairs analysis..."
+    Rscript /scripts/compute_analysis.R
+    echo "[start.sh] RU analysis done."
+  fi
+fi
+
 # ── Background daily updater (replaces cron — more reliable in Docker) ─────
 # Runs daily_update.R at 06:00 UTC (09:00 MSK) in a background loop.
 # All env vars are inherited, logs go to stdout (visible in Railway).
