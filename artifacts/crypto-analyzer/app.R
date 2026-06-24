@@ -767,6 +767,12 @@ ui <- page_navbar(
     }
   ")),
 
+  # ── Auth status bar ───────────────────────────────────────────────────────
+  div(id = "auth_bar",
+    style = "display:flex;align-items:center;justify-content:flex-end;padding:8px 20px;gap:10px;background:#0f1419;border-bottom:1px solid #1c2333;",
+    uiOutput("auth_status_ui")
+  ),
+
   # ── TAB 1: Данные ───────────────────────────────────────────────────────
   nav_panel("📂 Данные",
     layout_columns(col_widths = c(4, 8),
@@ -912,6 +918,109 @@ ui <- page_navbar(
 
 # ── Server ───────────────────────────────────────────────────────────────────
 server <- function(input, output, session) {
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # Supabase Auth (REST API via httr)
+  # ══════════════════════════════════════════════════════════════════════════
+  AUTH <- reactiveValues(user_id = NULL, email = NULL, token = NULL, error = NULL)
+  supabase_url <- Sys.getenv("SUPABASE_URL", "")
+  supabase_key <- Sys.getenv("SUPABASE_ANON_KEY", "")
+
+  # Login form (modal)
+  observeEvent(input$show_auth, {
+    showModal(modalDialog(
+      title = div(style = "text-align:center;", tags$span(style = "font-size:1.5rem;", "🔐"),
+                  tags$br(), "Вход / Регистрация"),
+      textInput("auth_email", "Email", placeholder = "user@example.com"),
+      passwordInput("auth_password", "Пароль", placeholder = "минимум 6 символов"),
+      div(style = "display:flex;gap:10px;",
+        actionButton("auth_login", "Войти", class = "btn-primary", width = "100%"),
+        actionButton("auth_register", "Регистрация", class = "btn-secondary", width = "100%")),
+      if (!is.null(AUTH$error)) div(style = paste0("color:", RED, ";font-size:0.85rem;margin-top:10px;text-align:center;"),
+        AUTH$error),
+      footer = NULL, size = "s", easyClose = FALSE
+    ))
+  })
+
+  # Register handler
+  observeEvent(input$auth_register, {
+    req(input$auth_email, input$auth_password)
+    if (nchar(input$auth_password) < 6) {
+      AUTH$error <- "Пароль должен быть не менее 6 символов"
+      return()
+    }
+    resp <- tryCatch(
+      httr::POST(
+        paste0(supabase_url, "/auth/v1/signup"),
+        httr::add_headers("apikey" = supabase_key, "Content-Type" = "application/json"),
+        body = jsonlite::toJSON(list(email = input$auth_email, password = input$auth_password), auto_unbox = TRUE),
+        encode = "raw"
+      ),
+      error = function(e) NULL
+    )
+    if (is.null(resp) || httr::status_code(resp) >= 400) {
+      AUTH$error <- "Ошибка регистрации. Проверьте email и пароль."
+      return()
+    }
+    result <- httr::content(resp, "parsed")
+    if (!is.null(result$user)) {
+      AUTH$user_id <- result$user$id
+      AUTH$email <- result$user$email
+      AUTH$token <- result$access_token
+      AUTH$error <- NULL
+      removeModal()
+      showNotification(paste0("Добро пожаловать, ", AUTH$email, "!"), type = "message", duration = 5)
+    }
+  })
+
+  # Login handler
+  observeEvent(input$auth_login, {
+    req(input$auth_email, input$auth_password)
+    resp <- tryCatch(
+      httr::POST(
+        paste0(supabase_url, "/auth/v1/token?grant_type=password"),
+        httr::add_headers("apikey" = supabase_key, "Content-Type" = "application/json"),
+        body = jsonlite::toJSON(list(email = input$auth_email, password = input$auth_password), auto_unbox = TRUE),
+        encode = "raw"
+      ),
+      error = function(e) NULL
+    )
+    if (is.null(resp) || httr::status_code(resp) >= 400) {
+      AUTH$error <- "Неверный email или пароль"
+      return()
+    }
+    result <- httr::content(resp, "parsed")
+    AUTH$user_id <- result$user$id
+    AUTH$email <- result$user$email
+    AUTH$token <- result$access_token
+    AUTH$error <- NULL
+    removeModal()
+    showNotification(paste0("С возвращением, ", AUTH$email, "!"), type = "message", duration = 5)
+  })
+
+  # Logout handler
+  observeEvent(input$auth_logout, {
+    AUTH$user_id <- NULL; AUTH$email <- NULL; AUTH$token <- NULL
+    showNotification("Вы вышли из аккаунта", type = "message")
+  })
+
+  # Show auth modal if not logged in and no Supabase configured
+  observe({
+    if (is.null(AUTH$user_id) && nchar(supabase_url) < 5)
+      AUTH$email <- "local"
+  })
+
+  # Auth status UI (in navbar)
+  output$auth_status_ui <- renderUI({
+    if (!is.null(AUTH$email) && AUTH$email != "local") {
+      div(style = "display:flex;align-items:center;gap:10px;",
+        tags$span(style = "font-size:0.82rem;color:#8b949e;", AUTH$email),
+        actionButton("auth_logout", "Выйти", class = "btn-secondary btn-sm", style = "font-size:0.75rem;"))
+    } else {
+      actionButton("show_auth", "🔐 Войти / Регистрация",
+        class = "btn-secondary btn-sm", style = "font-size:0.82rem;")
+    }
+  })
 
   # ── Database connection ──────────────────────────────────────────────────
   DB_PATH <- Sys.getenv("DB_PATH", "/data/market.db")
@@ -1852,9 +1961,10 @@ server <- function(input, output, session) {
     on.exit(dbDisconnect(con))
 
     # Check if already in favorites
+    uid <- if (is.null(AUTH$user_id)) "local" else AUTH$user_id
     existing <- dbGetQuery(con,
-      "SELECT id, status FROM favorites WHERE ticker_a = ? AND ticker_b = ? AND status = 'active'",
-      params = list(ta, tb))
+      "SELECT id, status FROM favorites WHERE ticker_a = ? AND ticker_b = ? AND status = 'active' AND user_id = ?",
+      params = list(ta, tb, uid))
 
     if (nrow(existing) > 0) {
       # Remove from favorites
@@ -1887,12 +1997,12 @@ server <- function(input, output, session) {
 
     dbExecute(con, "
       INSERT INTO favorites (pair, ticker_a, ticker_b, signal, signal_type,
-        z_at_entry, price_a_entry, price_b_entry, entry_time, status, halflife, corr)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 'active', ?, ?)",
+        z_at_entry, price_a_entry, price_b_entry, entry_time, status, halflife, corr, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 'active', ?, ?, ?)",
       params = list(
         paste0(ta, " / ", tb), ta, tb, sig$signal, sig$signal_type,
         sig$z_now, price_a, price_b,
-        sig$halflife, round(abs(sig$corr) * 100))
+        sig$halflife, round(abs(sig$corr) * 100), uid)
     )
 
     showNotification(paste0("Добавлено в избранное: ", ta, " / ", tb), type = "message", duration = 3)
@@ -1906,7 +2016,9 @@ server <- function(input, output, session) {
     tables <- dbGetQuery(con, "SELECT name FROM sqlite_master WHERE type='table' AND name='favorites'")$name
     if (!"favorites" %in% tables) return(NULL)
 
-    favs <- dbGetQuery(con, "SELECT * FROM favorites ORDER BY created_at DESC")
+    uid <- if (is.null(AUTH$user_id)) "local" else AUTH$user_id
+    favs <- dbGetQuery(con, "SELECT * FROM favorites WHERE user_id = ? ORDER BY created_at DESC",
+                       params = list(uid))
     if (nrow(favs) == 0) return(NULL)
 
     # Compute live P&L for active entries

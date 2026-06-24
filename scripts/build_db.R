@@ -108,6 +108,7 @@ dbExecute(con, "
     status       TEXT DEFAULT 'active',
     halflife     INTEGER,
     corr         REAL,
+    user_id      TEXT DEFAULT 'local',
     created_at   TEXT DEFAULT (datetime('now'))
   )
 ")
