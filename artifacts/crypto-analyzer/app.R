@@ -774,6 +774,61 @@ ui <- page_navbar(
   ),
 
   # ── TAB 1: Данные ───────────────────────────────────────────────────────
+
+  # ── TAB 1: Сигналы ──────────────────────────────────────────────────────
+  nav_panel("🚦 Сигналы",
+    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #30363d;background:#161b22;margin-bottom:18px;",
+      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:12px;",
+        "Настройки калькулятора (применяются ко всем сигналам)"),
+      calc_settings_ui("sigcalc_"),
+      div(style = "font-size:0.72rem;color:#555;margin-top:8px;",
+        "MEXC Perpetual: taker 0.02%, maker 0.00%, финансирование ~0.01% / 8ч. ",
+        "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
+    ),
+    div(style = "padding:12px 20px;border-radius:12px;border:1px solid #30363d;background:#161b22;margin-bottom:18px;",
+      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:6px;", "Режим:"),
+      radioButtons("signals_mode", NULL,
+        choices = c("🚦 Сигналы" = "all", "💎 Прогноз" = "forecast", "⚡ Быстрые (<7д)" = "short"),
+        selected = "all", inline = TRUE)
+    ),
+    uiOutput("signals_ui")
+  ),
+
+  # ── TAB 2: Pairs Trading ─────────────────────────────────────────────────
+  nav_panel("📊 Портфель",
+    uiOutput("pairs_ui")
+  ),
+
+  # ── TAB 3: Сканеры ──────────────────────────────────────────────────────
+  nav_panel("🔍 Сканеры",
+    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
+      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
+        "Выберите сканер:"),
+      div(style = "display:flex;flex-wrap:wrap;gap:6px;",
+        radioButtons("scanner_type", NULL,
+          choices = c("🔗 Corr Breakdown" = "corrbreak", "🚀 Momentum" = "momentum",
+                      "📉 Drawdown" = "drawdown"),
+          selected = "corrbreak", inline = TRUE,
+          width = "100%")
+      )
+    ),
+    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
+      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:12px;",
+        "Настройки калькулятора (применяются ко всем сигналам)"),
+      calc_settings_ui("scancalc_"),
+      div(style = "font-size:0.72rem;color:#555c6b;margin-top:8px;",
+        "MEXC Perpetual: taker 0.02%, maker 0.00%, финансирование ~0.01% / 8ч. ",
+        "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
+    ),
+    uiOutput("scanner_ui")
+  ),
+
+  # ── TAB 4: Избранное ────────────────────────────────────────────────────
+  nav_panel("⭐ Избранное",
+    uiOutput("favorites_ui")
+  ),
+
+  # ── TAB 5: Данные ───────────────────────────────────────────────────────
   nav_panel("📂 Данные",
     layout_columns(col_widths = c(4, 8),
       card(
@@ -802,100 +857,7 @@ ui <- page_navbar(
     )
   ),
 
-  # ── TAB 2: Pairs Trading ─────────────────────────────────────────────────
-  nav_panel("📊 Портфель",
-    uiOutput("pairs_ui")
-  ),
-
-  # ── TAB 3: Сигналы ──────────────────────────────────────────────────────
-  nav_panel("🚦 Сигналы",
-    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #30363d;background:#161b22;margin-bottom:18px;",
-      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:12px;",
-        "Настройки калькулятора (применяются ко всем сигналам)"),
-      calc_settings_ui("sigcalc_"),
-      div(style = "font-size:0.72rem;color:#555;margin-top:8px;",
-        "MEXC Perpetual: taker 0.02%, maker 0.00%, финансирование ~0.01% / 8ч. ",
-        "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
-    ),
-    div(style = "padding:12px 20px;border-radius:12px;border:1px solid #30363d;background:#161b22;margin-bottom:18px;",
-      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:6px;", "Режим:"),
-      radioButtons("signals_mode", NULL,
-        choices = c("🚦 Сигналы" = "all", "💎 Прогноз" = "forecast", "⚡ Быстрые (<7д)" = "short"),
-        selected = "all", inline = TRUE)
-    ),
-    uiOutput("signals_ui")
-  ),
-
-  # ── TAB 5: Максимальный профит ──────────────────────────────────────────
-  nav_panel("💎 Макс. профит",
-    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
-      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:12px;",
-        "Настройки калькулятора (применяются ко всем сделкам)"),
-      calc_settings_ui("mpcalc_"),
-      div(style = "font-size:0.72rem;color:#555c6b;margin-top:8px;",
-        "MEXC Perpetual: taker 0.02%, maker 0.00%, финансирование ~0.01% / 8ч. ",
-        "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
-    ),
-    div(style = "padding:14px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
-      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
-        "Фильтры пар"),
-      layout_columns(col_widths = c(4, 4, 4),
-        checkboxInput("mp_coint_only", "Только коинтегрированные", value = FALSE),
-        sliderInput("mp_min_corr", "Мин. корреляция", min = 50, max = 100, value = 50, step = 5, post = "%", width = "100%"),
-        sliderInput("mp_min_trades", "Мин. сделок в истории", min = 1, max = 20, value = 3, step = 1, width = "100%")
-      )
-    ),
-    uiOutput("maxprofit_ui")
-  ),
-
-  # ── TAB 6: Короткие сделки (до 7 дней) ──────────────────────────────────
-  nav_panel("⚡ Короткие сделки",
-    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
-      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:12px;",
-        "Настройки калькулятора (применяются ко всем сделкам)"),
-      calc_settings_ui("shortcalc_"),
-      div(style = "font-size:0.72rem;color:#555c6b;margin-top:8px;",
-        "MEXC Perpetual: taker 0.02%, maker 0.00%, финансирование ~0.01% / 8ч. ",
-        "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
-    ),
-    div(style = "padding:14px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
-      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
-        "Фильтры пар"),
-      layout_columns(col_widths = c(3, 3, 3, 3),
-        checkboxInput("short_coint_only", "Только коинтегрированные", value = FALSE),
-        sliderInput("short_min_corr", "Мин. корреляция", min = 50, max = 100, value = 50, step = 5, post = "%", width = "100%"),
-        sliderInput("short_max_days", "Макс. дней в сделке", min = 1, max = 7, value = 7, step = 1, post = " дн.", width = "100%"),
-        sliderInput("short_min_trades", "Мин. сделок в истории", min = 1, max = 20, value = 3, step = 1, width = "100%")
-      )
-    ),
-    uiOutput("shorttrades_ui")
-  ),
-
-  # ── TAB 7: Сканеры ──────────────────────────────────────────────────────
-  nav_panel("🔍 Сканеры",
-    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
-      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
-        "Выберите сканер:"),
-      div(style = "display:flex;flex-wrap:wrap;gap:6px;",
-        radioButtons("scanner_type", NULL,
-          choices = c("🔗 Corr Breakdown" = "corrbreak", "🚀 Momentum" = "momentum",
-                      "📉 Drawdown" = "drawdown"),
-          selected = "corrbreak", inline = TRUE,
-          width = "100%")
-      )
-    ),
-    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
-      div(style = "font-size:0.9rem;font-weight:600;color:#e6edf3;margin-bottom:12px;",
-        "Настройки калькулятора (применяются ко всем сигналам)"),
-      calc_settings_ui("scancalc_"),
-      div(style = "font-size:0.72rem;color:#555c6b;margin-top:8px;",
-        "MEXC Perpetual: taker 0.02%, maker 0.00%, финансирование ~0.01% / 8ч. ",
-        "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
-    ),
-    uiOutput("scanner_ui")
-  ),
-
-  # ── TAB 8: AI-аналитик ──────────────────────────────────────────────────
+  # ── TAB 6: AI-аналитик ──────────────────────────────────────────────────
   nav_panel("🤖 AI-аналитик",
     div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
       div(style = "display:flex;align-items:center;gap:12px;margin-bottom:12px;",
@@ -908,11 +870,6 @@ ui <- page_navbar(
       div(style = "font-size:0.72rem;color:#555c6b;margin-top:8px;",
         "AI получит: активные сигналы, рынок, волатильность, лучшие пары. Ответ — конкретные сделки с входом/выходом/размером.")),
     uiOutput("ai_result_ui")
-  ),
-
-  # ── TAB 9: Избранное ────────────────────────────────────────────────────
-  nav_panel("⭐ Избранное",
-    uiOutput("favorites_ui")
   )
 )
 
