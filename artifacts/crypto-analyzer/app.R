@@ -1786,25 +1786,103 @@ server <- function(input, output, session) {
   })
 
   # ── ТАБ: Сигналы ──────────────────────────────────────────────────────────
+  signals_dashboard <- reactive({
+    df <- pairs_coint()
+    if (is.null(df)) return(NULL)
+    pw <- price_wide()
+
+    # Active signals count
+    active <- df[df$signal_type != "wait", ]
+    n_active <- nrow(active)
+
+    # Best signal (highest |Z|)
+    best <- if (n_active > 0) head(active[order(-abs(active$z_now)), ], 1) else NULL
+
+    # Market volatility (simple: avg std of last 30d returns)
+    mkt_vol <- if (!is.null(pw) && ncol(pw) >= 2) {
+      rets <- apply(pw, 2, function(x) {
+        x <- as.numeric(x); x <- x[!is.na(x)]
+        if (length(x) < 30) return(NA)
+        sd(tail(diff(log(x)), 30), na.rm = TRUE) * sqrt(365) * 100
+      })
+      rets <- rets[!is.na(rets)]
+      if (length(rets) > 0) mean(rets) else NA
+    } else NA
+
+    # Regime label
+    regime <- if (!is.na(mkt_vol)) {
+      if (mkt_vol > 80) "🔥 Бурный" else if (mkt_vol > 50) "⚠ Повышенный"
+      else if (mkt_vol < 30) "🧊 Спокойный" else "✅ Норма"
+    } else "—"
+
+    # Portfolio summary
+    pw_summary <- NULL
+    favs <- tryCatch({
+      con <- dbConnect(SQLite(), DB_PATH)
+      on.exit(dbDisconnect(con))
+      uid <- if (is.null(AUTH$user_id)) "local" else AUTH$user_id
+      f <- dbGetQuery(con, "SELECT * FROM favorites WHERE status = 'active' AND user_id = ?", params = list(uid))
+      if (nrow(f) > 0) list(count = nrow(f)) else NULL
+    }, error = function(e) NULL)
+
+    list(n_active = n_active, best = best, mkt_vol = mkt_vol, regime = regime, portfolio = pw_summary)
+  })
+
   output$signals_ui <- renderUI({
     df <- pairs_coint()
     if (is.null(df) || nrow(df) == 0) return(placeholder_msg("Анализ не рассчитан. Проверьте БД."))
     mode <- if (isTruthy(input$signals_mode)) input$signals_mode else "all"
+    dash <- signals_dashboard()
+    mkt <- switch(input$market_type, crypto = "Crypto", stocks = "Акции", ru = "RU", "—")
+    max_d <- if (isTruthy(input$signals_max_days)) input$signals_max_days else 30
+
+    # Dashboard banner
+    dash_block <- if (!is.null(dash)) {
+      div(style = paste0("padding:14px 20px;border-radius:12px;margin-bottom:18px;",
+        "background:linear-gradient(135deg, #0f1419, #131922);border:1px solid #1c2333;"),
+        layout_columns(col_widths = c(3, 3, 3, 3),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.72rem;color:#8b949e;", paste0(mkt, " · режим")),
+            div(style = "font-size:1.1rem;font-weight:700;color:#e6edf3;", dash$regime),
+            div(style = "font-size:0.68rem;color:#555c6b;",
+              if (!is.na(dash$mkt_vol)) paste0(round(dash$mkt_vol), "% год.") else "")),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.72rem;color:#8b949e;", "Активных сигналов"),
+            div(style = paste0("font-size:1.3rem;font-weight:700;color:",
+              if (dash$n_active > 0) ORANGE else GRAY, ";"), dash$n_active),
+            div(style = "font-size:0.68rem;color:#555c6b;", "|Z| ≥ 2")),
+          if (!is.null(dash$best)) {
+            sig_icon <- if (dash$best$signal_type == "short_a") "📉" else "📈"
+            sig_col <- if (dash$best$signal_type == "short_a") RED else GREEN
+            div(style = "text-align:center;",
+              div(style = "font-size:0.72rem;color:#8b949e;", "Лучший сигнал"),
+              div(style = paste0("font-size:0.9rem;font-weight:600;color:", sig_col, ";"),
+                sig_icon, " ", dash$best$signal),
+              div(style = "font-size:0.68rem;color:#555c6b;",
+                paste0("Z=", round(dash$best$z_now, 2),
+                       if (!is.na(dash$best$halflife)) paste0(" · HL:", dash$best$halflife, "д") else "")))
+          } else div(),
+          div(style = "text-align:center;",
+            div(style = "font-size:0.72rem;color:#8b949e;", "Портфель"),
+            div(style = "font-size:1.1rem;font-weight:700;color:#3fb950;",
+              if (!is.null(dash$portfolio)) paste0(dash$portfolio$count, " позиций") else "—"),
+            div(style = "font-size:0.68rem;color:#555c6b;", "⭐ избранное"))
+        )
+      )
+    } else NULL
 
     if (mode == "all") {
-      # Existing signals view
       tagList(
+        dash_block,
         card(
-          card_header("🚦 Торговые сигналы на завтра"),
+          card_header("🚦 Торговые сигналы"),
           card_body(
-            p(style = "color:#8b949e;font-size:0.85rem;",
-              "Сигналы формируются на основе Z-score спреда коинтегрированных пар. ",
-              "Вход при |Z| > 2, выход при |Z| < 0.5. Прогноз — AR(1) модель."),
-            checkboxInput("signals_coint_only", "Только коинтегрированные пары", value = TRUE),
-            sliderInput("signals_min_corr", "Мин. корреляция", min = 50, max = 100, value = 70, step = 5, post = "%", width = "100%"),
+            div(style = "display:flex;gap:12px;align-items:center;margin-bottom:12px;",
+              checkboxInput("signals_coint_only", "Только коинтегр.", value = TRUE),
+              sliderInput("signals_min_corr", "Мин. корр.", min = 50, max = 100, value = 70, step = 5, post = "%", width = "120px"),
+              sliderInput("signals_max_days", "Макс. дней", min = 3, max = 60, value = max_d, step = 1, post = "д", width = "120px")),
             uiOutput("signals_active"),
             hr(),
-            tags$h6(style = "color:#e6edf3;margin-top:16px;", "📋 Все пары — сводная таблица"),
             DTOutput("signals_table")
           )
         )
@@ -1837,6 +1915,9 @@ server <- function(input, output, session) {
     min_corr <- if (isTruthy(input$signals_min_corr)) input$signals_min_corr else 70
     df <- df[df$corr >= min_corr, , drop = FALSE]
     active <- df[df$signal_type != "wait", ]
+    # Filter by max days: only show signals with HL <= max_days (fast signals)
+    max_d <- if (isTruthy(input$signals_max_days)) input$signals_max_days else 30
+    active <- active[is.na(active$halflife) | active$halflife <= max_d, ]
     active <- active[order(-abs(active$z_now)), ]
 
     if (nrow(active) == 0) {
