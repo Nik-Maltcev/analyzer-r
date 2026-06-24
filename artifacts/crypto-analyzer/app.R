@@ -1880,9 +1880,10 @@ server <- function(input, output, session) {
           tags$span(style = paste0("font-size:1.05rem;font-weight:700;color:", sig_col, ";"),
             sig_icon, " ", r$signal),
           tags$button(
+            type = "button",
             class = "btn btn-link btn-sm",
             style = "color:#f7931a;font-size:1.2rem;padding:0;border:none;background:none;cursor:pointer;",
-            onclick = sprintf("Shiny.setInputValue('fav_toggle', '%s', {priority:'event'})", pair_id),
+            onclick = sprintf("Shiny.setInputValue('fav_toggle','%s',{priority:'event'});return false;", pair_id),
             title = "Добавить в избранное",
             tags$i(id = paste0("fav_icon_", pair_id), class = "far fa-star"))
         ),
@@ -1949,6 +1950,7 @@ server <- function(input, output, session) {
   # ТАБ: Избранное — трекинг сигналов
   # ══════════════════════════════════════════════════════════════════════════
   observeEvent(input$fav_toggle, {
+    tryCatch({
     pair_id <- input$fav_toggle
     if (is.null(pair_id) || nchar(pair_id) < 3) return()
 
@@ -2006,6 +2008,7 @@ server <- function(input, output, session) {
     )
 
     showNotification(paste0("Добавлено в избранное: ", ta, " / ", tb), type = "message", duration = 3)
+    }, error = function(e) { showNotification(paste0("Ошибка: ", e$message), type = "error") })
   })
 
   # ── Favorites data (with live P&L) ────────────────────────────────────────
@@ -2105,9 +2108,10 @@ server <- function(input, output, session) {
                   if (!is.na(r$hl_remaining) && r$hl_remaining <= 0) RED else ORANGE, ";"),
                   paste0(r$days_held, " дн. · HL: ", r$halflife, "д")),
               tags$button(
+                type = "button",
                 class = "btn btn-sm btn-link",
                 style = "color:#f85149;font-size:0.8rem;padding:2px 8px;",
-                onclick = sprintf("Shiny.setInputValue('fav_close', '%d', {priority:'event'})", r$id),
+                onclick = sprintf("Shiny.setInputValue('fav_close','%d',{priority:'event'});return false;", r$id),
                 "✕ Закрыть")
             )
           )
