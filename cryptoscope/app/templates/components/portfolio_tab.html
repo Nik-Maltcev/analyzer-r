@@ -1,0 +1,37 @@
+<div class="tab-page portfolio-page">
+    <div class="page-header">
+        <h2>📊 Портфель — Pairs Trading</h2>
+        <p class="page-desc">Анализ коинтегрированных пар, спреды, бэктесты</p>
+    </div>
+    
+    <div class="cards-grid" hx-get="/api/portfolio/pairs?market=crypto&limit=6" hx-trigger="load" hx-swap="innerHTML">
+        {% include "components/portfolio_cards.html" %}
+    </div>
+
+    <div class="section">
+        <h3>Все пары</h3>
+        <div class="table-container" hx-get="/api/portfolio/pairs?limit=20" hx-trigger="load" hx-swap="innerHTML">
+            {% include "components/portfolio_table.html" %}
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>График спреда</h3>
+        <div class="pair-selector">
+            <select id="spread-a" class="form-select" hx-trigger="change" hx-include="#spread-b"
+                    hx-get="/api/portfolio/spread/BTC.USD/ETH.USD">
+                <option>BTC/USD</option>
+                <option>ETH/USD</option>
+            </select>
+            <button class="btn btn-icon" onclick="swapTickers()">⇄</button>
+            <select id="spread-b" class="form-select" hx-trigger="change" hx-include="#spread-a"
+                    hx-get="/api/portfolio/spread/BTC.USD/ETH.USD">
+                <option>ETH/USD</option>
+                <option>BTC/USD</option>
+            </select>
+        </div>
+        <div id="spread-chart" class="chart-container" hx-get="/api/portfolio/spread/BTC.USD/ETH.USD" hx-trigger="load" hx-swap="innerHTML">
+            <div class="loading-container"><div class="loading-spinner"></div></div>
+        </div>
+    </div>
+</div>

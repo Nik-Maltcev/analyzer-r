@@ -1,0 +1,26 @@
+<div class="calculator-settings" id="calc-settings">
+    <div class="calc-row">
+        <div class="calc-field">
+            <label>Капитал ($)</label>
+            <input type="number" id="calc-capital" class="form-input" value="1000" min="10" step="100"
+                   hx-trigger="change" hx-include="#calc-leverage,#calc-taker,#calc-funding" 
+                   hx-get="/api/signals/pnl">
+        </div>
+        <div class="calc-field">
+            <label>Плечо</label>
+            <input type="range" id="calc-leverage" class="form-range" value="3" min="1" max="20" step="1">
+            <span class="range-value" id="leverage-value">3x</span>
+        </div>
+        <div class="calc-field">
+            <label>Такер (%)</label>
+            <input type="number" id="calc-taker" class="form-input form-input-sm" value="0.02" min="0" max="1" step="0.001">
+        </div>
+        <div class="calc-field">
+            <label>Фандинг (%/8ч)</label>
+            <input type="number" id="calc-funding" class="form-input form-input-sm" value="0.01" min="0" max="1" step="0.001">
+        </div>
+    </div>
+    <div class="calc-hint">
+        MEXC Perpetual Futures • Такер 0.02% maker/taker • Фандинг раз в 8 часов
+    </div>
+</div>

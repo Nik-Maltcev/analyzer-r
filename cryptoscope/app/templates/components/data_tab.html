@@ -1,0 +1,23 @@
+<div class="tab-page data-page">
+    <div class="page-header">
+        <h2>📂 Данные и настройки</h2>
+    </div>
+
+    <div class="status-cards" hx-get="/api/data/status" hx-trigger="load" hx-swap="innerHTML">
+        <div class="loading-container"><div class="loading-spinner"></div></div>
+    </div>
+
+    <div class="section">
+        <h3>Обновление</h3>
+        <div id="update-info" hx-get="/api/data/update-info" hx-trigger="load" hx-swap="innerHTML">
+            <div class="loading-container"><div class="loading-spinner"></div></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>Предпросмотр данных</h3>
+        <div id="data-preview" hx-get="/api/data/preview?limit=100" hx-trigger="load" hx-swap="innerHTML">
+            <div class="loading-container"><div class="loading-spinner"></div></div>
+        </div>
+    </div>
+</div>

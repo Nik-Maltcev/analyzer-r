@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block signals_content %}
+<div class="signals-page">
+    <div class="calc-settings-bar" id="calc-settings-bar">
+        {% include "components/calc_settings.html" %}
+    </div>
+    
+    <div id="market-selector" class="market-selector" hx-get="/api/signals/dashboard?market=crypto" hx-trigger="load" hx-swap="innerHTML">
+        {% include "components/market_selector.html" %}
+    </div>
+    
+    <div id="signals-dashboard" class="signals-dashboard">
+        <div class="loading-container">
+            <div class="loading-spinner"></div>
+            <p>Загрузка сигналов...</p>
+        </div>
+    </div>
+
+    <div class="signals-mode-bar">
+        <div class="mode-switcher">
+            <button class="mode-btn active" data-mode="all" hx-get="/tab/signals?mode=all" hx-target="#signals-content" hx-swap="innerHTML">
+                🚦 Все сигналы
+            </button>
+            <button class="mode-btn" data-mode="forecast" hx-get="/tab/signals?mode=forecast" hx-target="#signals-content" hx-swap="innerHTML">
+                💎 Прогноз
+            </button>
+            <button class="mode-btn" data-mode="short" hx-get="/tab/signals?mode=short" hx-target="#signals-content" hx-swap="innerHTML">
+                ⚡ Быстрые (&lt;7д)
+            </button>
+        </div>
+        <div class="mode-filters" id="mode-filters">
+            {% include "components/signal_filters.html" %}
+        </div>
+    </div>
+
+    <div id="signals-content" class="signals-content" hx-get="/tab/signals?mode=all" hx-trigger="load" hx-swap="innerHTML">
+        {% include "components/signals_all.html" %}
+    </div>
+</div>
+{% endblock %}

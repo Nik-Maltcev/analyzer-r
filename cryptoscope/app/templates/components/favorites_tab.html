@@ -1,0 +1,20 @@
+<div class="tab-page favorites-page">
+    <div class="page-header">
+        <h2>⭐ Избранное — Портфель</h2>
+        <p class="page-desc">Активные позиции и история сделок</p>
+    </div>
+
+    <div class="section">
+        <h3>Активные позиции</h3>
+        <div id="active-positions" hx-get="/api/favorites" hx-trigger="load every 60s" hx-swap="innerHTML">
+            <div class="loading-container"><div class="loading-spinner"></div></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>История закрытых</h3>
+        <div id="closed-history" hx-get="/api/favorites/history" hx-trigger="load" hx-swap="innerHTML">
+            <div class="loading-container"><div class="loading-spinner"></div></div>
+        </div>
+    </div>
+</div>

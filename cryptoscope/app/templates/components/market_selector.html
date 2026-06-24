@@ -1,0 +1,12 @@
+<div class="market-selector-bar">
+    <span class="market-label">Рынок:</span>
+    <button class="market-btn active" data-market="crypto" 
+            hx-get="/api/signals/dashboard?market=crypto" hx-target="#signals-dashboard" hx-swap="innerHTML"
+            onclick="switchMarket('crypto')">Crypto</button>
+    <button class="market-btn" data-market="stocks"
+            hx-get="/api/signals/dashboard?market=stocks" hx-target="#signals-dashboard" hx-swap="innerHTML"
+            onclick="switchMarket('stocks')">Акции/ETF</button>
+    <button class="market-btn" data-market="ru"
+            hx-get="/api/signals/dashboard?market=ru" hx-target="#signals-dashboard" hx-swap="innerHTML"
+            onclick="switchMarket('ru')">RU</button>
+</div>

@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  cryptoscope:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DB_PATH=/data/market.db
+      - PORT=3000
+      - TWELVEDATA_API_KEY=${TWELVEDATA_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    volumes:
+      - cryptoscope_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  cryptoscope_data:

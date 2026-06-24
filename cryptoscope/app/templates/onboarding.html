@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="onboarding-page">
+    <div class="onboarding-card">
+        <div class="onboarding-steps">
+            <div class="step active" id="step-indicator-1">1</div>
+            <div class="step-line"></div>
+            <div class="step" id="step-indicator-2">2</div>
+            <div class="step-line"></div>
+            <div class="step" id="step-indicator-3">3</div>
+        </div>
+
+        <div class="onboarding-content">
+            <!-- Step 1: Welcome -->
+            <div class="onboarding-step active" id="step-1">
+                <h2>Добро пожаловать в CryptoScope</h2>
+                <div class="onboarding-icon">🚀</div>
+                <p>Терминал для <strong>pairs trading</strong> на криптовалютных, фондовых и других рынках.</p>
+                <ul class="onboarding-features">
+                    <li>📊 Анализ сотен пар в реальном времени</li>
+                    <li>🧠 Коинтеграция и Z-score сигналы</li>
+                    <li>🤖 AI-рекомендации от DeepSeek v4 Pro</li>
+                    <li>⭐ Отслеживание позиций с live P&L</li>
+                </ul>
+            </div>
+
+            <!-- Step 2: How it works -->
+            <div class="onboarding-step" id="step-2">
+                <h2>Как это работает</h2>
+                <div class="onboarding-icon">🧠</div>
+                <div class="explanation">
+                    <div class="explain-card">
+                        <h4>1. Коинтеграция</h4>
+                        <p>Находим пары активов, которые двигаются вместе долгосрочно</p>
+                    </div>
+                    <div class="explain-card">
+                        <h4>2. Z-score</h4>
+                        <p>Отклонение спреда от среднего — когда актив переоценён или недооценён</p>
+                    </div>
+                    <div class="explain-card">
+                        <h4>3. Сигнал</h4>
+                        <p>При |Z| ≥ 2.0 — открываем позицию на возврат к среднему</p>
+                    </div>
+                    <div class="explain-card">
+                        <h4>4. Прогноз</h4>
+                        <p>AR(1) модель предсказывает куда пойдёт Z-score</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3: Setup -->
+            <div class="onboarding-step" id="step-3">
+                <h2>Готово к старту</h2>
+                <div class="onboarding-icon">✅</div>
+                <p>Всё настроено. Несколько советов:</p>
+                <ul class="onboarding-tips">
+                    <li>🚦 Начните с вкладки <strong>Сигналы</strong> — там активные точки входа</li>
+                    <li>🔍 Используйте <strong>Сканеры</strong> для поиска аномалий</li>
+                    <li>⭐ Добавляйте пары в <strong>Избранное</strong> для отслеживания P&L</li>
+                    <li>⚙️ В <strong>Данные</strong> можно посмотреть статус обновлений</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="onboarding-actions">
+            <button class="btn btn-secondary" id="onboarding-back" onclick="prevStep()" style="display:none">Назад</button>
+            <button class="btn btn-primary" id="onboarding-next" onclick="nextStep()">Далее</button>
+            <a href="/" class="btn btn-primary" id="onboarding-finish" style="display:none">В терминал →</a>
+        </div>
+    </div>
+</div>
+
+<script>
+    let step = 1;
+    function updateSteps() {
+        document.querySelectorAll('.onboarding-step').forEach(s => s.classList.remove('active'));
+        document.getElementById('step-' + step).classList.add('active');
+        document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+        document.getElementById('step-indicator-' + step).classList.add('active');
+        document.getElementById('onboarding-back').style.display = step > 1 ? 'inline-flex' : 'none';
+        document.getElementById('onboarding-next').style.display = step < 3 ? 'inline-flex' : 'none';
+        document.getElementById('onboarding-finish').style.display = step === 3 ? 'inline-flex' : 'none';
+    }
+    function nextStep() { if (step < 3) { step++; updateSteps(); } }
+    function prevStep() { if (step > 1) { step--; updateSteps(); } }
+</script>
+</div>
+{% endblock %}
