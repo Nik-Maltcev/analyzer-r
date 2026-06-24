@@ -703,6 +703,10 @@ ui <- page_navbar(
       0%, 100% { box-shadow: 0 0 8px currentColor; }
       50%      { box-shadow: 0 0 16px currentColor; }
     }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
     .card, .bslib-value-box { animation: fadeInUp 0.4s ease-out; }
 
     /* ── HR ──────────────────────────────────────────────────────────────── */
@@ -867,6 +871,21 @@ ui <- page_navbar(
         "Комиссии: 4 заполнения (2 ноги × вход + выход). Измените под свой аккаунт.")
     ),
     uiOutput("scanner_ui")
+  ),
+
+  # ── TAB 8: AI-аналитик ──────────────────────────────────────────────────
+  nav_panel("🤖 AI-аналитик",
+    div(style = "padding:16px 20px;border-radius:12px;border:1px solid #1c2333;background:#0f1419;margin-bottom:18px;",
+      div(style = "display:flex;align-items:center;gap:12px;margin-bottom:12px;",
+        tags$span(style = "font-size:1.5rem;", "🤖"),
+        div(
+          div(style = "font-size:1.1rem;font-weight:700;color:#e6edf3;", "AI-аналитик (DeepSeek v4 Pro)"),
+          div(style = "font-size:0.78rem;color:#555c6b;", "Анализирует текущие сигналы, сканеры и рынок — даёт конкретные рекомендации"))),
+      actionButton("ai_analyze", "🧠 Спросить AI",
+        class = "btn-primary", style = "width:100%;font-size:1rem;padding:14px;"),
+      div(style = "font-size:0.72rem;color:#555c6b;margin-top:8px;",
+        "AI получит: активные сигналы, рынок, волатильность, лучшие пары. Ответ — конкретные сделки с входом/выходом/размером.")),
+    uiOutput("ai_result_ui")
   )
 )
 
@@ -3412,6 +3431,263 @@ server <- function(input, output, session) {
       stringsAsFactors = FALSE, check.names = FALSE),
       rownames = FALSE, options = list(pageLength = 15, dom = "tip", scrollX = TRUE),
       style = "bootstrap5", class = "table-dark table-sm")
+  })
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # ТАБ: AI-аналитик (DeepSeek v4 Pro)
+  # ══════════════════════════════════════════════════════════════════════════
+  ai_response <- reactiveVal(NULL)
+  ai_loading  <- reactiveVal(FALSE)
+
+  # Collect current market data summary for AI
+  collect_ai_context <- function() {
+    ctx <- list()
+
+    # Market type
+    ctx$market <- input$market_type
+
+    # Active signals
+    pc <- pairs_coint()
+    if (!is.null(pc) && nrow(pc) > 0) {
+      active <- pc[pc$signal_type != "wait", , drop = FALSE]
+      if (nrow(active) > 0) {
+        active <- head(active[order(-abs(active$z_now)), ], 10)
+        ctx$signals <- lapply(seq_len(nrow(active)), function(i) {
+          r <- active[i, ]
+          list(
+            pair = paste0(r$A, " / ", r$B),
+            signal = r$signal,
+            z_now = r$z_now,
+            z_forecast = r$z_forecast,
+            corr = round(abs(r$corr) * 100),
+            is_coint = r$is_coint,
+            halflife = r$halflife,
+            strength = r$strength
+          )
+        })
+      }
+    }
+
+    # Market regime (volatility)
+    vol <- tryCatch(volatility_scan(), error = function(e) NULL)
+    if (!is.null(vol)) {
+      ctx$volatility <- list(
+        regime = vol$regime,
+        avg_vol = vol$avg_vol,
+        ratio = vol$ratio
+      )
+    }
+
+    # Top pairs by score
+    if (!is.null(pc) && nrow(pc) > 0) {
+      top <- head(pc[order(-pc$score), ], 5)
+      ctx$top_pairs <- lapply(seq_len(nrow(top)), function(i) {
+        r <- top[i, ]
+        list(
+          pair = paste0(r$A, " / ", r$B),
+          corr = round(abs(r$corr) * 100),
+          is_coint = r$is_coint,
+          halflife = r$halflife,
+          score = round(r$score, 2)
+        )
+      })
+    }
+
+    # Scanner highlights
+    ll <- tryCatch(leadlag_scan(), error = function(e) NULL)
+    if (!is.null(ll) && nrow(ll) > 0) {
+      ctx$leadlag <- lapply(seq_len(min(3, nrow(ll))), function(i) {
+        r <- ll[i, ]
+        list(leader = r$leader, follower = r$follower, lag = r$lag, signal = r$signal)
+      })
+    }
+
+    mr <- tryCatch(meanrev_scan(), error = function(e) NULL)
+    if (!is.null(mr) && nrow(mr) > 0) {
+      ctx$mean_reversion <- lapply(seq_len(min(3, nrow(mr))), function(i) {
+        r <- mr[i, ]
+        list(ticker = r$ticker, z_score = r$z_score, signal = r$signal)
+      })
+    }
+
+    ctx
+  }
+
+  # Build prompt for DeepSeek
+  build_ai_prompt <- function(ctx) {
+    market_name <- switch(ctx$market, crypto = "Криптовалюты", stocks = "Акции/ETF", forex = "Форекс")
+
+    prompt <- paste0(
+      "Ты профессиональный трейдер-аналитик. Проанализируй текущие данные рынка ",
+      market_name, " и дай КОНКРЕТНЫЕ рекомендации.\n\n")
+
+    prompt <- paste0(prompt, "## Текущие данные:\n\n")
+
+    # Signals
+    if (!is.null(ctx$signals) && length(ctx$signals) > 0) {
+      prompt <- paste0(prompt, "### Активные сигналы (pairs trading, |Z| >= 2):\n")
+      for (s in ctx$signals) {
+        prompt <- paste0(prompt,
+          sprintf("- %s: %s | Z=%.2f, прогноз Z=%.2f | корр=%d%% | %s | HL=%sд | сила=%s\n",
+            s$pair, s$signal, s$z_now, s$z_forecast, s$corr,
+            if (s$is_coint) "коинтегрированы" else "не коинтегр.",
+            if (is.na(s$halflife)) "?" else s$halflife,
+            s$strength))
+      }
+      prompt <- paste0(prompt, "\n")
+    } else {
+      prompt <- paste0(prompt, "### Активные сигналы: нет (рынок в нейтральной зоне)\n\n")
+    }
+
+    # Volatility
+    if (!is.null(ctx$volatility)) {
+      prompt <- paste0(prompt, sprintf(
+        "### Волатильность: %s (текущая %.1f%%, отношение к истории %.2f)\n\n",
+        ctx$volatility$regime, ctx$volatility$avg_vol, ctx$volatility$ratio))
+    }
+
+    # Top pairs
+    if (!is.null(ctx$top_pairs) && length(ctx$top_pairs) > 0) {
+      prompt <- paste0(prompt, "### Топ пар по рейтингу:\n")
+      for (p in ctx$top_pairs) {
+        prompt <- paste0(prompt,
+          sprintf("- %s: корр=%d%% | %s | HL=%sд | score=%.2f\n",
+            p$pair, p$corr, if (p$is_coint) "коинтегр." else "не коинтегр.",
+            if (is.na(p$halflife)) "?" else p$halflife, p$score))
+      }
+      prompt <- paste0(prompt, "\n")
+    }
+
+    # Lead-lag
+    if (!is.null(ctx$leadlag) && length(ctx$leadlag) > 0) {
+      prompt <- paste0(prompt, "### Lead-Lag (опережения):\n")
+      for (l in ctx$leadlag) {
+        prompt <- paste0(prompt,
+          sprintf("- %s → %s (лаг %dд): %s\n", l$leader, l$follower, l$lag, l$signal))
+      }
+      prompt <- paste0(prompt, "\n")
+    }
+
+    # Mean reversion
+    if (!is.null(ctx$mean_reversion) && length(ctx$mean_reversion) > 0) {
+      prompt <- paste0(prompt, "### Mean Reversion (отклонения от среднего):\n")
+      for (m in ctx$mean_reversion) {
+        prompt <- paste0(prompt,
+          sprintf("- %s: Z=%.2f, %s\n", m$ticker, m$z_score, m$signal))
+      }
+      prompt <- paste0(prompt, "\n")
+    }
+
+    # Instructions
+    prompt <- paste0(prompt,
+      "## Что нужно ответить (на русском, кратко и конкретно):\n",
+      "1. **Лучшая сделка прямо сейчас** — что лонгить/шортить, почему\n",
+      "2. **Когда входить** — прямо сейчас или ждать\n",
+      "3. **Когда выходить** — условия выхода (Z, дни)\n",
+      "4. **Размер позиции** — какой % капитала, учитывая волатильность\n",
+      "5. **Риски** — что может пойти не так\n",
+      "6. **Альтернатива** — если лучший сигнал не подходит\n\n",
+      "Формат: markdown, максимум 500 слов. Без воды.")
+
+    prompt
+  }
+
+  # Call DeepSeek API
+  call_deepseek <- function(prompt) {
+    api_key <- Sys.getenv("DEEPSEEK_API_KEY", "")
+    if (nchar(api_key) < 10) {
+      return(list(error = "DEEPSEEK_API_KEY не задан. Добавьте ключ в Railway env vars."))
+    }
+
+    tryCatch({
+      resp <- httr::POST(
+        "https://api.deepseek.com/chat/completions",
+        httr::add_headers(
+          "Content-Type" = "application/json",
+          "Authorization" = paste("Bearer", api_key)
+        ),
+        body = list(
+          model = "deepseek-v4-pro",
+          messages = list(
+            list(role = "system",
+                 content = "Ты профессиональный крипто-трейдер и аналитик. Отвечай на русском, конкретно, без воды. Используй markdown."),
+            list(role = "user", content = prompt)
+          ),
+          stream = FALSE,
+          max_tokens = 1500,
+          temperature = 0.3
+        ),
+        encode = "json",
+        httr::timeout(120)
+      )
+
+      if (httr::status_code(resp) != 200) {
+        err <- httr::content(resp, "text", encoding = "UTF-8")
+        return(list(error = paste("API error", httr::status_code(resp), ":", err)))
+      }
+
+      result <- httr::content(resp, "parsed")
+      content <- result$choices[[1]]$message$content
+      list(text = content, usage = result$usage)
+    }, error = function(e) {
+      list(error = paste("Ошибка запроса:", e$message))
+    })
+  }
+
+  # Button handler
+  observeEvent(input$ai_analyze, {
+    ai_loading(TRUE)
+    ai_response(NULL)
+
+    ctx <- collect_ai_context()
+    prompt <- build_ai_prompt(ctx)
+
+    result <- call_deepseek(prompt)
+    ai_response(result)
+    ai_loading(FALSE)
+  })
+
+  # AI result UI
+  output$ai_result_ui <- renderUI({
+    if (ai_loading()) {
+      return(div(style = "text-align:center;padding:60px 20px;",
+        tags$div(style = "
+          width:60px;height:60px;margin:0 auto 20px;
+          border:3px solid #1c2333;border-top-color:#58a6ff;
+          border-radius:50%;animation:spin 1s linear infinite;"),
+        p(style = "font-size:1rem;color:#8b949e;", "AI анализирует данные..."),
+        p(style = "font-size:0.78rem;color:#555c6b;", "DeepSeek v4 Pro обрабатывает сигналы и сканеры")))
+    }
+
+    res <- ai_response()
+    if (is.null(res)) return(NULL)
+
+    if (!is.null(res$error)) {
+      return(div(style = paste0("padding:24px;border-radius:14px;border:1px solid ", RED,
+                                ";background:#2a0f0f;text-align:center;"),
+        tags$i(class = "fas fa-exclamation-triangle fa-2x",
+               style = paste0("color:", RED, ";margin-bottom:12px;")),
+        p(style = "font-size:0.95rem;color:#f85149;", res$error)))
+    }
+
+    # Success — render markdown
+    text <- res$text
+    usage <- res$usage
+
+    tagList(
+      div(style = paste0("padding:24px;border-radius:14px;border:1px solid ", BORDER,
+                         ";background:", CARD, ";margin-bottom:16px;"),
+        div(style = "font-size:0.85rem;font-weight:600;color:#58a6ff;margin-bottom:14px;",
+          "🤖 Анализ DeepSeek v4 Pro"),
+        # Render as preformatted (R Shiny doesn't have markdown renderer built-in)
+        div(style = "font-size:0.9rem;color:#e6edf3;line-height:1.7;white-space:pre-wrap;word-wrap:break-word;",
+          text)),
+      if (!is.null(usage))
+        div(style = "font-size:0.72rem;color:#555c6b;text-align:right;",
+          paste0("Токены: prompt=", usage$prompt_tokens,
+                 ", completion=", usage$completion_tokens,
+                 ", total=", usage$total_tokens))
+    )
   })
 
 }

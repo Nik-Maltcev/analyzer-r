@@ -29,7 +29,8 @@ RUN install2.r --error --skipinstalled \
     tibble \
     lubridate \
     RSQLite \
-    jsonlite
+    jsonlite \
+    httr
 
 # Create directories. /opt/seed holds the CSV outside the /data volume mount.
 RUN mkdir -p /app /scripts /data /opt/seed
