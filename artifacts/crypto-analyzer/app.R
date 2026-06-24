@@ -803,7 +803,7 @@ ui <- page_navbar(
   ),
 
   # ── TAB 2: Pairs Trading ─────────────────────────────────────────────────
-  nav_panel("🤝 Pairs Trading",
+  nav_panel("📊 Портфель",
     uiOutput("pairs_ui")
   ),
 
