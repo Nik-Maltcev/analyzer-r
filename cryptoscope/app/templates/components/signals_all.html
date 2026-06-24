@@ -1,6 +1,126 @@
-<div class="signals-grid" hx-get="/tab/signals?mode=all" hx-trigger="every 60s" hx-swap="outerHTML">
-    <div class="loading-container">
-        <div class="loading-spinner"></div>
-        <p>Загрузка сигналов...</p>
-    </div>
+<!-- signals_all.html — renders signal cards -->
+{% if error %}
+<div class="error-msg">{{ error }}</div>
+{% endif %}
+
+{% if signals is defined and signals %}
+
+{% if active is defined and active %}
+<!-- Active signal cards -->
+<div class="section-header">
+    <h3>🚦 Активные сигналы ({{ active|length }})</h3>
 </div>
+<div class="cards-grid">
+    {% for s in active %}
+    <div class="signal-card" id="signal-{{ s.pair_id }}">
+        <button class="fav-btn" data-pair="{{ s.pair_id }}"
+                onclick="toggleFavorite('{{ s.pair_id }}','{{ s.ticker_a }}','{{ s.ticker_b }}','{{ s.signal }}','{{ s.signal_type }}','{{ s.z_now }}',0,0,'{{ s.halflife|default('') }}','{{ s.corr|default(0) }}')">
+            ☆
+        </button>
+        <div class="signal-card-header">
+            <span class="signal-name {{ s.signal_type }}">{{ s.ticker_a }} / {{ s.ticker_b }}</span>
+            <span class="badge {% if s.signal_type == 'short_a' %}badge-orange{% elif s.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
+                {% if s.signal_type == 'short_a' %}ШОРТ A{% elif s.signal_type == 'long_a' %}ЛОНГ A{% else %}ЖДАТЬ{% endif %}
+            </span>
+        </div>
+        <div class="signal-stats">
+            <div class="signal-stat">
+                <div class="signal-stat-label">Z сейчас</div>
+                <div class="signal-stat-value {% if s.z_now and s.z_now >= 2 %}text-orange{% elif s.z_now and s.z_now <= -2 %}text-green{% endif %}">
+                    {{ s.z_now|default("—") }}
+                </div>
+            </div>
+            <div class="signal-stat">
+                <div class="signal-stat-label">Z прогноз</div>
+                <div class="signal-stat-value">{% if s.z_forecast %}{{ s.z_forecast }}{% else %}—{% endif %}</div>
+            </div>
+            <div class="signal-stat">
+                <div class="signal-stat-label">Корреляция</div>
+                <div class="signal-stat-value">{{ s.corr_pct|default("—") }}%</div>
+            </div>
+            <div class="signal-stat">
+                <div class="signal-stat-label">Коинтеграция</div>
+                <div class="signal-stat-value">{% if s.is_coint %}✅ Да{% else %}❌ Нет{% endif %}</div>
+            </div>
+            <div class="signal-stat">
+                <div class="signal-stat-label">Полупериод</div>
+                <div class="signal-stat-value">{% if s.halflife %}{{ s.halflife }} дн.{% else %}—{% endif %}</div>
+            </div>
+            <div class="signal-stat">
+                <div class="signal-stat-label">Сила</div>
+                <div class="signal-stat-value">
+                    <span class="badge {% if s.strength == 'Сильный' %}badge-green{% elif s.strength == 'Прогнозный' %}badge-blue{% elif s.strength == 'Формируется' %}badge-orange{% else %}badge-gray{% endif %}">
+                        {{ s.strength }}
+                    </span>
+                </div>
+            </div>
+        </div>
+        <div class="calc-block">
+            <div class="calc-row">
+                <div class="calc-field">
+                    <label>Позиция ($)</label>
+                    <div class="calc-value">3,000</div>
+                </div>
+                <div class="calc-field">
+                    <label>Комиссия</label>
+                    <div class="calc-value text-dim">2.40</div>
+                </div>
+                <div class="calc-field">
+                    <label>Фандинг</label>
+                    <div class="calc-value text-dim">4.50</div>
+                </div>
+                <div class="calc-field">
+                    <label>Ожид. P&L</label>
+                    <div class="calc-value positive">+5.2%</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- All signals table -->
+<div class="section-header">
+    <h3>📋 Все пары ({{ total }})</h3>
+</div>
+<div class="table-container">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Пара</th>
+                <th>Z сейчас</th>
+                <th>Z прогноз</th>
+                <th>Сигнал</th>
+                <th>Сила</th>
+                <th>Корр.</th>
+                <th>Коинт.</th>
+                <th>HL</th>
+                <th>Рейтинг</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in signals %}
+            <tr>
+                <td><strong>{{ s.ticker_a }}/{{ s.ticker_b }}</strong></td>
+                <td class="text-mono {% if s.z_now and s.z_now >= 2 %}text-orange{% elif s.z_now and s.z_now <= -2 %}text-green{% endif %}">{{ s.z_now|default("—") }}</td>
+                <td class="text-mono">{{ s.z_forecast|default("—") }}</td>
+                <td><span class="badge {% if s.signal_type == 'short_a' %}badge-orange{% elif s.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">{{ s.signal_type }}</span></td>
+                <td>{{ s.strength }}</td>
+                <td>{{ s.corr_pct|default("—") }}%</td>
+                <td>{% if s.is_coint %}✅{% else %}—{% endif %}</td>
+                <td>{{ s.halflife|default("—") }}</td>
+                <td class="text-mono">{{ s.score|default("—") }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% else %}
+<div class="empty-state">
+    <span class="empty-icon">📡</span>
+    <p>Нет данных для отображения. Запустите скрипт compute_analysis.py для расчёта пар.</p>
+    <p class="text-dim">DB: {{ market }} | corr &ge; {{ min_corr }} | max_days: {{ max_days }}</p>
+</div>
+{% endif %}

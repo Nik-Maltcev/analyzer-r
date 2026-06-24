@@ -6,9 +6,37 @@
 
     <div class="section">
         <h3>Активные позиции</h3>
-        <div id="active-positions" hx-get="/api/favorites" hx-trigger="load every 60s" hx-swap="innerHTML">
-            <div class="loading-container"><div class="loading-spinner"></div></div>
+        {% if favorites %}
+        <div id="active-positions">
+            {% for f in favorites %}
+            <div class="position-card">
+                <div class="position-header">
+                    <strong>{{ f.ticker_a }} / {{ f.ticker_b }}</strong>
+                    <span class="badge {% if f.signal_type == 'short_a' %}badge-orange{% elif f.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
+                        {{ f.signal_type }}
+                    </span>
+                    <span class="position-pnl {% if f.pnl_total_pct >= 0 %}positive{% else %}negative{% endif %}">
+                        {{ '%+.2f'|format(f.pnl_total_pct) }}%
+                    </span>
+                </div>
+                <div class="position-details">
+                    <div>Сигнал: <span>{{ f.signal[:30] }}</span></div>
+                    <div>Вход: <span>{{ f.entry_time }}</span></div>
+                    <div>Корр: <span>{{ '%.0f'|format(f.corr * 100) if f.corr else '—' }}%</span></div>
+                    <div>HL: <span>{{ f.halflife|default('—') }} дн.</span></div>
+                </div>
+                <div style="margin-top:8px">
+                    <button class="btn btn-sm btn-danger" onclick="closeFavorite({{ f.id }})">✕ Закрыть</button>
+                </div>
+            </div>
+            {% endfor %}
         </div>
+        {% else %}
+        <div class="empty-state">
+            <span class="empty-icon">⭐</span>
+            <p>Нет активных позиций. Добавьте сигналы в избранное на вкладке Сигналы.</p>
+        </div>
+        {% endif %}
     </div>
 
     <div class="section">

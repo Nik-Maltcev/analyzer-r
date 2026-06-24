@@ -1,37 +1,82 @@
+<!-- portfolio_tab.html — rendered with real data -->
 <div class="tab-page portfolio-page">
     <div class="page-header">
         <h2>📊 Портфель — Pairs Trading</h2>
-        <p class="page-desc">Анализ коинтегрированных пар, спреды, бэктесты</p>
-    </div>
-    
-    <div class="cards-grid" hx-get="/api/portfolio/pairs?market=crypto&limit=6" hx-trigger="load" hx-swap="innerHTML">
-        {% include "components/portfolio_cards.html" %}
+        <p class="page-desc">Коинтегрированных пар: {{ n_coint }} из {{ total }}</p>
     </div>
 
+    {% if top_pairs %}
     <div class="section">
-        <h3>Все пары</h3>
-        <div class="table-container" hx-get="/api/portfolio/pairs?limit=20" hx-trigger="load" hx-swap="innerHTML">
-            {% include "components/portfolio_table.html" %}
+        <h3>Топ пар</h3>
+        <div class="cards-grid">
+            {% for p in top_pairs %}
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">{{ p.ticker_a }} / {{ p.ticker_b }}</span>
+                    <span class="badge {% if p.is_coint %}badge-green{% else %}badge-gray{% endif %}">
+                        {% if p.is_coint %}Коинт.{% else %}—{% endif %}
+                    </span>
+                </div>
+                <div class="card-body">
+                    <div style="display:flex;gap:16px;font-size:13px">
+                        <div>Корр: <strong>{{ "%.0f"|format(p.corr * 100) if p.corr else "—" }}%</strong></div>
+                        <div>Z: <strong>{{ "%.2f"|format(p.z_now) if p.z_now else "—" }}</strong></div>
+                        <div>HL: <strong>{{ p.halflife|default("—") }}д</strong></div>
+                        <div>Рейтинг: <strong>{{ "%.3f"|format(p.score) if p.score else "—" }}</strong></div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
         </div>
     </div>
+    {% endif %}
 
+    {% if all_pairs %}
+    <div class="section">
+        <h3>Все пары</h3>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Актив A</th><th>Актив B</th><th>Корр.</th>
+                        <th>Коинт.</th><th>HL</th><th>Z now</th>
+                        <th>Сигнал</th><th>Рейтинг</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in all_pairs %}
+                    <tr>
+                        <td>{{ p.ticker_a }}</td>
+                        <td>{{ p.ticker_b }}</td>
+                        <td>{{ "%.0f"|format(p.corr * 100) if p.corr else "—" }}%</td>
+                        <td>{% if p.is_coint %}✅{% else %}—{% endif %}</td>
+                        <td>{{ p.halflife|default("—") }}</td>
+                        <td class="text-mono">{{ "%.2f"|format(p.z_now) if p.z_now else "—" }}</td>
+                        <td>{{ p.signal[:20]|default("—") }}</td>
+                        <td>{{ "%.3f"|format(p.score) if p.score else "—" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if tickers %}
     <div class="section">
         <h3>График спреда</h3>
         <div class="pair-selector">
-            <select id="spread-a" class="form-select" hx-trigger="change" hx-include="#spread-b"
-                    hx-get="/api/portfolio/spread/BTC.USD/ETH.USD">
-                <option>BTC/USD</option>
-                <option>ETH/USD</option>
+            <select id="spread-a" class="form-select">
+                {% for t in tickers %}<option>{{ t }}</option>{% endfor %}
             </select>
             <button class="btn btn-icon" onclick="swapTickers()">⇄</button>
-            <select id="spread-b" class="form-select" hx-trigger="change" hx-include="#spread-a"
-                    hx-get="/api/portfolio/spread/BTC.USD/ETH.USD">
-                <option>ETH/USD</option>
-                <option>BTC/USD</option>
+            <select id="spread-b" class="form-select">
+                {% for t in tickers %}<option>{{ t }}</option>{% endfor %}
             </select>
         </div>
-        <div id="spread-chart" class="chart-container" hx-get="/api/portfolio/spread/BTC.USD/ETH.USD" hx-trigger="load" hx-swap="innerHTML">
-            <div class="loading-container"><div class="loading-spinner"></div></div>
+        <div id="spread-chart" class="chart-container">
+            <p class="text-dim">Выберите два тикера для просмотра спреда</p>
         </div>
     </div>
+    {% endif %}
 </div>

@@ -4,27 +4,32 @@
     <div class="calc-settings-bar" id="calc-settings-bar">
         {% include "components/calc_settings.html" %}
     </div>
-    
-    <div id="market-selector" class="market-selector" hx-get="/api/signals/dashboard?market=crypto" hx-trigger="load" hx-swap="innerHTML">
+
+    <div class="market-selector">
         {% include "components/market_selector.html" %}
     </div>
-    
-    <div id="signals-dashboard" class="signals-dashboard">
-        <div class="loading-container">
-            <div class="loading-spinner"></div>
-            <p>Загрузка сигналов...</p>
-        </div>
-    </div>
+
+    <!-- Dashboard rendered server-side on first load, auto-refreshed by HTMX -->
+    {% include "components/dashboard_partial.html" %}
 
     <div class="signals-mode-bar">
         <div class="mode-switcher">
-            <button class="mode-btn active" data-mode="all" hx-get="/tab/signals?mode=all" hx-target="#signals-content" hx-swap="innerHTML">
+            <button class="mode-btn active" data-mode="all"
+                    hx-get="/tab/signals?mode=all" hx-target="#signals-content" hx-swap="innerHTML"
+                    hx-vals='js:{market: currentMarket}'
+                    onclick="document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
                 🚦 Все сигналы
             </button>
-            <button class="mode-btn" data-mode="forecast" hx-get="/tab/signals?mode=forecast" hx-target="#signals-content" hx-swap="innerHTML">
+            <button class="mode-btn" data-mode="forecast"
+                    hx-get="/tab/signals?mode=forecast" hx-target="#signals-content" hx-swap="innerHTML"
+                    hx-vals='js:{market: currentMarket}'
+                    onclick="document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
                 💎 Прогноз
             </button>
-            <button class="mode-btn" data-mode="short" hx-get="/tab/signals?mode=short" hx-target="#signals-content" hx-swap="innerHTML">
+            <button class="mode-btn" data-mode="short"
+                    hx-get="/tab/signals?mode=short" hx-target="#signals-content" hx-swap="innerHTML"
+                    hx-vals='js:{market: currentMarket}'
+                    onclick="document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
                 ⚡ Быстрые (&lt;7д)
             </button>
         </div>
@@ -33,8 +38,14 @@
         </div>
     </div>
 
-    <div id="signals-content" class="signals-content" hx-get="/tab/signals?mode=all" hx-trigger="load" hx-swap="innerHTML">
-        {% include "components/signals_all.html" %}
+    <!-- Signals content: loads immediately via HTMX from server -->
+    <div id="signals-content" class="signals-content"
+         hx-get="/tab/signals" hx-trigger="load" hx-swap="innerHTML"
+         hx-vals='js:{mode: "all", market: currentMarket}'>
+        <div class="loading-container">
+            <div class="loading-spinner"></div>
+            <p>Загрузка сигналов...</p>
+        </div>
     </div>
 </div>
 {% endblock %}

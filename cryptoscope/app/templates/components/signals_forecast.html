@@ -1,0 +1,116 @@
+<!-- signals_forecast.html — Прогноз / Быстрые сделки -->
+{% if error %}
+<div class="error-msg">{{ error }}</div>
+{% endif %}
+
+{% if trades is defined and trades %}
+<div class="section-header">
+    <h3>
+        {% if is_short %}⚡ Быстрые сделки (&lt;7д){% else %}💎 Прогноз сделок{% endif %}
+        ({{ total }})
+    </h3>
+</div>
+
+<div class="cards-grid">
+    {% for t in trades %}
+    <div class="signal-card">
+        <button class="fav-btn" data-pair="{{ t.pair_id }}"
+                onclick="toggleFavorite('{{ t.pair_id }}','{{ t.ticker_a }}','{{ t.ticker_b }}','{{ t.signal }}','{{ t.signal_type }}','{{ t.z_now }}',0,0,'{{ t.halflife|default('') }}','{{ t.corr|default(0) }}')">
+            ☆
+        </button>
+        <div class="signal-card-header">
+            <span class="signal-name {{ t.signal_type }}">{{ t.ticker_a }} / {{ t.ticker_b }}</span>
+            <span class="badge {% if t.signal_type == 'short_a' %}badge-orange{% elif t.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
+                {{ t.signal_type }}
+            </span>
+        </div>
+        <div class="signal-stats">
+            <div class="signal-stat">
+                <div class="signal-stat-label">Z вход</div>
+                <div class="signal-stat-value">{{ t.z_now|default("—") }}</div>
+            </div>
+            <div class="signal-stat">
+                <div class="signal-stat-label">Z прогноз</div>
+                <div class="signal-stat-value">{{ t.z_forecast|default("—") }}</div>
+            </div>
+            <div class="signal-stat">
+                <div class="signal-stat-label">Win Rate</div>
+                <div class="signal-stat-value">{{ t.win_rate }}%</div>
+            </div>
+            <div class="signal-stat">
+                <div class="signal-stat-label">Ср. P&L</div>
+                <div class="signal-stat-value positive">+{{ t.avg_pnl_pct }}%</div>
+            </div>
+            <div class="signal-stat">
+                <div class="signal-stat-label">Дней удерж.</div>
+                <div class="signal-stat-value {% if is_short and t.avg_hold_days <= 3 %}text-orange{% elif is_short %}text-blue{% endif %}">
+                    {{ t.avg_hold_days }}
+                </div>
+            </div>
+            <div class="signal-stat">
+                <div class="signal-stat-label">Сила</div>
+                <div class="signal-stat-value">{{ t.strength }}</div>
+            </div>
+        </div>
+        <div class="calc-block">
+            <div class="calc-row">
+                <div class="calc-field">
+                    <label>Позиция ($)</label>
+                    <div class="calc-value">3,000</div>
+                </div>
+                <div class="calc-field">
+                    <label>Ожид. P&L</label>
+                    <div class="calc-value positive">+{{ t.avg_pnl_pct }}%</div>
+                </div>
+                <div class="calc-field">
+                    <label>Win Rate</label>
+                    <div class="calc-value">{{ t.win_rate }}%</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Forecast table -->
+<div class="table-container" style="margin-top:16px">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Пара</th>
+                <th>Сигнал</th>
+                <th>Z</th>
+                <th>Win %</th>
+                <th>P&L %</th>
+                <th>Дней</th>
+                <th>Сила</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in trades %}
+            <tr>
+                <td><strong>{{ t.ticker_a }}/{{ t.ticker_b }}</strong></td>
+                <td>{{ t.signal[:24] }}</td>
+                <td class="text-mono">{{ t.z_now }}</td>
+                <td>{{ t.win_rate }}%</td>
+                <td class="positive">+{{ t.avg_pnl_pct }}%</td>
+                <td>{{ t.avg_hold_days }}</td>
+                <td>{{ t.strength }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% else %}
+<div class="empty-state">
+    <span class="empty-icon">📊</span>
+    <p>
+        {% if is_short %}
+        Нет коротких сигналов (&lt;7 дней удержания)
+        {% else %}
+        Нет прогнозных сделок. Все пары в нейтральном диапазоне.
+        {% endif %}
+    </p>
+</div>
+{% endif %}

@@ -3,21 +3,51 @@
         <h2>📂 Данные и настройки</h2>
     </div>
 
-    <div class="status-cards" hx-get="/api/data/status" hx-trigger="load" hx-swap="innerHTML">
-        <div class="loading-container"><div class="loading-spinner"></div></div>
-    </div>
-
-    <div class="section">
-        <h3>Обновление</h3>
-        <div id="update-info" hx-get="/api/data/update-info" hx-trigger="load" hx-swap="innerHTML">
-            <div class="loading-container"><div class="loading-spinner"></div></div>
+    <div class="cards-grid">
+        <div class="value-box">
+            <div class="value-box-label">Инструментов</div>
+            <div class="value-box-value">{{ status.n_tickers|default(0) }}</div>
+        </div>
+        <div class="value-box">
+            <div class="value-box-label">Записей</div>
+            <div class="value-box-value">{{ status.n_rows|default(0) }}</div>
+        </div>
+        <div class="value-box">
+            <div class="value-box-label">Период</div>
+            <div class="value-box-value" style="font-size:14px">
+                {{ status.date_min|default("—") }} — {{ status.date_max|default("—") }}
+            </div>
+        </div>
+        <div class="value-box">
+            <div class="value-box-label">Пар проанализировано</div>
+            <div class="value-box-value">{{ status.n_pairs|default(0) }}</div>
         </div>
     </div>
 
     <div class="section">
-        <h3>Предпросмотр данных</h3>
-        <div id="data-preview" hx-get="/api/data/preview?limit=100" hx-trigger="load" hx-swap="innerHTML">
-            <div class="loading-container"><div class="loading-spinner"></div></div>
+        <h3>Обновление данных</h3>
+        <div class="card">
+            <div class="card-body">
+                <div style="display:flex;gap:24px;flex-wrap:wrap">
+                    <div>
+                        <span class="text-dim">Последнее обновление цен:</span>
+                        <strong>{{ status.last_update|default("—") }}</strong>
+                    </div>
+                    <div>
+                        <span class="text-dim">Последний анализ пар:</span>
+                        <strong>{{ status.last_analysis|default("—") }}</strong>
+                    </div>
+                    <div>
+                        <span class="text-dim">Следующее обновление:</span>
+                        <strong>ежедневно 06:00 UTC (09:00 МСК)</strong>
+                    </div>
+                </div>
+            </div>
         </div>
+    </div>
+
+    <div class="section">
+        <h3>Настройки калькулятора</h3>
+        {% include "components/calc_settings.html" %}
     </div>
 </div>

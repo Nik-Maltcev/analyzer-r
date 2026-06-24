@@ -1,0 +1,22 @@
+<div id="signals-dashboard" class="signals-dashboard"
+     hx-get="/tab/dashboard?market={{ market }}" hx-trigger="every 60s" hx-swap="outerHTML">
+    <div class="dashboard-stat">
+        <div class="dashboard-stat-label">Активных сигналов</div>
+        <div class="dashboard-stat-value" style="color: var(--green)">{{ n_active }}</div>
+    </div>
+    <div class="dashboard-stat">
+        <div class="dashboard-stat-label">Всего пар</div>
+        <div class="dashboard-stat-value">{{ n_total }}</div>
+    </div>
+    <div class="dashboard-stat">
+        <div class="dashboard-stat-label">Волатильность</div>
+        <div class="dashboard-stat-value" style="font-size:14px">{{ volatility }}</div>
+    </div>
+    {% if best_signal %}
+    <div class="dashboard-stat">
+        <div class="dashboard-stat-label">Лучший сигнал</div>
+        <div class="dashboard-stat-value" style="font-size:14px">{{ best_signal.pair }}</div>
+        <div class="dashboard-stat-sub">Z={{ best_signal.z_now }} {{ best_signal.strength }}</div>
+    </div>
+    {% endif %}
+</div>

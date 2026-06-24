@@ -1,3 +1,25 @@
+<!-- portfolio_cards.html — rendered server-side or via HTMX -->
 <div id="portfolio-cards" class="cards-grid">
-    <div class="loading-container"><div class="loading-spinner"></div></div>
+    {% if top_pairs %}
+    {% for p in top_pairs %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">{{ p.ticker_a }} / {{ p.ticker_b }}</span>
+            <span class="badge {% if p.is_coint %}badge-green{% else %}badge-gray{% endif %}">
+                {% if p.is_coint %}Коинт.{% else %}—{% endif %}
+            </span>
+        </div>
+        <div class="card-body">
+            <div style="display:flex;gap:12px;font-size:12px;flex-wrap:wrap">
+                <span>Корр: <strong>{{ "%.0f"|format(p.corr * 100) if p.corr else "—" }}%</strong></span>
+                <span>Z: <strong class="text-mono">{{ "%.2f"|format(p.z_now) if p.z_now else "—" }}</strong></span>
+                <span>HL: <strong>{{ p.halflife|default("—") }}д</strong></span>
+                <span>Рейтинг: <strong class="text-mono">{{ "%.3f"|format(p.score) if p.score else "—" }}</strong></span>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty-state"><p>Нет данных о парах</p></div>
+    {% endif %}
 </div>

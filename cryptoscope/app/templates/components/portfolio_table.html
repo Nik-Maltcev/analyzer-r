@@ -1,17 +1,29 @@
+<!-- portfolio_table.html — rendered with data -->
 <div id="portfolio-table" class="table-container">
     <table class="data-table">
         <thead>
             <tr>
-                <th>Актив A</th>
-                <th>Актив B</th>
-                <th>Корреляция</th>
-                <th>Коинтеграция</th>
-                <th>Полупериод</th>
-                <th>Рейтинг</th>
+                <th>Актив A</th><th>Актив B</th><th>Корр.</th>
+                <th>Коинт.</th><th>HL</th><th>Z</th><th>Сигнал</th><th>Рейтинг</th>
             </tr>
         </thead>
         <tbody id="portfolio-tbody">
-            <tr><td colspan="6" class="loading-cell"><div class="loading-spinner"></div></td></tr>
+            {% if all_pairs %}
+            {% for p in all_pairs %}
+            <tr>
+                <td>{{ p.ticker_a }}</td>
+                <td>{{ p.ticker_b }}</td>
+                <td>{{ "%.0f"|format(p.corr * 100) if p.corr else "—" }}%</td>
+                <td>{% if p.is_coint %}✅{% else %}—{% endif %}</td>
+                <td>{{ p.halflife|default("—") }}</td>
+                <td class="text-mono">{{ "%.2f"|format(p.z_now) if p.z_now else "—" }}</td>
+                <td><span class="badge badge-gray">{{ (p.signal or '')[:14] }}</span></td>
+                <td>{{ "%.3f"|format(p.score) if p.score else "—" }}</td>
+            </tr>
+            {% endfor %}
+            {% else %}
+            <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-dim)">Нет данных</td></tr>
+            {% endif %}
         </tbody>
     </table>
 </div>

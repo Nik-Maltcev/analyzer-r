@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 
 from app.config import get_settings
-from app.db.database import set_db_path, init_db
+from app.db.database import set_db_path, init_db, get_connection, fetch_pairs, db_status
 
 # Ensure cryptoscope is on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -65,21 +65,61 @@ app.include_router(ai_router, prefix="/api")
 app.include_router(ui_router)
 
 
+async def _get_dashboard_context(market: str = "crypto"):
+    try:
+        async with get_connection() as conn:
+            pairs = await fetch_pairs(conn, market, 0.5)
+            st = await db_status(conn)
+    except Exception:
+        return {"n_active": 0, "n_total": 0, "best_signal": None,
+                "volatility": "Низкая", "last_analysis": None}
+
+    if pairs.empty:
+        return {"n_active": 0, "n_total": 0, "best_signal": None,
+                "volatility": "Низкая", "last_analysis": None}
+
+    active = pairs[pairs["signal_type"] != "wait"]
+    n_active = len(active)
+
+    best = None
+    if not active.empty:
+        br = active.iloc[0]
+        best = {"pair": f"{br['ticker_a']}/{br['ticker_b']}",
+                "z_now": round(float(br.get("z_now", 0) or 0), 2),
+                "strength": br.get("strength", "Нет")}
+
+    return {
+        "n_active": n_active,
+        "n_total": len(pairs),
+        "best_signal": best,
+        "volatility": "Средняя",
+        "last_analysis": st.get("last_analysis"),
+        "db_tickers": st.get("n_tickers", 0),
+        "db_rows": st.get("n_rows", 0),
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    """Main page."""
+    """Main page with pre-rendered signals data."""
+    dash = await _get_dashboard_context("crypto")
     return templates.TemplateResponse("index.html", {
         "request": request,
         "settings": settings,
+        "market": "crypto",
+        **dash,
     })
 
 
 @app.get("/app", response_class=HTMLResponse)
 async def app_page(request: Request):
     """Full app page."""
+    dash = await _get_dashboard_context("crypto")
     return templates.TemplateResponse("index.html", {
         "request": request,
         "settings": settings,
+        "market": "crypto",
+        **dash,
     })
 
 
