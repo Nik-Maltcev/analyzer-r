@@ -319,8 +319,23 @@ calc_signal_pnl <- function(s, cap, lev, taker_fee, fund_rate) {
 
 # ── Calculator: render the P&L block UI (shared by both tabs) ────────────────
 calc_block_ui <- function(v) {
-  fmt <- function(x) format(x, big.mark = " ", scientific = FALSE, trim = TRUE)
-  rr_col <- if (!is.na(v$rr_ratio) && v$rr_ratio >= 1.5) GREEN else ORANGE
+  if (is.null(v)) return(div())
+  fmt <- function(x) if (is.null(x) || is.na(x)) "—" else format(x, big.mark = " ", scientific = FALSE, trim = TRUE)
+  rr_col <- if (!is.null(v$rr_ratio) && !is.na(v$rr_ratio) && v$rr_ratio >= 1.5) GREEN else ORANGE
+  tp_txt <- if (!is.null(v$tp_pct) && !is.na(v$tp_pct)) paste0(if (v$tp_pct > 0) "+" else "", round(v$tp_pct, 2), "%") else "—"
+  sl_txt <- if (!is.null(v$sl_pct) && !is.na(v$sl_pct)) paste0("-", abs(round(v$sl_pct, 2)), "%") else "—"
+  tp_col <- if (!is.null(v$tp_col)) v$tp_col else GREEN
+  net_tp_v <- if (!is.null(v$net_tp)) v$net_tp else 0
+  net_sl_v <- if (!is.null(v$net_sl)) v$net_sl else 0
+  gross_tp_v <- if (!is.null(v$gross_tp)) v$gross_tp else 0
+  gross_sl_v <- if (!is.null(v$gross_sl)) v$gross_sl else 0
+  comm_v <- if (!is.null(v$comm)) v$comm else 0
+  fund_v <- if (!is.null(v$funding)) v$funding else 0
+  pos_size_v <- if (!is.null(v$pos_size)) v$pos_size else 0
+  hold_d_v <- if (!is.null(v$hold_days)) v$hold_days else 0
+  fund_per_v <- if (!is.null(v$fund_periods)) v$fund_periods else 0
+  rr_v <- if (!is.null(v$rr_ratio) && !is.na(v$rr_ratio)) round(v$rr_ratio, 1) else NULL
+  
   div(style = paste0("margin-top:14px;padding:14px 16px;border-radius:10px;",
                      "background:", CARD, ";border:1px solid ", BORDER, ";"),
     div(style = "font-size:0.85rem;font-weight:600;color:#e6edf3;margin-bottom:10px;",
@@ -328,26 +343,23 @@ calc_block_ui <- function(v) {
     layout_columns(col_widths = c(3, 3, 3, 3),
       div(
         div(style = "font-size:0.72rem;color:#8b949e;", "Размер позиции"),
-        div(style = "font-size:0.95rem;font-weight:600;color:#e6edf3;",
-          paste0("$", fmt(v$pos_size))),
-        div(style = "font-size:0.68rem;color:#555;", paste0("капитал × плечо"))
+        div(style = "font-size:0.95rem;font-weight:600;color:#e6edf3;", paste0("$", fmt(pos_size_v))),
+        div(style = "font-size:0.68rem;color:#555;", "капитал × плечо")
       ),
       div(
         div(style = "font-size:0.72rem;color:#8b949e;", "Комиссии (вход+выход)"),
-        div(style = "font-size:0.95rem;font-weight:600;color:#f85149;",
-          paste0("-$", v$comm)),
+        div(style = "font-size:0.95rem;font-weight:600;color:#f85149;", paste0("-$", fmt(comm_v))),
         div(style = "font-size:0.68rem;color:#555;", "4 заполнения × taker%")
       ),
       div(
-        div(style = "font-size:0.72rem;color:#8b949e;", paste0("Финансирование (", v$fund_periods, " раз)")),
-        div(style = "font-size:0.95rem;font-weight:600;color:#f85149;",
-          paste0("-$", v$funding)),
-        div(style = "font-size:0.68rem;color:#555;", paste0("за ", v$hold_days, " дн."))
+        div(style = "font-size:0.72rem;color:#8b949e;", paste0("Финансирование (", fund_per_v, " раз)")),
+        div(style = "font-size:0.95rem;font-weight:600;color:#f85149;", paste0("-$", fmt(fund_v))),
+        div(style = "font-size:0.68rem;color:#555;", paste0("за ", hold_d_v, " дн."))
       ),
       div(
         div(style = "font-size:0.72rem;color:#8b949e;", "Risk / Reward"),
         div(style = paste0("font-size:1.1rem;font-weight:700;color:", rr_col, ";"),
-          if (!is.na(v$rr_ratio)) paste0("1:", round(v$rr_ratio, 1)) else "—"),
+          if (!is.null(rr_v)) paste0("1:", rr_v) else "—"),
         div(style = "font-size:0.68rem;color:#555;", "профит / убыток")
       )
     ),
@@ -356,22 +368,19 @@ calc_block_ui <- function(v) {
       div(style = paste0("text-align:center;padding:10px;border-radius:8px;",
                          "background:#0f2a1a;border:1px solid ", GREEN, ";"),
         div(style = "font-size:0.75rem;color:#8b949e;", "Чистая прибыль (TP)"),
-        div(style = paste0("font-size:1.3rem;font-weight:700;color:", v$tp_col, ";"),
-          paste0(if (v$net_tp > 0) "+" else "", "$", v$net_tp)),
-        div(style = paste0("font-size:0.72rem;color:", GREEN, ";font-weight:600;"),
-          paste0(if (!is.na(v$tp_pct) && v$tp_pct > 0) "+" else "", round(v$tp_pct, 2), "%")),
+        div(style = paste0("font-size:1.3rem;font-weight:700;color:", tp_col, ";"),
+          paste0(if (net_tp_v > 0) "+" else "", "$", net_tp_v)),
+        div(style = paste0("font-size:0.72rem;color:", GREEN, ";font-weight:600;"), tp_txt),
         div(style = "font-size:0.68rem;color:#555;",
-          paste0(if (v$gross_tp > 0) "+" else "", v$gross_tp, " − ", v$comm, " − ", v$funding))
+          paste0(if (gross_tp_v > 0) "+" else "", gross_tp_v, " − ", comm_v, " − ", fund_v))
       ),
       div(style = paste0("text-align:center;padding:10px;border-radius:8px;",
                          "background:#2a0f0f;border:1px solid ", RED, ";"),
         div(style = "font-size:0.75rem;color:#8b949e;", "Чистый убыток (SL)"),
-        div(style = "font-size:1.3rem;font-weight:700;color:#f85149;",
-          paste0("$", v$net_sl)),
-        div(style = paste0("font-size:0.72rem;color:", RED, ";font-weight:600;"),
-          paste0(if (!is.na(v$sl_pct)) paste0("-", abs(round(v$sl_pct, 2)), "%") else "—")),
+        div(style = "font-size:1.3rem;font-weight:700;color:#f85149;", paste0("$", net_sl_v)),
+        div(style = paste0("font-size:0.72rem;color:", RED, ";font-weight:600;"), sl_txt),
         div(style = "font-size:0.68rem;color:#555;",
-          paste0("-(", v$gross_sl, " + ", v$comm, " + ", v$funding, ")"))
+          paste0("-(", gross_sl_v, " + ", comm_v, " + ", fund_v, ")"))
       )
     )
   )
@@ -2911,7 +2920,6 @@ server <- function(input, output, session) {
 
   # ── Scanner UI dispatcher ────────────────────────────────────────────────
   output$scanner_ui <- renderUI({
-    tryCatch({
     st <- input$scanner_type
     if (is.null(st)) return(NULL)
 
@@ -3520,12 +3528,6 @@ server <- function(input, output, session) {
           p(style = "font-size:0.9rem;", "Ошибка интрадей-сканера: ", e$message))
       })
     }
-    }, error = function(e) {
-      div(style = "padding:40px;text-align:center;color:#f85149;",
-        tags$i(class = "fas fa-exclamation-triangle fa-2x", style = "margin-bottom:12px;display:block;"),
-        p(style = "font-size:0.9rem;", paste0("Ошибка сканера: ", conditionMessage(e))),
-        p(style = "font-size:0.78rem;color:#555c6b;", "Попробуйте переключить сканер или обновить страницу."))
-    })
   })
 
   # ── Scanner tables ───────────────────────────────────────────────────────
