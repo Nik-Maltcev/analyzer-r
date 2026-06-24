@@ -57,6 +57,19 @@ if [ -f "$DB_PATH" ] && [ -s "$DB_PATH" ]; then
   fi
 fi
 
+# ── Load hourly candles if not already loaded ───────────────────────────────
+# On existing volumes the DB may predate the hourly table, so load it separately
+# without rebuilding the whole DB.
+if [ -f "$DB_PATH" ] && [ -s "$DB_PATH" ]; then
+  hourly_count=$(Rscript --slave -e "cat(tryCatch({v<-RSQLite::dbConnect(RSQLite::SQLite(),'${DB_PATH}');on.exit(RSQLite::dbDisconnect(v));RSQLite::dbGetQuery(v,'SELECT COUNT(*) AS n FROM hourly_prices')\$n},error=function(e)-1L))" 2>/dev/null)
+  echo "[start.sh] hourly_prices row count: ${hourly_count}"
+  if [ -z "$hourly_count" ] || [ "$hourly_count" -lt 1 ] 2>/dev/null; then
+    echo "[start.sh] Loading hourly candles..."
+    Rscript /scripts/load_hourly.R
+    echo "[start.sh] Hourly load done."
+  fi
+fi
+
 # Start cron daemon
 cron
 
