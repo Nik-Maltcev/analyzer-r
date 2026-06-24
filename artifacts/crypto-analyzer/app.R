@@ -358,14 +358,18 @@ calc_block_ui <- function(v) {
         div(style = "font-size:0.75rem;color:#8b949e;", "Чистая прибыль (TP)"),
         div(style = paste0("font-size:1.3rem;font-weight:700;color:", v$tp_col, ";"),
           paste0(if (v$net_tp > 0) "+" else "", "$", v$net_tp)),
+        div(style = paste0("font-size:0.72rem;color:", GREEN, ";font-weight:600;"),
+          paste0(if (!is.na(v$tp_pct) && v$tp_pct > 0) "+" else "", round(v$tp_pct, 2), "%")),
         div(style = "font-size:0.68rem;color:#555;",
-          paste0("+", v$gross_tp, " − ", v$comm, " − ", v$funding))
+          paste0(if (v$gross_tp > 0) "+" else "", v$gross_tp, " − ", v$comm, " − ", v$funding))
       ),
       div(style = paste0("text-align:center;padding:10px;border-radius:8px;",
                          "background:#2a0f0f;border:1px solid ", RED, ";"),
         div(style = "font-size:0.75rem;color:#8b949e;", "Чистый убыток (SL)"),
         div(style = "font-size:1.3rem;font-weight:700;color:#f85149;",
           paste0("$", v$net_sl)),
+        div(style = paste0("font-size:0.72rem;color:", RED, ";font-weight:600;"),
+          paste0(if (!is.na(v$sl_pct)) paste0("-", abs(round(v$sl_pct, 2)), "%") else "—")),
         div(style = "font-size:0.68rem;color:#555;",
           paste0("-(", v$gross_sl, " + ", v$comm, " + ", v$funding, ")"))
       )
