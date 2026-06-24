@@ -207,6 +207,16 @@ compute_market_pairs("forex", con)
 today  <- format(Sys.Date(), "%Y-%m-%d")
 active <- dbGetQuery(con, "SELECT * FROM pairs WHERE signal_type != 'wait'")
 if (nrow(active) > 0) {
+  # Create signals table if it doesn't exist (for standalone runs)
+  dbExecute(con, "
+    CREATE TABLE IF NOT EXISTS signals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT, ticker_a TEXT, ticker_b TEXT,
+      z_score REAL, z_forecast REAL, signal TEXT,
+      strength TEXT, is_coint INTEGER, corr REAL,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  ")
   dbExecute(con, "DELETE FROM signals WHERE date = ?", params = list(today))
   sig_df <- data.frame(
     date       = today,

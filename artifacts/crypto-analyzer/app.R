@@ -138,6 +138,9 @@ engle_granger <- function(pa, pb, max_lag = 2) {
 # ── Backtest stats for a single pair (used by "Понятные сигналы") ────────────
 # Returns: list(n_trades, win_rate, avg_pnl, avg_hold, has_history)
 pair_backtest_stats <- function(pw, ta, tb, hr) {
+  # Normalize ticker names: pivot_wider converts '/' to '.' in column names
+  ta <- if (ta %in% colnames(pw)) ta else gsub("/", ".", ta)
+  tb <- if (tb %in% colnames(pw)) tb else gsub("/", ".", tb)
   if (!ta %in% colnames(pw) || !tb %in% colnames(pw)) return(NULL)
   pa <- as.numeric(pw[[ta]]); pb <- as.numeric(pw[[tb]])
   dates <- as.Date(rownames(pw))
@@ -200,6 +203,9 @@ pair_backtest_stats <- function(pw, ta, tb, hr) {
 # ── Full trade history for a single pair (used by "Максимальный профит") ────
 # Returns data.frame with per-trade details: entry/exit dates, direction, pnl
 pair_trades_history <- function(pw, ta, tb, hr) {
+  # Normalize ticker names: pivot_wider converts '/' to '.' in column names
+  ta <- if (ta %in% colnames(pw)) ta else gsub("/", ".", ta)
+  tb <- if (tb %in% colnames(pw)) tb else gsub("/", ".", tb)
   if (!ta %in% colnames(pw) || !tb %in% colnames(pw)) return(NULL)
   pa <- as.numeric(pw[[ta]]); pb <- as.numeric(pw[[tb]])
   dates <- as.Date(rownames(pw))
@@ -1488,6 +1494,9 @@ server <- function(input, output, session) {
     ta <- input$spread_ticker_a; tb <- input$spread_ticker_b
     validate(need(ta != tb, "Выберите два разных тикера"))
     pw <- price_wide(); req(pw)
+    # Normalize: pivot_wider converts '/' to '.' in column names
+    ta <- if (ta %in% colnames(pw)) ta else gsub("/", ".", ta)
+    tb <- if (tb %in% colnames(pw)) tb else gsub("/", ".", tb)
     validate(need(ta %in% colnames(pw), paste("Тикер", ta, "не найден в данных")))
     validate(need(tb %in% colnames(pw), paste("Тикер", tb, "не найден в данных")))
     pa <- as.numeric(pw[[ta]]); pb <- as.numeric(pw[[tb]])
