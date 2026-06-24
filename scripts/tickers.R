@@ -40,8 +40,16 @@ FOREX_TICKERS <- c(
   "EUR/NOK", "EUR/SEK", "EUR/PLN", "USD/CNH", "USD/INR"
 )
 
+# Russian stocks via Tinkoff API (baked from CSV, not updated via Twelve Data)
+RU_TICKERS <- c(
+  "SBER", "GAZP", "LKOH", "GMKN", "ROSN", "VTBR",
+  "TATN", "NVTK", "ALRS", "MTSS", "MGNT", "CHMF",
+  "SNGS", "AFLT", "MOEX", "PHOR", "PLZL", "TCSG"
+)
+
 ALL_TICKERS <- list(
   crypto = CRYPTO_TICKERS,
   stocks = STOCK_TICKERS,
-  forex  = FOREX_TICKERS
+  forex  = FOREX_TICKERS,
+  ru     = RU_TICKERS
 )

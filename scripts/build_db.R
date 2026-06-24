@@ -5,6 +5,7 @@
 library(RSQLite)
 
 CSV_PATH     <- Sys.getenv("CSV_PATH", "/opt/seed/all_markets_3yr.csv")
+RU_CSV_PATH  <- Sys.getenv("RU_CSV_PATH", "/opt/seed/tinkoff_ru_2yr.csv")
 HOURLY_PATH  <- Sys.getenv("HOURLY_PATH", "/opt/seed/hourly_6coins_2yr.csv")
 DB_PATH      <- Sys.getenv("DB_PATH",  "/data/market.db")
 
@@ -89,6 +90,18 @@ dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_pairs_market ON pairs(market)")
 dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_pairs_score   ON pairs(score DESC)")
 
 dbWriteTable(con, "prices", df, append = TRUE, row.names = FALSE)
+
+# Load Russian stocks if CSV present
+if (file.exists(RU_CSV_PATH)) {
+  cat(sprintf("  Loading RU stocks from: %s\n", RU_CSV_PATH))
+  ru_df <- read.csv(RU_CSV_PATH, stringsAsFactors = FALSE)
+  ru_df <- ru_df[!duplicated(ru_df[, c("ticker", "date")]), ]
+  ru_df <- ru_df[, c("ticker", "date", "close", "volume", "market")]
+  dbWriteTable(con, "prices", ru_df, append = TRUE, row.names = FALSE)
+  cat(sprintf("  RU rows: %d, Tickers: %d\n", nrow(ru_df), length(unique(ru_df$ticker))))
+} else {
+  cat("  RU CSV not found, skipping (optional)\n")
+}
 
 dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_prices_ticker ON prices(ticker)")
 dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_prices_date ON prices(date)")

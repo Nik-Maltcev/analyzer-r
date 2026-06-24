@@ -37,6 +37,7 @@ RUN mkdir -p /app /scripts /data /opt/seed
 # Copy seed CSVs to /opt/seed (NOT /data, which Railway masks with a volume)
 COPY data/all_markets_3yr.csv /opt/seed/all_markets_3yr.csv
 COPY data/hourly_6coins_2yr.csv /opt/seed/hourly_6coins_2yr.csv
+COPY data/tinkoff_ru_2yr.csv /opt/seed/tinkoff_ru_2yr.csv
 COPY scripts/ /scripts/
 
 # Build DB at image build time (works for plain Docker without a volume).

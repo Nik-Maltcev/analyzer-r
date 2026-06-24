@@ -202,6 +202,7 @@ cat("=== Computing pairs analysis ===\n")
 compute_market_pairs("crypto", con)
 compute_market_pairs("stocks", con)
 compute_market_pairs("forex", con)
+compute_market_pairs("ru", con)
 
 # Save today's active signals to signals table (historical record)
 today  <- format(Sys.Date(), "%Y-%m-%d")

@@ -775,7 +775,7 @@ ui <- page_navbar(
         card_body(
           # Market type switcher
           radioButtons("market_type", NULL,
-            choices = c("Crypto" = "crypto", "Акции/ETF" = "stocks", "Forex" = "forex"),
+            choices = c("Crypto" = "crypto", "Акции/ETF" = "stocks", "Forex" = "forex", "RU" = "ru"),
             selected = "crypto", inline = TRUE),
 
           hr(),
