@@ -105,6 +105,22 @@ function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, 
     });
 }
 
+// Close favorite position
+function closeFavorite(favId) {
+    if (!confirm('Закрыть позицию?')) return;
+    fetch(`/api/favorites/close/${favId}?exit_price_a=0&exit_price_b=0&exit_pnl_pct=0`, {
+        method: 'POST'
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.action === 'closed') {
+            showToast('Позиция закрыта', 'success');
+            htmx.ajax('GET', '/tab/favorites', {target: '#main-content', swap: 'innerHTML'});
+        }
+    })
+    .catch(e => showToast('Ошибка закрытия', 'error'));
+}
+
 // Toast notifications
 function showToast(message, type) {
     const container = document.getElementById('toast-container');
@@ -193,3 +209,114 @@ function swapTickers() {
     b.value = tmp;
     a.dispatchEvent(new Event('change'));
 }
+
+// Real calculator — fetch P&L from API
+function updateCalculator(cardId, tickerA, tickerB, signalType, zNow, halflife) {
+    const capital = document.getElementById('calc-capital')?.value || 1000;
+    const leverage = document.getElementById('calc-leverage')?.value || 3;
+    const takerFee = document.getElementById('calc-taker')?.value || 0.02;
+    const fundingRate = document.getElementById('calc-funding')?.value || 0.01;
+    
+    const zMove = Math.abs(zNow || 2);
+    const holdDays = halflife ? Math.min(halflife, 30) : 5;
+    
+    fetch(`/api/signals/pnl?capital=${capital}&leverage=${leverage}&taker_fee=${takerFee}&funding_rate=${fundingRate}&hold_days=${holdDays}&z_move=${zMove}`)
+        .then(r => r.json())
+        .then(data => {
+            const block = document.getElementById(`calc-${cardId}`);
+            if (!block) return;
+            
+            const pnlClass = data.net_pnl >= 0 ? 'positive' : 'negative';
+            const pnlSign = data.net_pnl >= 0 ? '+' : '';
+            
+            block.innerHTML = `
+                <div class="calc-row">
+                    <div class="calc-field">
+                        <label>Позиция</label>
+                        <div class="calc-value">$${data.position_size.toLocaleString()}</div>
+                    </div>
+                    <div class="calc-field">
+                        <label>Комиссия</label>
+                        <div class="calc-value text-dim">$${data.commissions.toFixed(2)}</div>
+                    </div>
+                    <div class="calc-field">
+                        <label>Фандинг</label>
+                        <div class="calc-value text-dim">$${data.funding_cost.toFixed(2)}</div>
+                    </div>
+                    <div class="calc-field">
+                        <label>P&L netto</label>
+                        <div class="calc-value ${pnlClass}">${pnlSign}$${data.net_pnl.toFixed(2)}</div>
+                    </div>
+                </div>
+            `;
+        })
+        .catch(() => {});
+}
+
+// Initialize calculators for all signal cards
+function initCalculators() {
+    document.querySelectorAll('.signal-card').forEach(card => {
+        const pairId = card.id.replace('card-', '');
+        const ta = card.dataset.tickerA;
+        const tb = card.dataset.tickerB;
+        const st = card.dataset.signalType;
+        const z = parseFloat(card.dataset.zNow);
+        const hl = parseInt(card.dataset.halflife);
+        if (pairId && ta) {
+            updateCalculator(pairId, ta, tb, st, z, hl);
+        }
+    });
+}
+
+// Leverage slider display + calc settings handlers
+document.addEventListener('DOMContentLoaded', () => {
+    const levSlider = document.getElementById('calc-leverage');
+    if (levSlider) {
+        levSlider.addEventListener('input', function() {
+            document.getElementById('leverage-value').textContent = this.value + 'x';
+            initCalculators();
+        });
+    }
+    
+    // Recalculate on capital/fee/funding change
+    ['calc-capital', 'calc-taker', 'calc-funding'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', initCalculators);
+            el.addEventListener('input', initCalculators);
+        }
+    });
+    
+    // Init calculators after HTMX loads signals
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        if (evt.detail.target.id === 'signals-content') {
+            setTimeout(initCalculators, 100);
+        }
+    });
+});
+
+// Ticker logos — load crypto icons from CDN
+function loadTickerLogos() {
+    document.querySelectorAll('.ticker-logo[data-ticker]').forEach(el => {
+        const ticker = el.dataset.ticker;
+        const base = ticker.split('/')[0].split('.')[0].toLowerCase();
+        // Try cryptocurrency-icon CDN
+        const url = `https://cdnjs.cloudflare.com/ajax/libs/cryptocurrency-icons/0.18.1/svg/color/${base}.svg`;
+        fetch(url, { method: 'HEAD' })
+            .then(r => {
+                if (r.ok) {
+                    el.style.backgroundImage = `url(${url})`;
+                    el.classList.add('has-logo');
+                } else {
+                    el.textContent = base.slice(0, 2).toUpperCase();
+                }
+            })
+            .catch(() => {
+                el.textContent = base.slice(0, 2).toUpperCase();
+            });
+    });
+}
+
+document.body.addEventListener('htmx:afterSwap', function() {
+    loadTickerLogos();
+});

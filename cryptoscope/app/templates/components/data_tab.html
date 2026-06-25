@@ -1,42 +1,67 @@
 <div class="tab-page data-page">
     <div class="page-header">
         <h2>📂 Данные и настройки</h2>
+        <p class="page-desc">Состояние хранилища, расписание обновлений и параметры калькулятора</p>
     </div>
 
     <div class="cards-grid">
-        <div class="value-box">
-            <div class="value-box-label">Инструментов</div>
-            <div class="value-box-value">{{ status.n_tickers|default(0) }}</div>
-        </div>
-        <div class="value-box">
-            <div class="value-box-label">Записей</div>
-            <div class="value-box-value">{{ status.n_rows|default(0) }}</div>
-        </div>
-        <div class="value-box">
-            <div class="value-box-label">Период</div>
-            <div class="value-box-value" style="font-size:14px">
-                {{ status.date_min|default("—") }} — {{ status.date_max|default("—") }}
+        <div class="glass-card stat-card">
+            <div class="stat-icon">📊</div>
+            <div class="stat-body">
+                <div class="stat-label">Инструментов</div>
+                <div class="stat-value">{{ status.n_tickers|default(0) }}</div>
             </div>
         </div>
-        <div class="value-box">
-            <div class="value-box-label">Пар проанализировано</div>
-            <div class="value-box-value">{{ status.n_pairs|default(0) }}</div>
+        <div class="glass-card stat-card">
+            <div class="stat-icon">💿</div>
+            <div class="stat-body">
+                <div class="stat-label">Записей</div>
+                <div class="stat-value">{{ status.n_rows|default(0) }}</div>
+            </div>
+        </div>
+        <div class="glass-card stat-card">
+            <div class="stat-icon">📅</div>
+            <div class="stat-body">
+                <div class="stat-label">Период</div>
+                <div class="stat-value stat-value-sm">
+                    {{ status.date_min|default("—") }} — {{ status.date_max|default("—") }}
+                </div>
+            </div>
+        </div>
+        <div class="glass-card stat-card">
+            <div class="stat-icon">🔗</div>
+            <div class="stat-body">
+                <div class="stat-label">Пар проанализировано</div>
+                <div class="stat-value">{{ status.n_pairs|default(0) }}</div>
+            </div>
         </div>
     </div>
 
+    {% if status is none or status.n_tickers is none %}
+    <div class="skeleton-row">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+    </div>
+    {% endif %}
+
     <div class="section">
         <h3>Обновление данных</h3>
-        <div class="card">
-            <div class="card-body">
-                <div style="display:flex;gap:24px;flex-wrap:wrap">
+        <div class="glass-card">
+            <div class="card-body status-row">
+                <div class="status-item">
+                    <div class="skeleton-line w-30"></div>
                     <div>
                         <span class="text-dim">Последнее обновление цен:</span>
                         <strong>{{ status.last_update|default("—") }}</strong>
                     </div>
+                </div>
+                <div class="status-item">
                     <div>
                         <span class="text-dim">Последний анализ пар:</span>
                         <strong>{{ status.last_analysis|default("—") }}</strong>
                     </div>
+                </div>
+                <div class="status-item">
                     <div>
                         <span class="text-dim">Следующее обновление:</span>
                         <strong>ежедневно 06:00 UTC (09:00 МСК)</strong>

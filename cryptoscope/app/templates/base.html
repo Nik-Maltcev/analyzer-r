@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="/static/css/main.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org/dist/ext/json-enc.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="/static/js/main.js" defer></script>
 </head>
 <body>
@@ -39,8 +40,14 @@
                 <span class="tab-icon">🤖</span> AI-аналитик
             </a>
         </div>
-        <div class="navbar-end" id="auth-status">
-            {% include "components/auth_status.html" %}
+        <div class="navbar-end">
+            <div class="live-status" id="live-status">
+                <span class="status-dot offline" id="ws-dot"></span>
+                <span class="live-text" id="ws-text">Offline</span>
+            </div>
+            <div id="auth-status">
+                {% include "components/auth_status.html" %}
+            </div>
         </div>
     </nav>
 
@@ -73,6 +80,25 @@
                 navigator.wakeLock.request('screen');
             } catch(e) {}
         }
+
+// Check Binance WS status
+async function updateLiveStatus() {
+    try {
+        const r = await fetch('/api/favorites/live-status');
+        const d = await r.json();
+        const dot = document.getElementById('ws-dot');
+        const txt = document.getElementById('ws-text');
+        if (d.connected) {
+            dot.className = 'status-dot live';
+            txt.textContent = 'Live';
+        } else {
+            dot.className = 'status-dot offline';
+            txt.textContent = 'Offline';
+        }
+    } catch(e) {}
+}
+updateLiveStatus();
+setInterval(updateLiveStatus, 10000);
     </script>
 </body>
 </html>

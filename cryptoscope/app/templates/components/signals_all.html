@@ -1,50 +1,107 @@
-<!-- signals_all.html — renders signal cards -->
+<!-- signals_all.html — professional SaaS signal dashboard -->
+
 {% if error %}
 <div class="error-msg">{{ error }}</div>
 {% endif %}
 
 {% if signals is defined and signals %}
 
+<!-- ============================== DASHBOARD BANNER ============================== -->
+<div class="dashboard-banner" id="signals-dashboard">
+    <div class="glass-card stat-card">
+        <div class="stat-card-top">
+            <span class="stat-card-label">Маркет</span>
+            <span class="live-dot" id="live-dot" title="Статус Binance WS"></span>
+        </div>
+        <div class="stat-card-value" id="stat-market">{{ market|default("crypto") }}</div>
+        <div class="stat-card-sub" id="ws-status">Соединение…</div>
+    </div>
+    <div class="glass-card stat-card">
+        <div class="stat-card-top">
+            <span class="stat-card-label">Активных сигналов</span>
+            <span class="stat-card-icon">🚦</span>
+        </div>
+        <div class="stat-card-value">{{ active|length if active is defined else 0 }} / {{ total|default(0) }}</div>
+        <div class="stat-card-sub">из всех отобранных пар</div>
+    </div>
+    <div class="glass-card stat-card">
+        <div class="stat-card-top">
+            <span class="stat-card-label">Лучший сигнал</span>
+            <span class="stat-card-icon">⭐</span>
+        </div>
+        <div class="stat-card-value" id="best-signal-name">—</div>
+        <div class="stat-card-sub" id="best-signal-meta">—</div>
+    </div>
+    <div class="glass-card stat-card">
+        <div class="stat-card-top">
+            <span class="stat-card-label">Мин. корр. / Дней</span>
+            <span class="stat-card-icon">⚙</span>
+        </div>
+        <div class="stat-card-value">{{ min_corr|default(0.5) }} / {{ max_days|default(30) }}</div>
+        <div class="stat-card-sub">параметры сканера</div>
+    </div>
+</div>
+
 {% if active is defined and active %}
-<!-- Active signal cards -->
+
+<!-- ============================== ACTIVE SIGNAL CARDS ============================== -->
 <div class="section-header">
     <h3>🚦 Активные сигналы ({{ active|length }})</h3>
 </div>
 <div class="cards-grid">
     {% for s in active %}
-    <div class="signal-card" id="signal-{{ s.pair_id }}">
+    <div class="signal-card signal-{{ s.signal_type }}" id="card-{{ s.pair_id }}"
+         data-ticker-a="{{ s.ticker_a }}" data-ticker-b="{{ s.ticker_b }}"
+         data-signal-type="{{ s.signal_type }}" data-z-now="{{ s.z_now|default('') }}"
+         data-halflife="{{ s.halflife|default('') }}">
         <button class="fav-btn" data-pair="{{ s.pair_id }}"
-                onclick="toggleFavorite('{{ s.pair_id }}','{{ s.ticker_a }}','{{ s.ticker_b }}','{{ s.signal }}','{{ s.signal_type }}','{{ s.z_now }}',0,0,'{{ s.halflife|default('') }}','{{ s.corr|default(0) }}')">
+                onclick="toggleFavorite('{{ s.pair_id }}','{{ s.ticker_a }}','{{ s.ticker_b }}','{{ s.signal }}','{{ s.signal_type }}','{{ s.z_now|default('') }}',0,0,'{{ s.halflife|default('') }}','{{ s.corr|default(0) }}')">
             ☆
         </button>
+
         <div class="signal-card-header">
-            <span class="signal-name {{ s.signal_type }}">{{ s.ticker_a }} / {{ s.ticker_b }}</span>
+            <div class="ticker-pair">
+                <span class="ticker-logo" data-ticker="{{ s.ticker_a }}"></span>
+                <span class="signal-name {{ s.signal_type }}">{{ s.ticker_a }} / {{ s.ticker_b }}</span>
+            </div>
             <span class="badge {% if s.signal_type == 'short_a' %}badge-orange{% elif s.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
                 {% if s.signal_type == 'short_a' %}ШОРТ A{% elif s.signal_type == 'long_a' %}ЛОНГ A{% else %}ЖДАТЬ{% endif %}
             </span>
         </div>
+
+        <canvas class="sparkline" id="spark-{{ loop.index }}"
+                data-ticker-a="{{ s.ticker_a }}" data-ticker-b="{{ s.ticker_b }}"
+                data-z-now="{{ s.z_now|default('') }}"
+                width="280" height="40"></canvas>
+
         <div class="signal-stats">
             <div class="signal-stat">
                 <div class="signal-stat-label">Z сейчас</div>
-                <div class="signal-stat-value {% if s.z_now and s.z_now >= 2 %}text-orange{% elif s.z_now and s.z_now <= -2 %}text-green{% endif %}">
+                <div class="signal-stat-value z-value {% if s.z_now and s.z_now >= 2 %}text-orange{% elif s.z_now and s.z_now <= -2 %}text-green{% else %}text-dim{% endif %}">
                     {{ s.z_now|default("—") }}
                 </div>
             </div>
             <div class="signal-stat">
                 <div class="signal-stat-label">Z прогноз</div>
-                <div class="signal-stat-value">{% if s.z_forecast %}{{ s.z_forecast }}{% else %}—{% endif %}</div>
+                <div class="signal-stat-value">{{ s.z_forecast|default("—") }}</div>
             </div>
             <div class="signal-stat">
                 <div class="signal-stat-label">Корреляция</div>
-                <div class="signal-stat-value">{{ s.corr_pct|default("—") }}%</div>
+                <div class="signal-stat-value">
+                    <span class="badge {% if s.corr|default(0) >= 0.8 %}badge-green{% elif s.corr|default(0) >= 0.6 %}badge-blue{% else %}badge-gray{% endif %}">
+                        {{ s.corr_pct|default("—") }}%
+                    </span>
+                </div>
             </div>
             <div class="signal-stat">
                 <div class="signal-stat-label">Коинтеграция</div>
-                <div class="signal-stat-value">{% if s.is_coint %}✅ Да{% else %}❌ Нет{% endif %}</div>
+                <div class="signal-stat-value">
+                    {% if s.is_coint %}<span style="color:var(--green)">✓</span>{% else %}<span style="color:var(--text-muted)">—</span>{% endif %}
+                </div>
             </div>
             <div class="signal-stat">
                 <div class="signal-stat-label">Полупериод</div>
-                <div class="signal-stat-value">{% if s.halflife %}{{ s.halflife }} дн.{% else %}—{% endif %}</div>
+                <div class="signal-stat-value">{% if s.halflife %}{{ s.halflife }}д{% else %}—{% endif %}</div>
             </div>
             <div class="signal-stat">
                 <div class="signal-stat-label">Сила</div>
@@ -55,23 +112,30 @@
                 </div>
             </div>
         </div>
-        <div class="calc-block">
+
+        <div class="calc-block" id="calc-{{ s.pair_id }}"
+             data-pair-id="{{ s.pair_id }}"
+             data-ticker-a="{{ s.ticker_a }}"
+             data-ticker-b="{{ s.ticker_b }}"
+             data-signal-type="{{ s.signal_type }}"
+             data-z-now="{{ s.z_now|default('') }}"
+             data-halflife="{{ s.halflife|default('') }}">
             <div class="calc-row">
                 <div class="calc-field">
                     <label>Позиция ($)</label>
-                    <div class="calc-value">3,000</div>
+                    <div class="calc-value" data-field="position">…</div>
                 </div>
                 <div class="calc-field">
                     <label>Комиссия</label>
-                    <div class="calc-value text-dim">2.40</div>
+                    <div class="calc-value text-dim" data-field="fee">…</div>
                 </div>
                 <div class="calc-field">
                     <label>Фандинг</label>
-                    <div class="calc-value text-dim">4.50</div>
+                    <div class="calc-value text-dim" data-field="funding">…</div>
                 </div>
                 <div class="calc-field">
-                    <label>Ожид. P&L</label>
-                    <div class="calc-value positive">+5.2%</div>
+                    <label>Ожид. P&amp;L</label>
+                    <div class="calc-value" data-field="pnl">…</div>
                 </div>
             </div>
         </div>
@@ -80,12 +144,12 @@
 </div>
 {% endif %}
 
-<!-- All signals table -->
+<!-- ============================== ALL PAIRS TABLE ============================== -->
 <div class="section-header">
     <h3>📋 Все пары ({{ total }})</h3>
 </div>
 <div class="table-container">
-    <table class="data-table">
+    <table class="data-table signals-table">
         <thead>
             <tr>
                 <th>Пара</th>
@@ -103,13 +167,27 @@
             {% for s in signals %}
             <tr>
                 <td><strong>{{ s.ticker_a }}/{{ s.ticker_b }}</strong></td>
-                <td class="text-mono {% if s.z_now and s.z_now >= 2 %}text-orange{% elif s.z_now and s.z_now <= -2 %}text-green{% endif %}">{{ s.z_now|default("—") }}</td>
+                <td class="text-mono z-cell {% if s.z_now and s.z_now >= 2 %}cell-heat-orange{% elif s.z_now and s.z_now <= -2 %}cell-heat-green{% endif %}">
+                    {{ s.z_now|default("—") }}
+                </td>
                 <td class="text-mono">{{ s.z_forecast|default("—") }}</td>
-                <td><span class="badge {% if s.signal_type == 'short_a' %}badge-orange{% elif s.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">{{ s.signal_type }}</span></td>
-                <td>{{ s.strength }}</td>
-                <td>{{ s.corr_pct|default("—") }}%</td>
-                <td>{% if s.is_coint %}✅{% else %}—{% endif %}</td>
-                <td>{{ s.halflife|default("—") }}</td>
+                <td>
+                    <span class="badge {% if s.signal_type == 'short_a' %}badge-orange{% elif s.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
+                        {{ s.signal_type }}
+                    </span>
+                </td>
+                <td>
+                    <span class="badge {% if s.strength == 'Сильный' %}badge-green{% elif s.strength == 'Прогнозный' %}badge-blue{% elif s.strength == 'Формируется' %}badge-orange{% else %}badge-gray{% endif %}">
+                        {{ s.strength }}
+                    </span>
+                </td>
+                <td class="text-mono">
+                    <span class="badge {% if s.corr|default(0) >= 0.8 %}badge-green{% elif s.corr|default(0) >= 0.6 %}badge-blue{% else %}badge-gray{% endif %}">
+                        {{ s.corr_pct|default("—") }}%
+                    </span>
+                </td>
+                <td class="text-mono">{% if s.is_coint %}<span style="color:var(--green)">✓</span>{% else %}<span style="color:var(--text-muted)">—</span>{% endif %}</td>
+                <td class="text-mono">{{ s.halflife|default("—") }}</td>
                 <td class="text-mono">{{ s.score|default("—") }}</td>
             </tr>
             {% endfor %}
@@ -117,10 +195,211 @@
     </table>
 </div>
 
+<script>
+(function () {
+    'use strict';
+
+    /* ---------- Sparklines ---------- */
+    function drawSparkline(canvas, values) {
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width;
+        const h = canvas.height;
+        const vals = values.filter(v => v !== null && v !== undefined && !Number.isNaN(v));
+        if (vals.length < 2) return;
+
+        const min = Math.min(...vals);
+        const max = Math.max(...vals);
+        const range = (max - min) || 1;
+        const stepX = w / (vals.length - 1);
+
+        const lastVal = vals[vals.length - 1];
+        const color = lastVal >= 2 ? '#f59e0b' : lastVal <= -2 ? '#10b981' : '#58a6ff';
+
+        ctx.clearRect(0, 0, w, h);
+
+        // Fill area under curve
+        const gradient = ctx.createLinearGradient(0, 0, 0, h);
+        gradient.addColorStop(0, color + '33');
+        gradient.addColorStop(1, color + '00');
+
+        ctx.beginPath();
+        vals.forEach((v, i) => {
+            const x = i * stepX;
+            const y = h - ((v - min) / range) * h * 0.8 - h * 0.1;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.lineTo((vals.length - 1) * stepX, h);
+        ctx.lineTo(0, h);
+        ctx.closePath();
+        ctx.fillStyle = gradient;
+        ctx.fill();
+
+        // Line
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        vals.forEach((v, i) => {
+            const x = i * stepX;
+            const y = h - ((v - min) / range) * h * 0.8 - h * 0.1;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        // Current value dot
+        const lastX = (vals.length - 1) * stepX;
+        const lastY = h - ((lastVal - min) / range) * h * 0.8 - h * 0.1;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(10,14,20,0.8)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    }
+
+    document.querySelectorAll('.sparkline').forEach(canvas => {
+        const ta = canvas.dataset.tickerA;
+        const tb = canvas.dataset.tickerB;
+        if (!ta || !tb) return;
+        fetch(`/api/charts/sparkline/${encodeURIComponent(ta)}/${encodeURIComponent(tb)}`)
+            .then(r => r.json())
+            .then(data => {
+                const vals = (data && (data.values || data.zscores)) || [];
+                if (vals.length > 0) drawSparkline(canvas, vals);
+            })
+            .catch(() => {});
+    });
+
+    /* ---------- Per-card PnL calculator (real fetch) ---------- */
+    function fmtMoney(v) {
+        if (v === null || v === undefined || Number.isNaN(v)) return '—';
+        const sign = v >= 0 ? '+' : '';
+        return sign + '$' + Number(v).toLocaleString('en-US', {maximumFractionDigits: 2});
+    }
+
+    function fmtUsd(v) {
+        if (v === null || v === undefined || Number.isNaN(v)) return '—';
+        return '$' + Number(v).toLocaleString('en-US', {maximumFractionDigits: 2});
+    }
+
+    function loadCalc(block) {
+        const capitalInput = document.getElementById('calc-capital');
+        const levInput = document.getElementById('calc-leverage');
+        const takerInput = document.getElementById('calc-taker');
+        const fundingInput = document.getElementById('calc-funding');
+
+        const capital = capitalInput ? (parseFloat(capitalInput.value) || 1000) : 1000;
+        const leverage = levInput ? (parseFloat(levInput.value) || 3) : 3;
+        const taker = takerInput ? (parseFloat(takerInput.value) || 0.02) : 0.02;
+        const funding = fundingInput ? (parseFloat(fundingInput.value) || 0.01) : 0.01;
+
+        const params = new URLSearchParams({
+            ticker_a: block.dataset.tickerA,
+            ticker_b: block.dataset.tickerB,
+            signal_type: block.dataset.signalType,
+            z_now: block.dataset.zNow,
+            capital: String(capital),
+            leverage: String(leverage),
+            taker_fee: String(taker),
+            funding_rate: String(funding),
+            halflife: block.dataset.halflife || ''
+        });
+
+        const setPlaceholder = (txt) => {
+            ['position', 'fee', 'funding', 'pnl'].forEach(f => {
+                const el = block.querySelector(`[data-field="${f}"]`);
+                if (el) el.textContent = txt;
+            });
+        };
+        setPlaceholder('…');
+
+        fetch(`/api/signals/pnl?${params.toString()}`)
+            .then(r => r.json())
+            .then(data => {
+                const pos = block.querySelector('[data-field="position"]');
+                const fee = block.querySelector('[data-field="fee"]');
+                const fnd = block.querySelector('[data-field="funding"]');
+                const pnl = block.querySelector('[data-field="pnl"]');
+
+                if (pos) pos.textContent = fmtUsd(data.position_size || data.capital || capital);
+                if (fee) fee.textContent = fmtUsd(data.fee || 0);
+                if (fnd) fnd.textContent = fmtUsd(data.funding || 0);
+
+                const pnlValue = data.pnl !== undefined ? data.pnl
+                    : (data.expected_pnl !== undefined ? data.expected_pnl : null);
+                if (pnl) {
+                    pnl.textContent = fmtMoney(pnlValue);
+                    pnl.classList.remove('positive', 'negative');
+                    if (pnlValue !== null) {
+                        if (pnlValue >= 0) pnl.classList.add('positive');
+                        else pnl.classList.add('negative');
+                    }
+                }
+            })
+            .catch(() => setPlaceholder('—'));
+    }
+
+    const calcBlocks = document.querySelectorAll('.calc-block');
+    calcBlocks.forEach(loadCalc);
+
+    // Recalc all cards when global calc settings change
+    ['calc-capital', 'calc-leverage', 'calc-taker', 'calc-funding'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('change', () => calcBlocks.forEach(loadCalc));
+    });
+
+    /* ---------- Dashboard banner: best signal + WS status ---------- */
+    (function () {
+        // Determine best signal: highest |z_now| among active signals
+        const bestNameEl = document.getElementById('best-signal-name');
+        const bestMetaEl = document.getElementById('best-signal-meta');
+        const cards = Array.from(document.querySelectorAll('.signal-card'));
+        if (bestNameEl && bestMetaEl && cards.length) {
+            let best = null, bestAbs = -1;
+            cards.forEach(c => {
+                const z = parseFloat(c.querySelector('.z-value')?.textContent?.trim());
+                if (!Number.isNaN(z) && Math.abs(z) > bestAbs) {
+                    bestAbs = Math.abs(z);
+                    best = c;
+                }
+            });
+            if (best) {
+                const name = best.querySelector('.signal-name')?.textContent || '—';
+                const type = best.querySelector('.badge')?.textContent?.trim() || '';
+                const z = best.querySelector('.z-value')?.textContent?.trim() || '';
+                bestNameEl.textContent = name;
+                bestMetaEl.textContent = `${type} • Z=${z}`;
+                best.classList.add('signal-best');
+            }
+        }
+
+        // Live WS status dot
+        const dot = document.getElementById('live-dot');
+        const wsStatusEl = document.getElementById('ws-status');
+        function updateWsStatus() {
+            if (!dot || !wsStatusEl) return;
+            fetch('/api/health/ws').then(r => r.json()).then(d => {
+                const ok = d && (d.connected === true || d.status === 'ok' || d.status === 'connected');
+                dot.classList.toggle('live', ok);
+                wsStatusEl.textContent = ok ? 'Binance WS подключен' : 'Binance WS отключен';
+            }).catch(() => {
+                dot.classList.remove('live');
+                wsStatusEl.textContent = 'Binance WS статус недоступен';
+            });
+        }
+        updateWsStatus();
+        setInterval(updateWsStatus, 10000);
+    })();
+})();
+</script>
+
 {% else %}
 <div class="empty-state">
     <span class="empty-icon">📡</span>
-    <p>Нет данных для отображения. Запустите скрипт compute_analysis.py для расчёта пар.</p>
+    <p>Нет данных для отображения. Запустите <code>compute_analysis.py</code> для расчёта пар.</p>
     <p class="text-dim">DB: {{ market }} | corr &ge; {{ min_corr }} | max_days: {{ max_days }}</p>
 </div>
 {% endif %}

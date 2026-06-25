@@ -1,24 +1,40 @@
 <div class="tab-page scanners-page">
     <div class="page-header">
         <h2>🔍 Сканеры рынка</h2>
+        <p class="page-desc">Поиск аномалий: корреляции, моментум, просадки</p>
     </div>
 
     <div class="scanner-mode-bar">
         <button class="scanner-btn active" data-scanner="corrbreak" 
-                hx-get="/tab/scanner/corrbreak" hx-target="#scanner-content" hx-swap="innerHTML">
-            🔗 Corr Breakdown
+                hx-get="/tab/scanner/corrbreak" hx-target="#scanner-content" hx-swap="innerHTML"
+                onclick="document.querySelectorAll('.scanner-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
+            <span class="scanner-icon">🔗</span>
+            <div>
+                <div class="scanner-name">Corr Breakdown</div>
+                <div class="scanner-desc">Слом корреляции</div>
+            </div>
         </button>
         <button class="scanner-btn" data-scanner="momentum"
-                hx-get="/tab/scanner/momentum" hx-target="#scanner-content" hx-swap="innerHTML">
-            🚀 Momentum
+                hx-get="/tab/scanner/momentum" hx-target="#scanner-content" hx-swap="innerHTML"
+                onclick="document.querySelectorAll('.scanner-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
+            <span class="scanner-icon">🚀</span>
+            <div>
+                <div class="scanner-name">Momentum</div>
+                <div class="scanner-desc">Импульс движения</div>
+            </div>
         </button>
         <button class="scanner-btn" data-scanner="drawdown"
-                hx-get="/tab/scanner/drawdown" hx-target="#scanner-content" hx-swap="innerHTML">
-            📉 Drawdown
+                hx-get="/tab/scanner/drawdown" hx-target="#scanner-content" hx-swap="innerHTML"
+                onclick="document.querySelectorAll('.scanner-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
+            <span class="scanner-icon">📉</span>
+            <div>
+                <div class="scanner-name">Drawdown</div>
+                <div class="scanner-desc">Просадки активов</div>
+            </div>
         </button>
     </div>
 
     <div id="scanner-content" class="scanner-content" hx-get="/tab/scanner/corrbreak" hx-trigger="load" hx-swap="innerHTML">
-        {% include "components/scanner_corrbreak.html" %}
+        <div class="skeleton-card"></div>
     </div>
 </div>

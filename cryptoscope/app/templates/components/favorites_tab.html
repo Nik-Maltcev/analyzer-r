@@ -1,31 +1,49 @@
 <div class="tab-page favorites-page">
     <div class="page-header">
         <h2>⭐ Избранное — Портфель</h2>
-        <p class="page-desc">Активные позиции и история сделок</p>
+        <p class="page-desc">Активные позиции с live P&L</p>
     </div>
 
     <div class="section">
-        <h3>Активные позиции</h3>
+        <h3>Активные позиции ({{ favorites|length }})</h3>
         {% if favorites %}
-        <div id="active-positions">
+        <div class="positions-grid">
             {% for f in favorites %}
-            <div class="position-card" id="position-{{ f.pair }}">
+            <div class="position-card signal-{{ f.signal_type }}" id="position-{{ f.pair }}">
                 <div class="position-header">
-                    <strong>{{ f.ticker_a }} / {{ f.ticker_b }}</strong>
+                    <div class="position-pair">
+                        <span class="ticker-logo" data-ticker="{{ f.ticker_a }}"></span>
+                        <strong>{{ f.ticker_a }} / {{ f.ticker_b }}</strong>
+                    </div>
                     <span class="badge {% if f.signal_type == 'short_a' %}badge-orange{% elif f.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
-                        {{ f.signal_type }}
-                    </span>
-                    <span class="position-pnl {% if f.pnl_total_pct >= 0 %}positive{% else %}negative{% endif %}">
-                        {{ '%+.2f'|format(f.pnl_total_pct) }}%
+                        {% if f.signal_type == 'short_a' %}Шорт A{% elif f.signal_type == 'long_a' %}Лонг A{% else %}Ждать{% endif %}
                     </span>
                 </div>
+                
+                <div class="position-pnl-display {% if f.pnl_total_pct >= 0 %}positive{% else %}negative{% endif %}">
+                    {{ '%+.2f'|format(f.pnl_total_pct) }}%
+                </div>
+                
                 <div class="position-details">
-                    <div>Сигнал: <span>{{ f.signal[:30] }}</span></div>
-                    <div>Вход: <span>{{ f.entry_time }}</span></div>
-                    <div>Корр: <span>{{ '%.0f'|format(f.corr * 100) if f.corr else '—' }}%</span></div>
-                    <div>HL: <span>{{ f.halflife|default('—') }} дн.</span></div>
+                    <div class="detail-row">
+                        <span class="detail-label">Сигнал</span>
+                        <span class="detail-value">{{ f.signal[:30] }}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Вход</span>
+                        <span class="detail-value">{{ f.entry_time[:16] if f.entry_time else '—' }}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Корр</span>
+                        <span class="detail-value">{{ '%.0f'|format(f.corr * 100) if f.corr else '—' }}%</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Полупериод</span>
+                        <span class="detail-value">{{ f.halflife|default('—') }} дн.</span>
+                    </div>
                 </div>
-                <div style="margin-top:8px">
+                
+                <div class="position-actions">
                     <button class="btn btn-sm btn-danger" onclick="closeFavorite({{ f.id }})">✕ Закрыть</button>
                 </div>
             </div>
@@ -34,7 +52,8 @@
         {% else %}
         <div class="empty-state">
             <span class="empty-icon">⭐</span>
-            <p>Нет активных позиций. Добавьте сигналы в избранное на вкладке Сигналы.</p>
+            <p>Нет активных позиций</p>
+            <p class="text-dim">Добавьте сигналы в избранное на вкладке Сигналы (нажмите ☆ на карточке)</p>
         </div>
         {% endif %}
     </div>
@@ -42,7 +61,7 @@
     <div class="section">
         <h3>История закрытых</h3>
         <div id="closed-history" hx-get="/api/favorites/history" hx-trigger="load" hx-swap="innerHTML">
-            <div class="loading-container"><div class="loading-spinner"></div></div>
+            <div class="skeleton-card"></div>
         </div>
     </div>
 </div>

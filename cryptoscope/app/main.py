@@ -66,6 +66,7 @@ from app.api.favorites import router as favorites_router
 from app.api.data_view import router as data_router
 from app.api.ai import router as ai_router
 from app.api.ui_routes import router as ui_router
+from app.api.charts import router as charts_router
 
 app.include_router(health_router)
 app.include_router(signals_router, prefix="/api")
@@ -74,6 +75,7 @@ app.include_router(scanners_router, prefix="/api")
 app.include_router(favorites_router, prefix="/api")
 app.include_router(data_router, prefix="/api")
 app.include_router(ai_router, prefix="/api")
+app.include_router(charts_router, prefix="/api")
 app.include_router(ui_router)
 
 

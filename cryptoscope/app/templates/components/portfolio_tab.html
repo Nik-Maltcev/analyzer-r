@@ -1,4 +1,3 @@
-<!-- portfolio_tab.html — rendered with real data -->
 <div class="tab-page portfolio-page">
     <div class="page-header">
         <h2>📊 Портфель — Pairs Trading</h2>
@@ -10,7 +9,7 @@
         <h3>Топ пар</h3>
         <div class="cards-grid">
             {% for p in top_pairs %}
-            <div class="card">
+            <div class="card signal-{% if p.signal_type == 'long_a' %}long_a{% elif p.signal_type == 'short_a' %}short_a{% else %}wait{% endif %}">
                 <div class="card-header">
                     <span class="card-title">{{ p.ticker_a }} / {{ p.ticker_b }}</span>
                     <span class="badge {% if p.is_coint %}badge-green{% else %}badge-gray{% endif %}">
@@ -18,11 +17,23 @@
                     </span>
                 </div>
                 <div class="card-body">
-                    <div style="display:flex;gap:16px;font-size:13px">
-                        <div>Корр: <strong>{{ "%.0f"|format(p.corr * 100) if p.corr else "—" }}%</strong></div>
-                        <div>Z: <strong>{{ "%.2f"|format(p.z_now) if p.z_now else "—" }}</strong></div>
-                        <div>HL: <strong>{{ p.halflife|default("—") }}д</strong></div>
-                        <div>Рейтинг: <strong>{{ "%.3f"|format(p.score) if p.score else "—" }}</strong></div>
+                    <div class="stat-grid">
+                        <div class="stat-item">
+                            <span class="stat-label">Корр</span>
+                            <span class="stat-value">{{ "%.0f"|format(p.corr * 100) if p.corr else "—" }}%</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Z</span>
+                            <span class="stat-value text-mono {% if p.z_now and p.z_now >= 2 %}text-orange{% elif p.z_now and p.z_now <= -2 %}text-green{% endif %}">{{ "%.2f"|format(p.z_now) if p.z_now else "—" }}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">HL</span>
+                            <span class="stat-value">{{ p.halflife|default("—") }}д</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Рейтинг</span>
+                            <span class="stat-value text-mono">{{ "%.3f"|format(p.score) if p.score else "—" }}</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -33,7 +44,7 @@
 
     {% if all_pairs %}
     <div class="section">
-        <h3>Все пары</h3>
+        <h3>Все пары ({{ total }})</h3>
         <div class="table-container">
             <table class="data-table">
                 <thead>
@@ -49,11 +60,11 @@
                         <td>{{ p.ticker_a }}</td>
                         <td>{{ p.ticker_b }}</td>
                         <td>{{ "%.0f"|format(p.corr * 100) if p.corr else "—" }}%</td>
-                        <td>{% if p.is_coint %}✅{% else %}—{% endif %}</td>
+                        <td>{% if p.is_coint %}<span style="color:var(--green)">✓</span>{% else %}—{% endif %}</td>
                         <td>{{ p.halflife|default("—") }}</td>
-                        <td class="text-mono">{{ "%.2f"|format(p.z_now) if p.z_now else "—" }}</td>
-                        <td>{{ p.signal[:20]|default("—") }}</td>
-                        <td>{{ "%.3f"|format(p.score) if p.score else "—" }}</td>
+                        <td class="text-mono {% if p.z_now and p.z_now >= 2 %}cell-heat-orange{% elif p.z_now and p.z_now <= -2 %}cell-heat-green{% endif %}">{{ "%.2f"|format(p.z_now) if p.z_now else "—" }}</td>
+                        <td><span class="badge {% if p.signal_type == 'short_a' %}badge-orange{% elif p.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">{{ (p.signal or '')[:14] }}</span></td>
+                        <td class="text-mono">{{ "%.3f"|format(p.score) if p.score else "—" }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -64,7 +75,7 @@
 
     {% if tickers %}
     <div class="section">
-        <h3>График спреда</h3>
+        <h3>График спреда (Z-score)</h3>
         <div class="pair-selector">
             <select id="spread-a" class="form-select">
                 {% for t in tickers %}<option>{{ t }}</option>{% endfor %}
@@ -73,10 +84,180 @@
             <select id="spread-b" class="form-select">
                 {% for t in tickers %}<option>{{ t }}</option>{% endfor %}
             </select>
+            <button class="btn btn-primary btn-sm" onclick="loadSpreadChart()">Показать</button>
         </div>
-        <div id="spread-chart" class="chart-container">
-            <p class="text-dim">Выберите два тикера для просмотра спреда</p>
+        <div class="chart-container" style="min-height:400px;position:relative">
+            <canvas id="spread-chart-canvas"></canvas>
         </div>
+        <div id="spread-info" class="spread-info"></div>
     </div>
     {% endif %}
 </div>
+
+<script>
+let spreadChart = null;
+
+function loadSpreadChart() {
+    const ta = document.getElementById('spread-a').value;
+    const tb = document.getElementById('spread-b').value;
+    if (ta === tb) { showToast('Выберите разные тикеры', 'error'); return; }
+    
+    const taEnc = ta.replace('/', '.');
+    const tbEnc = tb.replace('/', '.');
+    
+    fetch(`/api/charts/spread/${taEnc}/${tbEnc}?market=crypto`)
+        .then(r => r.json())
+        .then(data => renderSpreadChart(data))
+        .catch(e => showToast('Ошибка загрузки графика', 'error'));
+}
+
+function renderSpreadChart(data) {
+    const canvas = document.getElementById('spread-chart-canvas');
+    const ctx = canvas.getContext('2d');
+    
+    if (spreadChart) spreadChart.destroy();
+    
+    const labels = data.dates;
+    const zData = data.zscores;
+    
+    // Bands
+    const pos2Band = new Array(labels.length).fill(2.0);
+    const neg2Band = new Array(labels.length).fill(-2.0);
+    const pos1Band = new Array(labels.length).fill(1.0);
+    const neg1Band = new Array(labels.length).fill(-1.0);
+    
+    spreadChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: '±2σ (entry)',
+                    data: pos2Band,
+                    borderColor: 'rgba(239, 68, 68, 0.3)',
+                    borderDash: [5, 5],
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    fill: false,
+                },
+                {
+                    label: '±2σ (entry)',
+                    data: neg2Band,
+                    borderColor: 'rgba(16, 185, 129, 0.3)',
+                    borderDash: [5, 5],
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    fill: false,
+                },
+                {
+                    label: '±1σ',
+                    data: pos1Band,
+                    borderColor: 'rgba(139, 148, 158, 0.2)',
+                    borderDash: [3, 3],
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    fill: false,
+                },
+                {
+                    label: '±1σ',
+                    data: neg1Band,
+                    borderColor: 'rgba(139, 148, 158, 0.2)',
+                    borderDash: [3, 3],
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    fill: false,
+                },
+                {
+                    label: 'Z-score',
+                    data: zData,
+                    borderColor: '#3b82f6',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    fill: {
+                        target: 'origin',
+                        above: 'rgba(16, 185, 129, 0.05)',
+                        below: 'rgba(239, 68, 68, 0.05)',
+                    },
+                    tension: 0.3,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#0f1419',
+                    borderColor: '#1c2333',
+                    borderWidth: 1,
+                    titleColor: '#e6edf3',
+                    bodyColor: '#8b949e',
+                    callbacks: {
+                        label: function(ctx) {
+                            if (ctx.datasetIndex === 4) {
+                                return 'Z: ' + ctx.parsed.y.toFixed(3);
+                            }
+                            return null;
+                        }
+                    }
+                },
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(28, 35, 51, 0.5)' },
+                    ticks: { color: '#5c6670', font: { size: 10 }, maxTicksLimit: 8 },
+                },
+                y: {
+                    grid: { color: 'rgba(28, 35, 51, 0.5)' },
+                    ticks: { color: '#5c6670', font: { size: 11, family: 'JetBrains Mono' } },
+                    suggestedMin: -4,
+                    suggestedMax: 4,
+                },
+            },
+            interaction: { intersect: false, mode: 'index' },
+        },
+    });
+    
+    // Show info
+    const info = document.getElementById('spread-info');
+    const cg = data.cointegration;
+    info.innerHTML = `
+        <div class="spread-stats">
+            <div class="stat-item">
+                <span class="stat-label">Z сейчас</span>
+                <span class="stat-value text-mono ${data.z_now >= 2 ? 'text-orange' : data.z_now <= -2 ? 'text-green' : ''}">${data.z_now}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Z прогноз</span>
+                <span class="stat-value text-mono">${data.z_forecast}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Коинтеграция</span>
+                <span class="stat-value">${cg.is_coint ? '✓ Да' : '✗ Нет'}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Полупериод</span>
+                <span class="stat-value">${cg.halflife ? cg.halflife + ' дн.' : '—'}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Hedge ratio</span>
+                <span class="stat-value text-mono">${cg.hedge_ratio || '—'}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">t-stat</span>
+                <span class="stat-value text-mono">${cg.t_stat || '—'}</span>
+            </div>
+        </div>
+    `;
+}
+
+function swapTickers() {
+    const a = document.getElementById('spread-a');
+    const b = document.getElementById('spread-b');
+    const tmp = a.value;
+    a.value = b.value;
+    b.value = tmp;
+}
+</script>
