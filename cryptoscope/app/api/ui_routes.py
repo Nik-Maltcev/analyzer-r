@@ -244,12 +244,19 @@ async def tab_favorites(request: Request):
                     pass
 
         for _, row in favs.iterrows():
-            entry_a = row.get("price_a_entry") or 1
-            entry_b = row.get("price_b_entry") or 1
-            p_a = latest_prices.get(row["ticker_a"], entry_a)
-            p_b = latest_prices.get(row["ticker_b"], entry_b)
-            pnl_a = (p_a / entry_a - 1) * 100 if entry_a > 1 else 0
-            pnl_b = (p_b / entry_b - 1) * 100 if entry_b > 1 else 0
+            entry_a = row.get("price_a_entry")
+            entry_b = row.get("price_b_entry")
+            
+            # Backfill entry from DB if 0 or missing
+            if not entry_a or entry_a == 0:
+                entry_a = latest_prices.get(row["ticker_a"], 0)
+            if not entry_b or entry_b == 0:
+                entry_b = latest_prices.get(row["ticker_b"], 0)
+            
+            p_a = latest_prices.get(row["ticker_a"], 0)
+            p_b = latest_prices.get(row["ticker_b"], 0)
+            pnl_a = (p_a / entry_a - 1) * 100 if entry_a and entry_a > 0 and p_a else 0
+            pnl_b = (p_b / entry_b - 1) * 100 if entry_b and entry_b > 0 and p_b else 0
             st = row.get("signal_type", "wait")
             total_pnl = (-pnl_a + pnl_b) if st == "short_a" else (pnl_a - pnl_b) if st == "long_a" else 0
 

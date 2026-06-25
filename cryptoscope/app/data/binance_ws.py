@@ -101,14 +101,9 @@ async def connect_binance_ws(tickers: Optional[list] = None):
     if tickers:
         TICKER_MAP = build_ticker_map(tickers, _all_symbols)
     else:
-        # Default: top crypto tickers
-        default_tickers = [
-            "BTC/USD", "ETH/USD", "BNB/USD", "SOL/USD", "XRP/USD",
-            "ADA/USD", "DOGE/USD", "AVAX/USD", "DOT/USD", "MATIC/USD",
-            "LINK/USD", "UNI/USD", "ATOM/USD", "LTC/USD", "FIL/USD",
-            "NEAR/USD", "APT/USD", "ARB/USD", "OP/USD", "ICP/USD",
-        ]
-        TICKER_MAP = build_ticker_map(default_tickers, _all_symbols)
+        # Track ALL crypto tickers from tickers.py
+        from app.data.tickers import CRYPTO_TICKERS
+        TICKER_MAP = build_ticker_map(CRYPTO_TICKERS, _all_symbols)
 
     # Get all unique Binance symbols we need to track
     all_syms = []
