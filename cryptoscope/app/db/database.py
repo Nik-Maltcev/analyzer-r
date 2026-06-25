@@ -121,6 +121,23 @@ async def toggle_favorite(conn: aiosqlite.Connection, pair: str, ticker_a: str, 
         await conn.commit()
         return {"action": "removed", "pair": pair}
     
+    price_a = kwargs.get("price_a_entry", 0) or 0
+    price_b = kwargs.get("price_b_entry", 0) or 0
+    
+    # If entry prices are 0, look them up from DB
+    if price_a == 0 or price_b == 0:
+        for ticker, key in [(ticker_a, "price_a_entry"), (ticker_b, "price_b_entry")]:
+            cursor2 = await conn.execute(
+                "SELECT close FROM prices WHERE ticker = ? ORDER BY date DESC LIMIT 1",
+                (ticker,)
+            )
+            row2 = await cursor2.fetchone()
+            if row2 and row2[0]:
+                if key == "price_a_entry":
+                    price_a = float(row2[0])
+                else:
+                    price_b = float(row2[0])
+    
     await conn.execute("""
         INSERT INTO favorites (pair, ticker_a, ticker_b, signal, signal_type, z_at_entry,
                               price_a_entry, price_b_entry, entry_time, status, halflife, corr, user_id)
@@ -130,14 +147,14 @@ async def toggle_favorite(conn: aiosqlite.Connection, pair: str, ticker_a: str, 
         kwargs.get("signal", ""),
         kwargs.get("signal_type", "wait"),
         kwargs.get("z_at_entry", 0),
-        kwargs.get("price_a_entry", 0),
-        kwargs.get("price_b_entry", 0),
+        price_a,
+        price_b,
         kwargs.get("halflife"),
         kwargs.get("corr", 0),
         user_id,
     ))
     await conn.commit()
-    return {"action": "added", "pair": pair}
+    return {"action": "added", "pair": pair, "entry_a": price_a, "entry_b": price_b}
 
 
 async def close_favorite(conn: aiosqlite.Connection, fav_id: int, exit_price_a: float,

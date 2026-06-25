@@ -6,7 +6,13 @@
 library(RSQLite)
 library(jsonlite)
 
-source("/scripts/tickers.R")
+if (file.exists("/scripts/tickers.R")) {
+  source("/scripts/tickers.R")
+} else if (file.exists("scripts/tickers.R")) {
+  source("scripts/tickers.R")
+} else {
+  stop("Cannot find tickers.R — set working directory or check paths")
+}
 
 DB_PATH <- Sys.getenv("DB_PATH", "data/market.db")
 API_KEY <- Sys.getenv("TWELVEDATA_API_KEY", "")
@@ -102,6 +108,10 @@ dbDisconnect(con)
 
 # ── Recompute pairs analysis (all markets) ──────────────────────────────────
 cat("Recomputing pairs analysis...\n")
-system("Rscript /scripts/compute_analysis.R")
+  if (file.exists("/scripts/compute_analysis.R")) {
+    system("Rscript /scripts/compute_analysis.R")
+  } else if (file.exists("scripts/compute_analysis.R")) {
+    system("Rscript scripts/compute_analysis.R")
+  }
 
 cat(sprintf("\n[%s] === Daily Update Complete ===\n", Sys.time()))

@@ -32,11 +32,13 @@ async def get_favorites(user_id: str = Query("local")):
     
     active_positions = []
     for _, row in favs.iterrows():
-        price_a_now = latest_prices.get(row["ticker_a"], row.get("price_a_entry", 0) or 0)
-        price_b_now = latest_prices.get(row["ticker_b"], row.get("price_b_entry", 0) or 0)
+        entry_a = row.get("price_a_entry")
+        entry_b = row.get("price_b_entry")
+        price_a_now = latest_prices.get(row["ticker_a"], entry_a or 0)
+        price_b_now = latest_prices.get(row["ticker_b"], entry_b or 0)
         
-        pnl_a = (price_a_now / row["price_a_entry"] - 1) * 100 if row.get("price_a_entry") else 0
-        pnl_b = (price_b_now / row["price_b_entry"] - 1) * 100 if row.get("price_b_entry") else 0
+        pnl_a = (price_a_now / entry_a - 1) * 100 if entry_a and entry_a > 0 else 0
+        pnl_b = (price_b_now / entry_b - 1) * 100 if entry_b and entry_b > 0 else 0
         
         # For pairs, P&L depends on position direction
         sig_type = row.get("signal_type", "wait")
