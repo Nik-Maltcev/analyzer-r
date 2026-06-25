@@ -10,6 +10,33 @@ from app.db.database import (
 router = APIRouter(prefix="/favorites", tags=["favorites"])
 
 
+def _get_current_price(ticker: str, db_prices: dict) -> float:
+    """Get current price: try Binance WS first, fall back to DB."""
+    try:
+        from app.data.binance_ws import get_live_price
+        live = get_live_price(ticker)
+        if live is not None and live > 0:
+            return float(live)
+    except ImportError:
+        pass
+    return float(db_prices.get(ticker, 0) or 0)
+
+
+@router.get("/live-status")
+async def live_prices_status():
+    """Check Binance WS connection status."""
+    try:
+        from app.data.binance_ws import is_connected, get_uptime, live_prices, get_all_live_tickers
+        return {
+            "connected": is_connected(),
+            "uptime_seconds": round(get_uptime(), 1),
+            "symbols_tracked": len(live_prices),
+            "tickers_tracked": len(get_all_live_tickers()),
+        }
+    except ImportError:
+        return {"connected": False, "error": "websockets module not installed"}
+
+
 @router.get("")
 async def get_favorites(user_id: str = Query("local")):
     """Get active favorites with live P&L."""
@@ -34,11 +61,17 @@ async def get_favorites(user_id: str = Query("local")):
     for _, row in favs.iterrows():
         entry_a = row.get("price_a_entry")
         entry_b = row.get("price_b_entry")
-        price_a_now = latest_prices.get(row["ticker_a"], entry_a or 0)
-        price_b_now = latest_prices.get(row["ticker_b"], entry_b or 0)
+        price_a_now = _get_current_price(row["ticker_a"], latest_prices)
+        price_b_now = _get_current_price(row["ticker_b"], latest_prices)
         
-        pnl_a = (price_a_now / entry_a - 1) * 100 if entry_a and entry_a > 0 else 0
-        pnl_b = (price_b_now / entry_b - 1) * 100 if entry_b and entry_b > 0 else 0
+        # Fall back to DB prices if live price is 0 and DB has one
+        if (price_a_now or 0) == 0:
+            price_a_now = float(latest_prices.get(row["ticker_a"], 0) or 0)
+        if (price_b_now or 0) == 0:
+            price_b_now = float(latest_prices.get(row["ticker_b"], 0) or 0)
+        
+        pnl_a = (price_a_now / entry_a - 1) * 100 if entry_a and entry_a > 0 and price_a_now else 0
+        pnl_b = (price_b_now / entry_b - 1) * 100 if entry_b and entry_b > 0 and price_b_now else 0
         
         # For pairs, P&L depends on position direction
         sig_type = row.get("signal_type", "wait")

@@ -30,9 +30,21 @@ async def lifespan(app: FastAPI):
     await init_db(settings.db_path)
     print(f"CryptoScope starting on {settings.host}:{settings.port}")
     print(f"DB path: {settings.db_path}")
+
+    # Start Binance WebSocket for live prices
+    ws_task = None
+    try:
+        from app.data.binance_ws import connect_binance_ws
+        ws_task = asyncio.create_task(connect_binance_ws())
+        print("[Binance] Price stream started in background")
+    except ImportError:
+        print("[Binance] websockets not available, live prices disabled")
+
     yield
     # Shutdown
     print("CryptoScope shutting down")
+    if ws_task:
+        ws_task.cancel()
 
 
 app = FastAPI(
