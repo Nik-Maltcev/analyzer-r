@@ -61,6 +61,30 @@ async def get_favorites(user_id: str = Query("local")):
     for _, row in favs.iterrows():
         entry_a = row.get("price_a_entry")
         entry_b = row.get("price_b_entry")
+
+        # Backfill missing entry prices from DB
+        needs_update = False
+        if not entry_a or entry_a == 0:
+            ticker_a_daily = prices_df[prices_df["ticker"] == row["ticker_a"]] if not prices_df.empty else pd.DataFrame()
+            if not ticker_a_daily.empty:
+                entry_a = float(ticker_a_daily["close"].iloc[-1])
+                needs_update = True
+        if not entry_b or entry_b == 0:
+            ticker_b_daily = prices_df[prices_df["ticker"] == row["ticker_b"]] if not prices_df.empty else pd.DataFrame()
+            if not ticker_b_daily.empty:
+                entry_b = float(ticker_b_daily["close"].iloc[-1])
+                needs_update = True
+
+        # Persist backfilled prices
+        if needs_update and entry_a and entry_b:
+            from app.db.database import get_connection as gc2
+            async with gc2() as conn2:
+                await conn2.execute(
+                    "UPDATE favorites SET price_a_entry = ?, price_b_entry = ? WHERE id = ?",
+                    (entry_a, entry_b, int(row["id"]))
+                )
+                await conn2.commit()
+
         price_a_now = _get_current_price(row["ticker_a"], latest_prices)
         price_b_now = _get_current_price(row["ticker_b"], latest_prices)
         
