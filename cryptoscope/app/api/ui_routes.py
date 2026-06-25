@@ -210,26 +210,46 @@ async def tab_scanner_content(request: Request, scanner_type: str, market: str =
 
 @router.get("/favorites", response_class=HTMLResponse)
 async def tab_favorites(request: Request):
+    active = []
     try:
         async with get_connection() as conn:
             favs = await fetch_favorites(conn)
-            prices_df = await fetch_prices(conn)
-    except Exception:
-        return templates.TemplateResponse("components/favorites_tab.html", {
-            "request": request, "favorites": [],
-        })
 
-    active = []
-    if not favs.empty and not prices_df.empty:
-        wide = prices_df.pivot(index="date", columns="ticker", values="close")
-        latest = wide.iloc[-1].to_dict() if len(wide) > 0 else {}
+        if favs.empty:
+            return templates.TemplateResponse("components/favorites_tab.html", {
+                "request": request, "favorites": [],
+            })
+
+        # Fetch latest price per ticker — only for tickers in favorites
+        tickers_set = set(favs["ticker_a"].tolist() + favs["ticker_b"].tolist())
+        async with get_connection() as conn:
+            latest_prices = {}
+            for ticker in tickers_set:
+                cursor = await conn.execute(
+                    "SELECT close FROM prices WHERE ticker = ? ORDER BY date DESC LIMIT 1",
+                    (ticker,)
+                )
+                row = await cursor.fetchone()
+                if row:
+                    latest_prices[ticker] = float(row[0])
+
+            # Try Binance live prices
+            for ticker in tickers_set:
+                try:
+                    from app.data.binance_ws import get_live_price
+                    live = get_live_price(ticker)
+                    if live is not None and live > 0:
+                        latest_prices[ticker] = float(live)
+                except ImportError:
+                    pass
+
         for _, row in favs.iterrows():
-            p_a = latest.get(row["ticker_a"], row.get("price_a_entry", 0) or 0)
-            p_b = latest.get(row["ticker_b"], row.get("price_b_entry", 0) or 0)
             entry_a = row.get("price_a_entry") or 1
             entry_b = row.get("price_b_entry") or 1
-            pnl_a = (p_a / entry_a - 1) * 100 if entry_a else 0
-            pnl_b = (p_b / entry_b - 1) * 100 if entry_b else 0
+            p_a = latest_prices.get(row["ticker_a"], entry_a)
+            p_b = latest_prices.get(row["ticker_b"], entry_b)
+            pnl_a = (p_a / entry_a - 1) * 100 if entry_a > 1 else 0
+            pnl_b = (p_b / entry_b - 1) * 100 if entry_b > 1 else 0
             st = row.get("signal_type", "wait")
             total_pnl = (-pnl_a + pnl_b) if st == "short_a" else (pnl_a - pnl_b) if st == "long_a" else 0
 
@@ -245,6 +265,11 @@ async def tab_favorites(request: Request):
                 "corr": row.get("corr"),
                 "halflife": row.get("halflife"),
             })
+
+    except Exception as e:
+        return templates.TemplateResponse("components/favorites_tab.html", {
+            "request": request, "favorites": [], "error": str(e) if str(e) else "DB unavailable",
+        })
 
     return templates.TemplateResponse("components/favorites_tab.html", {
         "request": request, "favorites": active,

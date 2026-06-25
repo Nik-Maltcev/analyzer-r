@@ -1,10 +1,9 @@
 """Favorites API endpoints."""
 
-import pandas as pd
 from fastapi import APIRouter, Query, HTTPException
 from app.db.database import (
     get_connection, fetch_favorites, fetch_favorites_history,
-    toggle_favorite, close_favorite, delete_favorite, fetch_prices,
+    toggle_favorite, close_favorite, delete_favorite,
 )
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
@@ -42,48 +41,33 @@ async def get_favorites(user_id: str = Query("local")):
     """Get active favorites with live P&L."""
     async with get_connection() as conn:
         favs = await fetch_favorites(conn, user_id)
-        prices_df = await fetch_prices(conn)
-    
+
     if favs.empty:
         return {"favorites": [], "total": 0}
-    
-    # Compute live P&L
-    if not prices_df.empty:
-        try:
-            wide = prices_df.pivot(index="date", columns="ticker", values="close")
-            latest_prices = wide.iloc[-1].to_dict()
-        except Exception:
-            latest_prices = {}
-    else:
-        latest_prices = {}
+
+    # Fetch latest price ONLY for tickers in favorites (not all 159k rows)
+    tickers_set = set(favs["ticker_a"].tolist() + favs["ticker_b"].tolist())
+    latest_prices = {}
+    async with get_connection() as conn:
+        for ticker in tickers_set:
+            cursor = await conn.execute(
+                "SELECT close FROM prices WHERE ticker = ? ORDER BY date DESC LIMIT 1",
+                (ticker,)
+            )
+            row = await cursor.fetchone()
+            if row:
+                latest_prices[ticker] = float(row[0])
     
     active_positions = []
     for _, row in favs.iterrows():
         entry_a = row.get("price_a_entry")
         entry_b = row.get("price_b_entry")
 
-        # Backfill missing entry prices from DB
-        needs_update = False
+        # Backfill missing entry prices from latest_prices
         if not entry_a or entry_a == 0:
-            ticker_a_daily = prices_df[prices_df["ticker"] == row["ticker_a"]] if not prices_df.empty else pd.DataFrame()
-            if not ticker_a_daily.empty:
-                entry_a = float(ticker_a_daily["close"].iloc[-1])
-                needs_update = True
+            entry_a = float(latest_prices.get(row["ticker_a"], 0) or 0)
         if not entry_b or entry_b == 0:
-            ticker_b_daily = prices_df[prices_df["ticker"] == row["ticker_b"]] if not prices_df.empty else pd.DataFrame()
-            if not ticker_b_daily.empty:
-                entry_b = float(ticker_b_daily["close"].iloc[-1])
-                needs_update = True
-
-        # Persist backfilled prices
-        if needs_update and entry_a and entry_b:
-            from app.db.database import get_connection as gc2
-            async with gc2() as conn2:
-                await conn2.execute(
-                    "UPDATE favorites SET price_a_entry = ?, price_b_entry = ? WHERE id = ?",
-                    (entry_a, entry_b, int(row["id"]))
-                )
-                await conn2.commit()
+            entry_b = float(latest_prices.get(row["ticker_b"], 0) or 0)
 
         price_a_now = _get_current_price(row["ticker_a"], latest_prices)
         price_b_now = _get_current_price(row["ticker_b"], latest_prices)
