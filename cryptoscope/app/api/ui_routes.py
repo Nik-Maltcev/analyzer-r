@@ -9,16 +9,18 @@ router = APIRouter(prefix="/tab", tags=["ui"])
 templates = Jinja2Templates(directory="app/templates")
 
 
-def _make_signal_cards(pairs, market="crypto"):
+def _make_signal_cards(pairs, market="crypto", fav_pairs=None):
     """Convert pairs DataFrame to list of dicts for template rendering."""
+    fav_set = set(fav_pairs) if fav_pairs else set()
     signals = []
     for _, row in pairs.iterrows():
         corr_val = row.get("corr")
         z_now = row.get("z_now")
         zf = row.get("z_forecast")
         hl = row.get("halflife")
+        pair_id = f"{row['ticker_a']}_{row['ticker_b']}"
         signals.append({
-            "pair_id": f"{row['ticker_a']}_{row['ticker_b']}",
+            "pair_id": pair_id,
             "ticker_a": row["ticker_a"],
             "ticker_b": row["ticker_b"],
             "corr": round(float(corr_val), 2) if corr_val is not None else None,
@@ -31,12 +33,14 @@ def _make_signal_cards(pairs, market="crypto"):
             "signal": row.get("signal", "Ждать"),
             "signal_type": row.get("signal_type", "wait"),
             "strength": row.get("strength", "Нет"),
+            "is_favorite": pair_id in fav_set,
         })
     return signals
 
 
-def _make_forecast_trades(pairs):
+def _make_forecast_trades(pairs, fav_pairs=None):
     """Build forecast trade cards from active signals."""
+    fav_set = set(fav_pairs) if fav_pairs else set()
     trades = []
     for _, row in pairs.iterrows():
         z_now = row.get("z_now", 0) or 0
@@ -45,10 +49,11 @@ def _make_forecast_trades(pairs):
         pnl_pct = max(0, round(float(pnl_est), 2))
         win_rate = 65 if row.get("is_coint") else 50
         corr_val = row.get("corr")
+        pair_id = f"{row['ticker_a']}_{row['ticker_b']}"
 
         trades.append({
             "pair": f"{row['ticker_a']}/{row['ticker_b']}",
-            "pair_id": f"{row['ticker_a']}_{row['ticker_b']}",
+            "pair_id": pair_id,
             "ticker_a": row["ticker_a"],
             "ticker_b": row["ticker_b"],
             "signal": row.get("signal", ""),
@@ -62,6 +67,7 @@ def _make_forecast_trades(pairs):
             "win_rate": round(float(win_rate), 1),
             "avg_pnl_pct": round(float(pnl_pct), 2),
             "avg_hold_days": round(float(min(hl, 30)), 1),
+            "is_favorite": pair_id in fav_set,
         })
 
     trades.sort(key=lambda x: abs(x.get("z_now", 0) or 0), reverse=True)
@@ -116,7 +122,13 @@ async def tab_signals(
         # Filter by half-life
         pairs = pairs[(pairs["halflife"].isna()) | (pairs["halflife"] <= max_days)]
 
-        signals = _make_signal_cards(pairs, market)
+        # Fetch existing favorite pair IDs to render star state
+        async with get_connection() as conn:
+            cursor = await conn.execute("SELECT pair FROM favorites WHERE status = 'active'")
+            fav_rows = await cursor.fetchall()
+            fav_pair_ids = set(r[0] for r in fav_rows)
+
+        signals = _make_signal_cards(pairs, market, fav_pair_ids)
         active = [s for s in signals if s["signal_type"] != "wait"]
 
         if mode == "forecast":
@@ -125,7 +137,7 @@ async def tab_signals(
                 return templates.TemplateResponse("components/signals_forecast.html", {
                     **ctx, "trades": [], "total": 0,
                 })
-            trades = _make_forecast_trades(active_pairs)
+            trades = _make_forecast_trades(active_pairs, fav_pair_ids)
             return templates.TemplateResponse("components/signals_forecast.html", {
                 **ctx, "trades": trades, "total": len(trades),
             })
@@ -137,7 +149,7 @@ async def tab_signals(
                 return templates.TemplateResponse("components/signals_forecast.html", {
                     **ctx, "trades": [], "total": 0, "is_short": True,
                 })
-            trades = _make_forecast_trades(active_pairs)
+            trades = _make_forecast_trades(active_pairs, fav_pair_ids)
             return templates.TemplateResponse("components/signals_forecast.html", {
                 **ctx, "trades": trades, "total": len(trades), "is_short": True,
             })

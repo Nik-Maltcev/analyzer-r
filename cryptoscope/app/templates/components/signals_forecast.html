@@ -14,9 +14,9 @@
 <div class="cards-grid">
     {% for t in trades %}
     <div class="signal-card">
-        <button class="fav-btn" data-pair="{{ t.pair_id }}"
+        <button class="fav-btn {% if t.is_favorite %}favorited{% endif %}" data-pair="{{ t.pair_id }}"
                 onclick="toggleFavorite('{{ t.pair_id }}','{{ t.ticker_a }}','{{ t.ticker_b }}','{{ t.signal }}','{{ t.signal_type }}','{{ t.z_now }}',0,0,'{{ t.halflife|default('') }}','{{ t.corr|default(0) }}')">
-            ☆
+            {% if t.is_favorite %}★{% else %}☆{% endif %}
         </button>
         <div class="signal-card-header">
             <span class="signal-name {{ t.signal_type }}">{{ t.ticker_a }} / {{ t.ticker_b }}</span>

@@ -54,9 +54,9 @@
          data-ticker-a="{{ s.ticker_a }}" data-ticker-b="{{ s.ticker_b }}"
          data-signal-type="{{ s.signal_type }}" data-z-now="{{ s.z_now|default('') }}"
          data-halflife="{{ s.halflife|default('') }}">
-        <button class="fav-btn" data-pair="{{ s.pair_id }}"
+        <button class="fav-btn {% if s.is_favorite %}favorited{% endif %}" data-pair="{{ s.pair_id }}"
                 onclick="toggleFavorite('{{ s.pair_id }}','{{ s.ticker_a }}','{{ s.ticker_b }}','{{ s.signal }}','{{ s.signal_type }}','{{ s.z_now|default('') }}',0,0,'{{ s.halflife|default('') }}','{{ s.corr|default(0) }}')">
-            ☆
+            {% if s.is_favorite %}★{% else %}☆{% endif %}
         </button>
 
         <div class="signal-card-header">
