@@ -9,7 +9,7 @@
         {% if favorites %}
         <div id="active-positions">
             {% for f in favorites %}
-            <div class="position-card">
+            <div class="position-card" id="position-{{ f.pair }}">
                 <div class="position-header">
                     <strong>{{ f.ticker_a }} / {{ f.ticker_b }}</strong>
                     <span class="badge {% if f.signal_type == 'short_a' %}badge-orange{% elif f.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">

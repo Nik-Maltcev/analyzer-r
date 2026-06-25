@@ -74,21 +74,33 @@ function authLogout() {
 
 // Toggle favorite
 function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, priceA, priceB, halflife, corr) {
-    const btn = document.querySelector(`.fav-btn[data-pair="${pairId}"]`);
-    
+    const btns = document.querySelectorAll(`.fav-btn[data-pair="${pairId}"]`);
+
     fetch(`/api/favorites/toggle?pair=${encodeURIComponent(pairId)}&ticker_a=${tickerA}&ticker_b=${tickerB}&signal=${encodeURIComponent(signal)}&signal_type=${signalType}&z_at_entry=${zAtEntry}&price_a_entry=${priceA}&price_b_entry=${priceB}&halflife=${halflife || ''}&corr=${corr || 0}`, {
         method: 'POST'
     })
     .then(r => r.json())
     .then(data => {
         if (data.action === 'added') {
-            btn.classList.add('favorited');
-            btn.textContent = '★';
+            btns.forEach(b => { b.classList.add('favorited'); b.textContent = '★'; });
             showToast('Добавлено в избранное', 'success');
         } else {
-            btn.classList.remove('favorited');
-            btn.textContent = '☆';
+            btns.forEach(b => { b.classList.remove('favorited'); b.textContent = '☆'; });
             showToast('Удалено из избранного', '');
+
+            // If on favorites tab, remove the position card immediately
+            const card = document.getElementById('position-' + pairId);
+            if (card) {
+                card.style.transition = 'opacity 0.3s';
+                card.style.opacity = '0';
+                setTimeout(() => card.remove(), 300);
+            }
+
+            // Refresh favorites tab if it's currently visible
+            const activeTab = document.querySelector('#active-positions');
+            if (activeTab) {
+                htmx.ajax('GET', '/tab/favorites', {target: '#main-content', swap: 'innerHTML'});
+            }
         }
     });
 }
