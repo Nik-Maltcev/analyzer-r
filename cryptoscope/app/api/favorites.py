@@ -1,6 +1,8 @@
 """Favorites API endpoints."""
 
 from datetime import datetime, timezone
+import math
+from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
 from app.db.database import (
     get_connection, fetch_favorites, fetch_favorites_history,
@@ -8,6 +10,21 @@ from app.db.database import (
 )
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
+
+
+def _query_float(value, default=0.0):
+    if value is None:
+        return default
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    return f if math.isfinite(f) else default
+
+
+def _query_int(value, default=None):
+    f = _query_float(value, None)
+    return int(f) if f is not None else default
 
 
 def _get_current_price(ticker: str, db_prices: dict) -> float:
@@ -152,11 +169,11 @@ async def toggle_fav(
     ticker_b: str = Query(...),
     signal: str = Query(""),
     signal_type: str = Query("wait"),
-    z_at_entry: float = Query(0),
-    price_a_entry: float = Query(0),
-    price_b_entry: float = Query(0),
-    halflife: int = Query(None),
-    corr: float = Query(0),
+    z_at_entry: Optional[str] = Query(None),
+    price_a_entry: Optional[str] = Query(None),
+    price_b_entry: Optional[str] = Query(None),
+    halflife: Optional[str] = Query(None),
+    corr: Optional[str] = Query(None),
     user_id: str = Query("local"),
 ):
     """Toggle favorite (add/remove)."""
@@ -164,8 +181,11 @@ async def toggle_fav(
         result = await toggle_favorite(
             conn, pair, ticker_a, ticker_b, user_id,
             signal=signal, signal_type=signal_type,
-            z_at_entry=z_at_entry, price_a_entry=price_a_entry,
-            price_b_entry=price_b_entry, halflife=halflife, corr=corr,
+            z_at_entry=_query_float(z_at_entry, 0),
+            price_a_entry=_query_float(price_a_entry, 0),
+            price_b_entry=_query_float(price_b_entry, 0),
+            halflife=_query_int(halflife),
+            corr=_query_float(corr, 0),
         )
     return result
 

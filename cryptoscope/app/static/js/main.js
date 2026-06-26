@@ -75,11 +75,33 @@ function authLogout() {
 // Toggle favorite
 function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, priceA, priceB, halflife, corr) {
     const btns = document.querySelectorAll(`.fav-btn[data-pair="${pairId}"]`);
+    const params = new URLSearchParams();
+    const appendNumber = (name, value) => {
+        const raw = value === null || value === undefined ? '' : String(value).trim();
+        if (!raw || raw === 'None' || raw === 'NaN' || raw === 'nan' || raw === '—') return;
+        const num = Number(raw.replace(',', '.'));
+        if (Number.isFinite(num)) params.set(name, String(num));
+    };
 
-    fetch(`/api/favorites/toggle?pair=${encodeURIComponent(pairId)}&ticker_a=${tickerA}&ticker_b=${tickerB}&signal=${encodeURIComponent(signal)}&signal_type=${signalType}&z_at_entry=${zAtEntry}&price_a_entry=${priceA}&price_b_entry=${priceB}&halflife=${halflife || ''}&corr=${corr || 0}`, {
+    params.set('pair', pairId);
+    params.set('ticker_a', tickerA || '');
+    params.set('ticker_b', tickerB || '');
+    params.set('signal', signal || '');
+    params.set('signal_type', signalType || 'wait');
+    appendNumber('z_at_entry', zAtEntry);
+    appendNumber('price_a_entry', priceA);
+    appendNumber('price_b_entry', priceB);
+    appendNumber('halflife', halflife);
+    appendNumber('corr', corr);
+
+    fetch(`/api/favorites/toggle?${params.toString()}`, {
         method: 'POST'
     })
-    .then(r => r.json())
+    .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.detail || 'Не удалось обновить избранное');
+        return data;
+    })
     .then(data => {
         if (data.action === 'added') {
             btns.forEach(b => { b.classList.add('favorited'); b.textContent = '★'; });
@@ -102,7 +124,8 @@ function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, 
                 htmx.ajax('GET', '/tab/favorites', {target: '#main-content', swap: 'innerHTML'});
             }
         }
-    });
+    })
+    .catch(e => showToast(e.message || 'Ошибка избранного', 'error'));
 }
 
 // Close favorite position
