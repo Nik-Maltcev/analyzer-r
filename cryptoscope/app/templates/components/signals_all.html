@@ -166,7 +166,13 @@
         <tbody>
             {% for s in signals %}
             <tr>
-                <td><strong>{{ s.ticker_a }}/{{ s.ticker_b }}</strong></td>
+                <td>
+                    <button class="fav-btn fav-btn-inline {% if s.is_favorite %}favorited{% endif %}" data-pair="{{ s.pair_id }}"
+                            onclick="toggleFavorite('{{ s.pair_id }}','{{ s.ticker_a }}','{{ s.ticker_b }}','{{ s.signal }}','{{ s.signal_type }}','{{ s.z_now|default('') }}',0,0,'{{ s.halflife|default('') }}','{{ s.corr|default(0) }}')">
+                        {% if s.is_favorite %}★{% else %}☆{% endif %}
+                    </button>
+                    <strong>{{ s.ticker_a }}/{{ s.ticker_b }}</strong>
+                </td>
                 <td class="text-mono z-cell {% if s.z_now and s.z_now >= 2 %}cell-heat-orange{% elif s.z_now and s.z_now <= -2 %}cell-heat-green{% endif %}">
                     {{ s.z_now|default("—") }}
                 </td>

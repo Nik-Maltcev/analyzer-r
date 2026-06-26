@@ -1430,6 +1430,20 @@ body,
     background: rgba(245, 158, 11, 0.1);
 }
 
+/* Inline fav button (in table rows) */
+.fav-btn-inline {
+    display: inline-flex;
+    position: static;
+    width: 24px;
+    height: 24px;
+    margin-right: 6px;
+    vertical-align: middle;
+    font-size: 14px;
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
 /* ---------- 17. Sparkline Container ---------- */
 .sparkline-container {
     height: 40px;

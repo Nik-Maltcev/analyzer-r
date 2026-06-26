@@ -120,17 +120,22 @@ async def tab_signals(
 
         if pairs.empty:
             return templates.TemplateResponse("components/signals_all.html", {
-                **ctx, "signals": [], "total": 0, "active": 0,
+                **ctx, "signals": [], "total": 0, "active": [],
             })
 
         # Filter by half-life
         pairs = pairs[(pairs["halflife"].isna()) | (pairs["halflife"] <= max_days)]
 
         # Fetch existing favorite pair IDs to render star state
-        async with get_connection() as conn:
-            cursor = await conn.execute("SELECT pair FROM favorites WHERE status = 'active'")
-            fav_rows = await cursor.fetchall()
-            fav_pair_ids = set(r[0] for r in fav_rows)
+        # Wrapped in try/except so favorites query failure doesn't kill signals
+        fav_pair_ids = set()
+        try:
+            async with get_connection() as conn:
+                cursor = await conn.execute("SELECT pair FROM favorites WHERE status = 'active'")
+                fav_rows = await cursor.fetchall()
+                fav_pair_ids = set(r[0] for r in fav_rows)
+        except Exception:
+            pass
 
         signals = _make_signal_cards(pairs, market, fav_pair_ids)
         active = [s for s in signals if s["signal_type"] != "wait"]
@@ -165,7 +170,7 @@ async def tab_signals(
 
     except Exception as e:
         return templates.TemplateResponse("components/signals_all.html", {
-            **ctx, "signals": [], "total": 0, "active": 0, "error": str(e),
+            **ctx, "signals": [], "total": 0, "active": [], "error": str(e),
         })
 
 
