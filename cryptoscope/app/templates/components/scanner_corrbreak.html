@@ -1,3 +1,46 @@
-<div id="scanner-corrbreak" class="scanner-results" hx-get="/api/scanners/corrbreak?market=crypto" hx-trigger="load" hx-swap="outerHTML">
-    <div class="loading-container"><div class="loading-spinner"></div></div>
+<div id="scanner-corrbreak" class="scanner-results">
+    {% if error %}
+    <div class="error-msg">{{ error }}</div>
+    {% endif %}
+
+    <div class="section-header">
+        <h3>Corr Breakdown ({{ total }})</h3>
+        <span class="text-dim">Рынок: {{ market }}</span>
+    </div>
+
+    {% if results %}
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Пара</th>
+                    <th>Стат. corr</th>
+                    <th>30д corr</th>
+                    <th>Отклонение</th>
+                    <th>Сигнал</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in results %}
+                <tr>
+                    <td><strong>{{ r.ticker_a }}/{{ r.ticker_b }}</strong></td>
+                    <td class="text-mono">{{ "%.2f"|format(r.static_corr) }}</td>
+                    <td class="text-mono">{{ "%.2f"|format(r.rolling_corr) }}</td>
+                    <td class="text-mono">
+                        <span class="badge {% if r.deviation >= 0.5 %}badge-orange{% else %}badge-blue{% endif %}">
+                            {{ "%.2f"|format(r.deviation) }}
+                        </span>
+                    </td>
+                    <td>{{ r.signal }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <span class="empty-icon">🔎</span>
+        <p>Сильных расхождений корреляции не найдено.</p>
+    </div>
+    {% endif %}
 </div>

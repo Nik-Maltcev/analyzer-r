@@ -11,6 +11,7 @@ from app.db.database import (
     fetch_favorites_history, db_status,
 )
 from app.core.cointegration import engle_granger, compute_zscore, forecast_zscore
+from app.core.scanners import corr_breakdown_scan, momentum_scan, drawdown_scan
 
 router = APIRouter(prefix="/tab", tags=["ui"])
 templates = Jinja2Templates(directory="app/templates")
@@ -56,6 +57,15 @@ def _project_tomorrow_move(z_now, halflife):
         "z_tomorrow_delta": round(delta, 2),
         "z_tomorrow_reversion_pct": round((1.0 - decay) * 100, 1),
     }
+
+
+def _df_records(df, limit=None):
+    if df.empty:
+        return []
+    if limit:
+        df = df.head(limit)
+    df = df.replace({np.nan: None})
+    return df.to_dict(orient="records")
 
 
 def _make_signal_cards(pairs, market="crypto", fav_pairs=None):
@@ -276,14 +286,67 @@ async def tab_scanners(request: Request):
 
 
 @router.get("/scanner/{scanner_type}", response_class=HTMLResponse)
-async def tab_scanner_content(request: Request, scanner_type: str, market: str = Query("crypto")):
+async def tab_scanner_content(
+    request: Request,
+    scanner_type: str,
+    market: str = Query("crypto"),
+    min_deviation: float = Query(0.2),
+    limit: int = Query(20),
+    min_drawdown: float = Query(10.0),
+):
     template_map = {
         "corrbreak": "components/scanner_corrbreak.html",
         "momentum": "components/scanner_momentum.html",
         "drawdown": "components/scanner_drawdown.html",
     }
     template = template_map.get(scanner_type, "components/scanner_corrbreak.html")
-    return templates.TemplateResponse(template, {"request": request, "scanner": scanner_type, "market": market})
+    if scanner_type not in template_map:
+        scanner_type = "corrbreak"
+
+    ctx = {
+        "request": request,
+        "scanner": scanner_type,
+        "market": market,
+        "results": [],
+        "total": 0,
+    }
+
+    try:
+        async with get_connection() as conn:
+            prices_df = await fetch_prices(conn, market)
+
+        if prices_df.empty:
+            return templates.TemplateResponse(template, ctx)
+
+        wide = prices_df.pivot(index="date", columns="ticker", values="close")
+        tickers_list = list(wide.columns)
+
+        if scanner_type == "momentum":
+            dates_list = list(wide.index.astype(str))
+            df = momentum_scan(wide.values, tickers_list, dates_list)
+            results = _df_records(df, limit)
+        elif scanner_type == "drawdown":
+            df = drawdown_scan(wide.values, tickers_list)
+            df = df[df["drawdown_pct"] >= min_drawdown] if not df.empty else df
+            results = _df_records(df)
+        else:
+            if len(tickers_list) < 2:
+                df = pd.DataFrame()
+            else:
+                df = corr_breakdown_scan(wide, tickers_list)
+                df = df[df["deviation"] >= min_deviation] if not df.empty else df
+            results = _df_records(df)
+
+        return templates.TemplateResponse(template, {
+            **ctx,
+            "results": results,
+            "total": len(results),
+        })
+    except Exception as e:
+        return templates.TemplateResponse(template, {
+            **ctx,
+            "error": str(e) if str(e) else "Scanner unavailable",
+        })
 
 
 def _forecast_status(z_now, z_entry, signal_type, days_held, hl, pnl_pct):

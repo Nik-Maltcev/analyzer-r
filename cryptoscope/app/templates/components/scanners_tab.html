@@ -7,6 +7,7 @@
     <div class="scanner-mode-bar">
         <button class="scanner-btn active" data-scanner="corrbreak" 
                 hx-get="/tab/scanner/corrbreak" hx-target="#scanner-content" hx-swap="innerHTML"
+                hx-vals='js:{market: currentMarket}'
                 onclick="document.querySelectorAll('.scanner-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
             <span class="scanner-icon">🔗</span>
             <div>
@@ -16,6 +17,7 @@
         </button>
         <button class="scanner-btn" data-scanner="momentum"
                 hx-get="/tab/scanner/momentum" hx-target="#scanner-content" hx-swap="innerHTML"
+                hx-vals='js:{market: currentMarket}'
                 onclick="document.querySelectorAll('.scanner-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
             <span class="scanner-icon">🚀</span>
             <div>
@@ -25,6 +27,7 @@
         </button>
         <button class="scanner-btn" data-scanner="drawdown"
                 hx-get="/tab/scanner/drawdown" hx-target="#scanner-content" hx-swap="innerHTML"
+                hx-vals='js:{market: currentMarket}'
                 onclick="document.querySelectorAll('.scanner-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
             <span class="scanner-icon">📉</span>
             <div>
@@ -34,7 +37,7 @@
         </button>
     </div>
 
-    <div id="scanner-content" class="scanner-content" hx-get="/tab/scanner/corrbreak" hx-trigger="load" hx-swap="innerHTML">
+    <div id="scanner-content" class="scanner-content" hx-get="/tab/scanner/corrbreak" hx-trigger="load" hx-swap="innerHTML" hx-vals='js:{market: currentMarket}'>
         <div class="skeleton-card"></div>
     </div>
 </div>

@@ -1,4 +1,50 @@
-<div id="scanner-drawdown" class="scanner-results"
-     hx-get="/api/scanners/drawdown?market=crypto&min_drawdown=10" hx-trigger="load" hx-swap="outerHTML">
-    <div class="loading-container"><div class="loading-spinner"></div></div>
+<div id="scanner-drawdown" class="scanner-results">
+    {% if error %}
+    <div class="error-msg">{{ error }}</div>
+    {% endif %}
+
+    <div class="section-header">
+        <h3>Drawdown ({{ total }})</h3>
+        <span class="text-dim">Рынок: {{ market }}</span>
+    </div>
+
+    {% if results %}
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Актив</th>
+                    <th>Просадка</th>
+                    <th>Дней от high</th>
+                    <th>High 90д</th>
+                    <th>Сейчас</th>
+                    <th>Ист. риск</th>
+                    <th>Сигнал</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in results %}
+                <tr>
+                    <td><strong>{{ r.ticker }}</strong></td>
+                    <td class="text-mono">
+                        <span class="badge {% if r.drawdown_pct >= 30 %}badge-red{% elif r.drawdown_pct >= 15 %}badge-orange{% else %}badge-blue{% endif %}">
+                            -{{ "%.2f"|format(r.drawdown_pct) }}%
+                        </span>
+                    </td>
+                    <td class="text-mono">{{ r.days_from_high }}</td>
+                    <td class="text-mono">{{ "%.4f"|format(r.high_90d) }}</td>
+                    <td class="text-mono">{{ "%.4f"|format(r.current) }}</td>
+                    <td class="text-mono">{{ "%.2f"|format(r.avg_historical_recovery) }}%</td>
+                    <td>{{ r.signal }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <span class="empty-icon">📉</span>
+        <p>Сильных просадок по текущему фильтру не найдено.</p>
+    </div>
+    {% endif %}
 </div>

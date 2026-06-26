@@ -1,4 +1,52 @@
-<div id="scanner-momentum" class="scanner-results"
-     hx-get="/api/scanners/momentum?market=crypto&limit=20" hx-trigger="load" hx-swap="outerHTML">
-    <div class="loading-container"><div class="loading-spinner"></div></div>
+<div id="scanner-momentum" class="scanner-results">
+    {% if error %}
+    <div class="error-msg">{{ error }}</div>
+    {% endif %}
+
+    <div class="section-header">
+        <h3>Momentum ({{ total }})</h3>
+        <span class="text-dim">Рынок: {{ market }}</span>
+    </div>
+
+    {% if results %}
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Актив</th>
+                    <th>3д</th>
+                    <th>7д</th>
+                    <th>14д</th>
+                    <th>Vol 7д</th>
+                    <th>Score</th>
+                    <th>Сигнал</th>
+                    <th>Тренд</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in results %}
+                <tr>
+                    <td><strong>{{ r.ticker }}</strong></td>
+                    <td class="text-mono {% if r.pct_3d >= 0 %}positive{% else %}negative{% endif %}">{{ "%+.2f"|format(r.pct_3d) }}%</td>
+                    <td class="text-mono {% if r.pct_7d >= 0 %}positive{% else %}negative{% endif %}">{{ "%+.2f"|format(r.pct_7d) }}%</td>
+                    <td class="text-mono {% if r.pct_14d >= 0 %}positive{% else %}negative{% endif %}">{{ "%+.2f"|format(r.pct_14d) }}%</td>
+                    <td class="text-mono">{{ "%.2f"|format(r.volatility_7d) }}%</td>
+                    <td class="text-mono">
+                        <span class="badge {% if r.momentum_score >= 3 %}badge-green{% elif r.momentum_score <= -3 %}badge-orange{% else %}badge-gray{% endif %}">
+                            {{ "%+.2f"|format(r.momentum_score) }}
+                        </span>
+                    </td>
+                    <td>{{ r.signal }}</td>
+                    <td>{{ r.trend }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <span class="empty-icon">📈</span>
+        <p>Выраженного импульса сейчас не найдено.</p>
+    </div>
+    {% endif %}
 </div>
