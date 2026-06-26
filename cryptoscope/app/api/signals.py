@@ -11,6 +11,26 @@ from app.core.calculator import calc_signal_pnl
 router = APIRouter(prefix="/signals", tags=["signals"])
 
 
+def _finite_float(value, default=None):
+    if value is None:
+        return default
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    return f if np.isfinite(f) else default
+
+
+def _finite_int(value, default=None):
+    f = _finite_float(value)
+    return int(f) if f is not None else default
+
+
+def _finite_bool(value) -> bool:
+    f = _finite_float(value)
+    return bool(f) if f is not None else False
+
+
 @router.get("")
 async def get_signals(
     market: str = Query("crypto", description="Market: crypto, stocks, ru"),
@@ -35,19 +55,21 @@ async def get_signals(
     # Convert to dict records
     signals = []
     for _, row in pairs.iterrows():
-        z_now = row.get("z_now")
-        zf = row.get("z_forecast")
+        corr = _finite_float(row.get("corr"))
+        score = _finite_float(row.get("score"))
+        z_now = _finite_float(row.get("z_now"))
+        zf = _finite_float(row.get("z_forecast"))
         
         signals.append({
             "pair_id": f"{row['ticker_a']}_{row['ticker_b']}",
             "ticker_a": row["ticker_a"],
             "ticker_b": row["ticker_b"],
-            "corr": round(float(row["corr"]), 4) if row["corr"] is not None else None,
-            "is_coint": bool(row["is_coint"]),
-            "halflife": int(row["halflife"]) if row["halflife"] is not None else None,
-            "score": round(float(row["score"]), 4) if row["score"] is not None else None,
-            "z_now": round(float(z_now), 4) if z_now is not None else None,
-            "z_forecast": round(float(zf), 4) if zf is not None else None,
+            "corr": round(corr, 4) if corr is not None else None,
+            "is_coint": _finite_bool(row.get("is_coint")),
+            "halflife": _finite_int(row.get("halflife")),
+            "score": round(score, 4) if score is not None else None,
+            "z_now": round(z_now, 4) if z_now is not None else None,
+            "z_forecast": round(zf, 4) if zf is not None else None,
             "signal": row["signal"],
             "signal_type": row["signal_type"],
             "strength": row["strength"],
@@ -84,14 +106,15 @@ async def get_forecast_trades(
     
     trades = []
     for _, row in active.iterrows():
-        z_now = row.get("z_now", 0) or 0
-        hl = row.get("halflife", 30) or 30
+        z_now = _finite_float(row.get("z_now"), 0.0)
+        hl = _finite_int(row.get("halflife"), 30)
         avg_hold = min(hl, max_days)
         
         # Estimate P&L based on Z-score move
         pnl_est = abs(z_now) - 0.5  # expected move back to ±0.5
         pnl_pct = max(0, round(float(pnl_est), 2))
-        win_rate = 65 if row.get("is_coint") else 50
+        win_rate = 65 if _finite_bool(row.get("is_coint")) else 50
+        z_forecast = _finite_float(row.get("z_forecast"))
         
         trades.append({
             "pair": f"{row['ticker_a']}/{row['ticker_b']}",
@@ -101,7 +124,7 @@ async def get_forecast_trades(
             "signal_type": row["signal_type"],
             "strength": row.get("strength", "Нет"),
             "z_now": round(float(z_now), 4) if z_now else None,
-            "z_forecast": round(float(row.get("z_forecast", 0) or 0), 4),
+            "z_forecast": round(z_forecast, 4) if z_forecast is not None else None,
             "win_rate": round(float(win_rate), 1),
             "n_similar": 0,
             "avg_pnl_pct": round(float(pnl_pct), 2),

@@ -13,27 +13,49 @@ router = APIRouter(prefix="/tab", tags=["ui"])
 templates = Jinja2Templates(directory="app/templates")
 
 
+def _finite_float(value, default=None):
+    """Return a float only for real finite values; DB rows may contain NaN."""
+    if value is None:
+        return default
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    return f if np.isfinite(f) else default
+
+
+def _finite_int(value, default=None):
+    f = _finite_float(value)
+    return int(f) if f is not None else default
+
+
+def _finite_bool(value) -> bool:
+    f = _finite_float(value)
+    return bool(f) if f is not None else False
+
+
 def _make_signal_cards(pairs, market="crypto", fav_pairs=None):
     """Convert pairs DataFrame to list of dicts for template rendering."""
     fav_set = set(fav_pairs) if fav_pairs else set()
     signals = []
     for _, row in pairs.iterrows():
-        corr_val = row.get("corr")
-        z_now = row.get("z_now")
-        zf = row.get("z_forecast")
-        hl = row.get("halflife")
+        corr_val = _finite_float(row.get("corr"))
+        z_now = _finite_float(row.get("z_now"))
+        zf = _finite_float(row.get("z_forecast"))
+        hl = _finite_int(row.get("halflife"))
+        score = _finite_float(row.get("score"))
         pair_id = f"{row['ticker_a']}_{row['ticker_b']}"
         signals.append({
             "pair_id": pair_id,
             "ticker_a": row["ticker_a"],
             "ticker_b": row["ticker_b"],
-            "corr": round(float(corr_val), 2) if corr_val is not None else None,
-            "corr_pct": round(float(corr_val) * 100) if corr_val is not None else None,
-            "is_coint": bool(row.get("is_coint")),
-            "halflife": int(hl) if hl is not None else None,
-            "score": round(float(row.get("score", 0)), 3) if row.get("score") is not None else None,
-            "z_now": round(float(z_now), 2) if z_now is not None else None,
-            "z_forecast": round(float(zf), 2) if zf is not None else None,
+            "corr": round(corr_val, 2) if corr_val is not None else None,
+            "corr_pct": round(corr_val * 100) if corr_val is not None else None,
+            "is_coint": _finite_bool(row.get("is_coint")),
+            "halflife": hl,
+            "score": round(score, 3) if score is not None else None,
+            "z_now": round(z_now, 2) if z_now is not None else None,
+            "z_forecast": round(zf, 2) if zf is not None else None,
             "signal": row.get("signal", "Ждать"),
             "signal_type": row.get("signal_type", "wait"),
             "strength": row.get("strength", "Нет"),
@@ -47,12 +69,13 @@ def _make_forecast_trades(pairs, fav_pairs=None):
     fav_set = set(fav_pairs) if fav_pairs else set()
     trades = []
     for _, row in pairs.iterrows():
-        z_now = row.get("z_now", 0) or 0
-        hl = row.get("halflife", 30) or 30
+        z_now = _finite_float(row.get("z_now"), 0.0)
+        hl = _finite_int(row.get("halflife"), 30)
         pnl_est = abs(z_now) - 0.5
         pnl_pct = max(0, round(float(pnl_est), 2))
-        win_rate = 65 if row.get("is_coint") else 50
-        corr_val = row.get("corr")
+        win_rate = 65 if _finite_bool(row.get("is_coint")) else 50
+        corr_val = _finite_float(row.get("corr"))
+        z_forecast = _finite_float(row.get("z_forecast"))
         pair_id = f"{row['ticker_a']}_{row['ticker_b']}"
 
         trades.append({
@@ -63,11 +86,11 @@ def _make_forecast_trades(pairs, fav_pairs=None):
             "signal": row.get("signal", ""),
             "signal_type": row.get("signal_type", "wait"),
             "strength": row.get("strength", "Нет"),
-            "corr": round(float(corr_val), 2) if corr_val is not None else None,
-            "is_coint": bool(row.get("is_coint")),
-            "halflife": int(hl) if hl is not None else None,
+            "corr": round(corr_val, 2) if corr_val is not None else None,
+            "is_coint": _finite_bool(row.get("is_coint")),
+            "halflife": hl,
             "z_now": round(float(z_now), 2) if z_now else None,
-            "z_forecast": round(float(row.get("z_forecast", 0) or 0), 2),
+            "z_forecast": round(z_forecast, 2) if z_forecast is not None else None,
             "win_rate": round(float(win_rate), 1),
             "avg_pnl_pct": round(float(pnl_pct), 2),
             "avg_hold_days": round(float(min(hl, 30)), 1),
@@ -112,7 +135,13 @@ async def tab_signals(
     min_corr: float = Query(0.5),
     max_days: int = Query(30),
 ):
-    ctx = {"request": request, "mode": mode, "market": market}
+    ctx = {
+        "request": request,
+        "mode": mode,
+        "market": market,
+        "min_corr": min_corr,
+        "max_days": max_days,
+    }
 
     try:
         async with get_connection() as conn:
@@ -237,6 +266,9 @@ def _forecast_status(z_now, z_entry, signal_type, days_held, hl, pnl_pct):
     status_detail = ""
     recommendation = " holding"
 
+    hl = _finite_int(hl)
+    z_now = _finite_float(z_now)
+    z_entry = _finite_float(z_entry)
     abs_z_now = abs(z_now) if z_now is not None else 0
     abs_z_entry = abs(z_entry) if z_entry is not None else 0
 
@@ -359,8 +391,8 @@ async def tab_favorites(request: Request):
             st = row.get("signal_type", "wait")
             total_pnl = (-pnl_a + pnl_b) if st == "short_a" else (pnl_a - pnl_b) if st == "long_a" else 0
 
-            hl = row.get("halflife")
-            z_at_entry = row.get("z_at_entry")
+            hl = _finite_int(row.get("halflife"))
+            z_at_entry = _finite_float(row.get("z_at_entry"))
             entry_time = row.get("entry_time")
             days_held = 0
             if entry_time:
@@ -386,7 +418,7 @@ async def tab_favorites(request: Request):
                     z_now_live = round(float(zres["z_now"]), 2)
                     # Use dynamic HL if original is missing
                     if not hl and cg["halflife"]:
-                        hl = int(cg["halflife"])
+                        hl = _finite_int(cg["halflife"])
 
             # If we couldn't recalc, use the stored z_at_entry as fallback
             z_now_for_status = z_now_live if z_now_live is not None else z_at_entry
