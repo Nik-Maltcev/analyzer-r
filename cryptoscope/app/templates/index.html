@@ -40,8 +40,9 @@
 
     <!-- Signals content: loads immediately via HTMX from server -->
     <div id="signals-content" class="signals-content"
-         hx-get="/tab/signals" hx-trigger="load" hx-swap="innerHTML"
-         hx-vals='js:{mode: "all", market: currentMarket}'>
+         hx-get="/tab/signals?mode=all&market={{ market|default('crypto') }}"
+         hx-trigger="load"
+         hx-swap="innerHTML">
         <div class="loading-container">
             <div class="loading-spinner"></div>
             <p>Загрузка сигналов...</p>

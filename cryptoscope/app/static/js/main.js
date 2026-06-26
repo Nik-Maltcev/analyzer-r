@@ -268,6 +268,21 @@ function initCalculators() {
     });
 }
 
+function ensureInitialSignalsLoaded() {
+    const content = document.getElementById('signals-content');
+    if (!content || content.querySelector('.fav-btn')) return;
+    if (!content.querySelector('.loading-container')) return;
+    if (content.dataset.fallbackLoading === '1') return;
+    if (typeof htmx === 'undefined') return;
+
+    content.dataset.fallbackLoading = '1';
+    const market = currentMarket || 'crypto';
+    htmx.ajax('GET', `/tab/signals?mode=all&market=${encodeURIComponent(market)}`, {
+        target: '#signals-content',
+        swap: 'innerHTML'
+    });
+}
+
 // Leverage slider display + calc settings handlers
 document.addEventListener('DOMContentLoaded', () => {
     const levSlider = document.getElementById('calc-leverage');
@@ -293,6 +308,8 @@ document.addEventListener('DOMContentLoaded', () => {
             setTimeout(initCalculators, 100);
         }
     });
+
+    setTimeout(ensureInitialSignalsLoaded, 500);
 });
 
 // Ticker logos — load crypto icons from CDN
