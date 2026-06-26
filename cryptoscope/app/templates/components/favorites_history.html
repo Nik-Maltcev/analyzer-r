@@ -1,0 +1,42 @@
+{% if error %}
+<div class="error-msg">{{ error }}</div>
+{% elif history %}
+<div class="table-container">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Пара</th>
+                <th>Сигнал</th>
+                <th>Вход</th>
+                <th>Выход</th>
+                <th>P&amp;L</th>
+                <th>HL</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for h in history %}
+            <tr>
+                <td><strong>{{ h.ticker_a }}/{{ h.ticker_b }}</strong></td>
+                <td>
+                    <span class="badge {% if h.signal_type == 'short_a' %}badge-orange{% elif h.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
+                        {{ h.signal_type|default('wait') }}
+                    </span>
+                </td>
+                <td>{{ h.entry_time[:16] if h.entry_time else '—' }}</td>
+                <td>{{ h.exit_time[:16] if h.exit_time else '—' }}</td>
+                <td class="text-mono {% if h.exit_pnl_pct and h.exit_pnl_pct >= 0 %}positive{% elif h.exit_pnl_pct and h.exit_pnl_pct < 0 %}negative{% endif %}">
+                    {% if h.exit_pnl_pct is not none %}{{ '%+.2f'|format(h.exit_pnl_pct) }}%{% else %}—{% endif %}
+                </td>
+                <td class="text-mono">{{ h.halflife if h.halflife else '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="empty-state">
+    <span class="empty-icon">×</span>
+    <p>Закрытых позиций пока нет</p>
+    <p class="text-dim">Когда вы закроете позицию из избранного, она появится здесь.</p>
+</div>
+{% endif %}

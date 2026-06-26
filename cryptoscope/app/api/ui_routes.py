@@ -6,7 +6,10 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from app.db.database import get_connection, fetch_pairs, fetch_prices, fetch_favorites, db_status
+from app.db.database import (
+    get_connection, fetch_pairs, fetch_prices, fetch_favorites,
+    fetch_favorites_history, db_status,
+)
 from app.core.cointegration import engle_granger, compute_zscore, forecast_zscore
 
 router = APIRouter(prefix="/tab", tags=["ui"])
@@ -457,6 +460,25 @@ async def tab_favorites(request: Request):
 
     return templates.TemplateResponse("components/favorites_tab.html", {
         "request": request, "favorites": active,
+    })
+
+
+@router.get("/favorites/history", response_class=HTMLResponse)
+async def tab_favorites_history(request: Request, limit: int = Query(10)):
+    try:
+        async with get_connection() as conn:
+            hist = await fetch_favorites_history(conn, limit=limit)
+        history = hist.to_dict(orient="records") if not hist.empty else []
+    except Exception as e:
+        return templates.TemplateResponse("components/favorites_history.html", {
+            "request": request,
+            "history": [],
+            "error": str(e) if str(e) else "DB unavailable",
+        })
+
+    return templates.TemplateResponse("components/favorites_history.html", {
+        "request": request,
+        "history": history,
     })
 
 
