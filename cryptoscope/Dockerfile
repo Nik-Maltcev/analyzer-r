@@ -1,6 +1,7 @@
 FROM python:3.11-slim-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    sqlite3 \
     libsqlite3-dev \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -29,6 +30,7 @@ RUN chmod +x /start.sh
 EXPOSE 3000
 
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 ENV PORT=3000
 
 CMD ["/start.sh"]

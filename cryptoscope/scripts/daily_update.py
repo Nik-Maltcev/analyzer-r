@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Daily price update from Twelve Data API + recompute analysis (port of daily_update.R)."""
 
-import sqlite3
+import asyncio
 import os
+import sqlite3
+import subprocess
 import sys
 import time
+from pathlib import Path
+
+import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -13,6 +18,7 @@ from app.data.fetcher import fetch_batch
 
 DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
 API_KEY = os.environ.get("TWELVEDATA_API_KEY", "")
+SCRIPT_DIR = Path(__file__).resolve().parent
 
 
 def update_market(tickers: list, market_name: str, conn: sqlite3.Connection, api_key: str) -> int:
@@ -25,9 +31,9 @@ def update_market(tickers: list, market_name: str, conn: sqlite3.Connection, api
     tickers_ok = 0
     tickers_fail = 0
     
-    for batch in [tickers[i:i+8] for i in range(0, len(tickers), 8)]:
+    batches = [tickers[i:i + 8] for i in range(0, len(tickers), 8)]
+    for idx, batch in enumerate(batches):
         try:
-            import asyncio
             df = asyncio.run(fetch_batch(batch, api_key, outputsize=5))
             
             if df.empty:
@@ -57,8 +63,8 @@ def update_market(tickers: list, market_name: str, conn: sqlite3.Connection, api
                 
                 tickers_ok += 1
             
-            # Rate limit
-            time.sleep(75)
+            if idx < len(batches) - 1:
+                time.sleep(75)
             
         except Exception as e:
             print(f"  Error batch {batch}: {e}")
@@ -77,8 +83,6 @@ def update_market(tickers: list, market_name: str, conn: sqlite3.Connection, api
 
 
 def main():
-    import pandas as pd
-    
     if not API_KEY:
         print("TWELVEDATA_API_KEY not set, skipping update")
         return
@@ -96,7 +100,10 @@ def main():
     # Recompute analysis
     if total > 0:
         print("Recomputing pair analysis...")
-        os.system(f"{sys.executable} /scripts/compute_analysis.py")
+        compute_script = os.environ.get("COMPUTE_ANALYSIS_PATH") or str(SCRIPT_DIR / "compute_analysis.py")
+        result = subprocess.run([sys.executable, compute_script], check=False)
+        if result.returncode != 0:
+            print(f"compute_analysis failed with exit code {result.returncode}")
 
 
 if __name__ == "__main__":

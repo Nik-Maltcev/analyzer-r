@@ -1,9 +1,10 @@
 """CryptoScope — FastAPI application entry point."""
 
+import asyncio
 import os
 import sys
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -45,6 +46,8 @@ async def lifespan(app: FastAPI):
     print("CryptoScope shutting down")
     if ws_task:
         ws_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await ws_task
 
 
 app = FastAPI(

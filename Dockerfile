@@ -1,56 +1,36 @@
-FROM rocker/r-ver:4.4.0
+FROM python:3.11-slim-bookworm
 
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libcurl4-openssl-dev \
-    libssl-dev \
-    libxml2-dev \
-    libfontconfig1-dev \
-    libfreetype6-dev \
-    libpng-dev \
-    libtiff5-dev \
-    libjpeg-dev \
-    libharfbuzz-dev \
-    libfribidi-dev \
+    sqlite3 \
     libsqlite3-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install R packages
-RUN install2.r --error --skipinstalled \
-    shiny \
-    bslib \
-    dplyr \
-    tidyr \
-    ggplot2 \
-    zoo \
-    DT \
-    corrplot \
-    tibble \
-    lubridate \
-    RSQLite \
-    jsonlite \
-    httr
+WORKDIR /app
 
-# Create directories. /opt/seed holds the CSV outside the /data volume mount.
-RUN mkdir -p /app /scripts /data /opt/seed
+COPY cryptoscope/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy seed CSVs to /opt/seed (NOT /data, which Railway masks with a volume)
-COPY data/all_markets_3yr.csv /opt/seed/all_markets_3yr.csv
-COPY data/hourly_6coins_2yr.csv /opt/seed/hourly_6coins_2yr.csv
-COPY data/tinkoff_ru_2yr.csv /opt/seed/tinkoff_ru_2yr.csv
-COPY scripts/ /scripts/
+RUN mkdir -p /scripts /data /opt/seed
 
-# Build DB at image build time (works for plain Docker without a volume).
-# On Railway the /data volume masks this DB; start.sh rebuilds it on first boot.
-RUN Rscript /scripts/build_db.R
+COPY cryptoscope/data/all_markets_3yr.csv /opt/seed/all_markets_3yr.csv
+COPY cryptoscope/data/hourly_6coins_2yr.csv /opt/seed/hourly_6coins_2yr.csv
+COPY cryptoscope/data/tinkoff_ru_2yr.csv /opt/seed/tinkoff_ru_2yr.csv
 
-# Copy app
-COPY artifacts/crypto-analyzer/ /app/
+COPY cryptoscope/scripts/ /scripts/
+RUN chmod +x /scripts/*.py
 
-# Startup script
-COPY scripts/start.sh /start.sh
+RUN python /scripts/build_db.py
+
+COPY cryptoscope/app/ /app/app/
+
+COPY cryptoscope/start.sh /start.sh
 RUN chmod +x /start.sh
 
 EXPOSE 3000
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+ENV PORT=3000
 
 CMD ["/start.sh"]

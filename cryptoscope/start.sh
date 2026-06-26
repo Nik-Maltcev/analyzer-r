@@ -11,6 +11,7 @@ set -e
 
 export DB_PATH="${DB_PATH:-/data/market.db}"
 export PORT="${PORT:-3000}"
+export PYTHONPATH="/app:${PYTHONPATH:-}"
 export CSV_PATH="${CSV_PATH:-/opt/seed/all_markets_3yr.csv}"
 export RU_CSV_PATH="${RU_CSV_PATH:-/opt/seed/tinkoff_ru_2yr.csv}"
 export HOURLY_PATH="${HOURLY_PATH:-/opt/seed/hourly_6coins_2yr.csv}"
@@ -45,9 +46,10 @@ python /scripts/load_hourly.py
 # 4. Load Russian stocks
 python /scripts/load_ru.py
 if [ $? -eq 0 ]; then
-    # Recompute if RU was just loaded
+    # Recompute if RU data exists but RU pairs are missing.
     RU_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='ru';" 2>/dev/null || echo "0")
-    if [ "$RU_COUNT" -gt 0 ] && [ "$PAIR_COUNT" -lt 1 ]; then
+    RU_PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs WHERE market='ru';" 2>/dev/null || echo "0")
+    if [ "$RU_COUNT" -gt 0 ] && [ "$RU_PAIR_COUNT" -lt 1 ]; then
         python /scripts/compute_analysis.py
     fi
 fi
@@ -62,7 +64,7 @@ python /scripts/load_favorites.py
         CURRENT_MINUTE=$(date -u +%M)
         if [ "$CURRENT_HOUR" = "06" ] && [ "$CURRENT_MINUTE" = "00" ]; then
             echo "[$(date -u)] Running daily update..."
-            python /scripts/daily_update.py
+            python /scripts/daily_update.py || echo "[$(date -u)] daily update failed"
             sleep 90
         fi
         sleep 30

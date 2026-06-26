@@ -1,19 +1,19 @@
 """External data fetching: Twelve Data API."""
 
+import asyncio
+
 import httpx
 import pandas as pd
-import time
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
 
 TWELVEDATA_BASE = "https://api.twelvedata.com/time_series"
 
 
-async def fetch_batch(symbols: List[str], api_key: str, outputsize: int = 5) -> pd.DataFrame:
+async def fetch_batch(symbols: list[str], api_key: str, outputsize: int = 5) -> pd.DataFrame:
     """Fetch batch of symbols from Twelve Data API (max 8 per request)."""
     results = []
+    batches = [symbols[i:i + 8] for i in range(0, len(symbols), 8)]
     
-    for batch in [symbols[i:i+8] for i in range(0, len(symbols), 8)]:
+    for idx, batch in enumerate(batches):
         symbol_str = ",".join(batch)
         params = {
             "symbol": symbol_str,
@@ -57,7 +57,8 @@ async def fetch_batch(symbols: List[str], api_key: str, outputsize: int = 5) -> 
         except Exception as e:
             print(f"Error fetching {symbol_str}: {e}")
         
-        time.sleep(75)  # Rate limit for free tier
+        if idx < len(batches) - 1:
+            await asyncio.sleep(75)  # Rate limit for free tier
     
     if not results:
         return pd.DataFrame(columns=["ticker", "date", "close", "volume"])
