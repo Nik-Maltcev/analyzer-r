@@ -1,5 +1,6 @@
 """Tab routes — serve HTML partials for HTMX tab/content swaps with real data."""
 
+from datetime import datetime, timezone
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -272,6 +273,24 @@ async def tab_favorites(request: Request):
             st = row.get("signal_type", "wait")
             total_pnl = (-pnl_a + pnl_b) if st == "short_a" else (pnl_a - pnl_b) if st == "long_a" else 0
 
+            hl = row.get("halflife")
+            entry_time = row.get("entry_time")
+            days_held = 0
+            hl_remaining = hl
+            is_expired = False
+            if entry_time:
+                try:
+                    entry_dt = datetime.fromisoformat(entry_time.replace(" ", "T"))
+                    if entry_dt.tzinfo is None:
+                        entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+                    days_held = max(0, (datetime.now(timezone.utc) - entry_dt).days)
+                    if hl:
+                        hl_remaining = max(0, int(hl) - days_held)
+                        if days_held >= int(hl):
+                            is_expired = True
+                except Exception:
+                    pass
+
             active.append({
                 "id": int(row["id"]),
                 "pair": row["pair"],
@@ -280,9 +299,12 @@ async def tab_favorites(request: Request):
                 "signal": row.get("signal", ""),
                 "signal_type": st,
                 "pnl_total_pct": round(float(total_pnl), 2),
-                "entry_time": row.get("entry_time"),
+                "entry_time": entry_time,
                 "corr": row.get("corr"),
-                "halflife": row.get("halflife"),
+                "halflife": hl,
+                "days_held": days_held,
+                "hl_remaining": hl_remaining,
+                "is_expired": is_expired,
             })
 
     except Exception as e:

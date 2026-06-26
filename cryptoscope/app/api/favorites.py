@@ -1,5 +1,6 @@
 """Favorites API endpoints."""
 
+from datetime import datetime, timezone
 from fastapi import APIRouter, Query, HTTPException
 from app.db.database import (
     get_connection, fetch_favorites, fetch_favorites_history,
@@ -90,6 +91,23 @@ async def get_favorites(user_id: str = Query("local")):
         else:
             pnl_total = 0
         
+        hl = row.get("halflife")
+        entry_time = row.get("entry_time")
+        days_held = 0
+        hl_remaining = hl
+        is_expired = False
+        if entry_time:
+            try:
+                entry_dt = datetime.fromisoformat(entry_time.replace(" ", "T"))
+                if entry_dt.tzinfo is None:
+                    entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+                days_held = max(0, (datetime.now(timezone.utc) - entry_dt).days)
+                if hl:
+                    hl_remaining = max(0, int(hl) - days_held)
+                    is_expired = days_held >= int(hl)
+            except Exception:
+                pass
+
         active_positions.append({
             "id": int(row["id"]),
             "pair": row["pair"],
@@ -103,8 +121,11 @@ async def get_favorites(user_id: str = Query("local")):
             "price_a_now": round(float(price_a_now), 4) if price_a_now else None,
             "price_b_now": round(float(price_b_now), 4) if price_b_now else None,
             "pnl_total_pct": round(float(pnl_total), 2),
-            "entry_time": row.get("entry_time"),
-            "halflife": row.get("halflife"),
+            "entry_time": entry_time,
+            "halflife": hl,
+            "days_held": days_held,
+            "hl_remaining": hl_remaining,
+            "is_expired": is_expired,
             "corr": row.get("corr"),
             "status": row.get("status", "active"),
         })

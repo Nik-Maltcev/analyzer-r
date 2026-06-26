@@ -2616,6 +2616,13 @@ button:focus-visible,
     border-top: 1px solid var(--border);
 }
 
+/* Position badges */
+.position-badges {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
 /* Chart container */
 .chart-container {
     background: var(--card);

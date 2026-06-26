@@ -15,9 +15,14 @@
                         <span class="ticker-logo" data-ticker="{{ f.ticker_a }}"></span>
                         <strong>{{ f.ticker_a }} / {{ f.ticker_b }}</strong>
                     </div>
-                    <span class="badge {% if f.signal_type == 'short_a' %}badge-orange{% elif f.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
-                        {% if f.signal_type == 'short_a' %}Шорт A{% elif f.signal_type == 'long_a' %}Лонг A{% else %}Ждать{% endif %}
-                    </span>
+                    <div class="position-badges">
+                        {% if f.is_expired %}
+                        <span class="badge badge-red" title="Сигнал держится дольше полупериода">⚠ Просрочен</span>
+                        {% endif %}
+                        <span class="badge {% if f.signal_type == 'short_a' %}badge-orange{% elif f.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
+                            {% if f.signal_type == 'short_a' %}Шорт A{% elif f.signal_type == 'long_a' %}Лонг A{% else %}Ждать{% endif %}
+                        </span>
+                    </div>
                 </div>
                 
                 <div class="position-pnl-display {% if f.pnl_total_pct >= 0 %}positive{% else %}negative{% endif %}">
@@ -34,13 +39,25 @@
                         <span class="detail-value">{{ f.entry_time[:16] if f.entry_time else '—' }}</span>
                     </div>
                     <div class="detail-row">
+                        <span class="detail-label">Дней в позиции</span>
+                        <span class="detail-value">{{ f.days_held }} дн.</span>
+                    </div>
+                    <div class="detail-row">
                         <span class="detail-label">Корр</span>
                         <span class="detail-value">{{ '%.0f'|format(f.corr * 100) if f.corr else '—' }}%</span>
                     </div>
                     <div class="detail-row">
-                        <span class="detail-label">Полупериод</span>
+                        <span class="detail-label">Полупериод (HL)</span>
                         <span class="detail-value">{{ f.halflife|default('—') }} дн.</span>
                     </div>
+                    {% if f.halflife %}
+                    <div class="detail-row">
+                        <span class="detail-label">HL осталось</span>
+                        <span class="detail-value {% if f.is_expired %}text-red{% elif f.hl_remaining <= 3 %}text-orange{% else %}text-green{% endif %}">
+                            {% if f.is_expired %}Просрочен ({{ f.days_held }}/{{ f.halflife }}){% else %}{{ f.hl_remaining }} дн.{% endif %}
+                        </span>
+                    </div>
+                    {% endif %}
                 </div>
                 
                 <div class="position-actions">
