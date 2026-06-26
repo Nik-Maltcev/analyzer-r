@@ -3246,6 +3246,31 @@ h3,
     background: rgba(36, 199, 192, 0.06);
 }
 
+.signal-stat-tomorrow {
+    border-color: rgba(36, 199, 192, 0.28);
+    background: rgba(36, 199, 192, 0.055);
+}
+
+.signal-stat-sub {
+    margin-top: 3px;
+    font-size: 11px;
+    line-height: 1.25;
+    color: var(--text-muted);
+}
+
+.tomorrow-cell {
+    white-space: nowrap;
+}
+
+.tomorrow-delta {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 6px;
+    color: var(--teal);
+    font-size: 11px;
+    font-weight: 700;
+}
+
 .empty-state,
 .loading-container,
 .error-msg {

@@ -85,6 +85,18 @@
                 <div class="signal-stat-label">Z прогноз</div>
                 <div class="signal-stat-value">{{ s.z_forecast|default("—") }}</div>
             </div>
+            <div class="signal-stat signal-stat-tomorrow">
+                <div class="signal-stat-label">Z завтра</div>
+                <div class="signal-stat-value">
+                    {% if s.z_tomorrow is not none %}
+                    <span class="text-mono">{{ s.z_tomorrow }}</span>
+                    <span class="tomorrow-delta">{{ "%+.2f"|format(s.z_tomorrow_delta) }}</span>
+                    {% else %}—{% endif %}
+                </div>
+                {% if s.z_tomorrow_reversion_pct is not none %}
+                <div class="signal-stat-sub">≈{{ s.z_tomorrow_reversion_pct }}% к среднему</div>
+                {% endif %}
+            </div>
             <div class="signal-stat">
                 <div class="signal-stat-label">Корреляция</div>
                 <div class="signal-stat-value">
@@ -155,6 +167,7 @@
                 <th>Пара</th>
                 <th>Z сейчас</th>
                 <th>Z прогноз</th>
+                <th>Z завтра</th>
                 <th>Сигнал</th>
                 <th>Сила</th>
                 <th>Корр.</th>
@@ -177,6 +190,12 @@
                     {{ s.z_now|default("—") }}
                 </td>
                 <td class="text-mono">{{ s.z_forecast|default("—") }}</td>
+                <td class="text-mono tomorrow-cell">
+                    {% if s.z_tomorrow is not none %}
+                    <span>{{ s.z_tomorrow }}</span>
+                    <span class="tomorrow-delta">{{ "%+.2f"|format(s.z_tomorrow_delta) }}</span>
+                    {% else %}—{% endif %}
+                </td>
                 <td>
                     <span class="badge {% if s.signal_type == 'short_a' %}badge-orange{% elif s.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
                         {{ s.signal_type }}

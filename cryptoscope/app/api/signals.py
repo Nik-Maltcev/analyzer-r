@@ -31,6 +31,27 @@ def _finite_bool(value) -> bool:
     return bool(f) if f is not None else False
 
 
+def _project_tomorrow_move(z_now, halflife):
+    """Project one-day Z-score mean reversion from the pair half-life."""
+    z = _finite_float(z_now)
+    hl = _finite_int(halflife)
+    if z is None or hl is None or hl <= 0:
+        return {
+            "z_tomorrow": None,
+            "z_tomorrow_delta": None,
+            "z_tomorrow_reversion_pct": None,
+        }
+
+    decay = 0.5 ** (1.0 / hl)
+    z_tomorrow = z * decay
+    delta = z_tomorrow - z
+    return {
+        "z_tomorrow": round(z_tomorrow, 4),
+        "z_tomorrow_delta": round(delta, 4),
+        "z_tomorrow_reversion_pct": round((1.0 - decay) * 100, 2),
+    }
+
+
 @router.get("")
 async def get_signals(
     market: str = Query("crypto", description="Market: crypto, stocks, ru"),
@@ -59,6 +80,8 @@ async def get_signals(
         score = _finite_float(row.get("score"))
         z_now = _finite_float(row.get("z_now"))
         zf = _finite_float(row.get("z_forecast"))
+        hl = _finite_int(row.get("halflife"))
+        tomorrow_move = _project_tomorrow_move(z_now, hl)
         
         signals.append({
             "pair_id": f"{row['ticker_a']}_{row['ticker_b']}",
@@ -66,10 +89,11 @@ async def get_signals(
             "ticker_b": row["ticker_b"],
             "corr": round(corr, 4) if corr is not None else None,
             "is_coint": _finite_bool(row.get("is_coint")),
-            "halflife": _finite_int(row.get("halflife")),
+            "halflife": hl,
             "score": round(score, 4) if score is not None else None,
             "z_now": round(z_now, 4) if z_now is not None else None,
             "z_forecast": round(zf, 4) if zf is not None else None,
+            **tomorrow_move,
             "signal": row["signal"],
             "signal_type": row["signal_type"],
             "strength": row["strength"],
@@ -109,6 +133,7 @@ async def get_forecast_trades(
         z_now = _finite_float(row.get("z_now"), 0.0)
         hl = _finite_int(row.get("halflife"), 30)
         avg_hold = min(hl, max_days)
+        tomorrow_move = _project_tomorrow_move(z_now, hl)
         
         # Estimate P&L based on Z-score move
         pnl_est = abs(z_now) - 0.5  # expected move back to ±0.5
@@ -125,6 +150,7 @@ async def get_forecast_trades(
             "strength": row.get("strength", "Нет"),
             "z_now": round(float(z_now), 4) if z_now else None,
             "z_forecast": round(z_forecast, 4) if z_forecast is not None else None,
+            **tomorrow_move,
             "win_rate": round(float(win_rate), 1),
             "n_similar": 0,
             "avg_pnl_pct": round(float(pnl_pct), 2),

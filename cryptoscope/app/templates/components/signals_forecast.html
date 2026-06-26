@@ -33,6 +33,18 @@
                 <div class="signal-stat-label">Z прогноз</div>
                 <div class="signal-stat-value">{{ t.z_forecast|default("—") }}</div>
             </div>
+            <div class="signal-stat signal-stat-tomorrow">
+                <div class="signal-stat-label">Z завтра</div>
+                <div class="signal-stat-value">
+                    {% if t.z_tomorrow is not none %}
+                    <span class="text-mono">{{ t.z_tomorrow }}</span>
+                    <span class="tomorrow-delta">{{ "%+.2f"|format(t.z_tomorrow_delta) }}</span>
+                    {% else %}—{% endif %}
+                </div>
+                {% if t.z_tomorrow_reversion_pct is not none %}
+                <div class="signal-stat-sub">≈{{ t.z_tomorrow_reversion_pct }}% к среднему</div>
+                {% endif %}
+            </div>
             <div class="signal-stat">
                 <div class="signal-stat-label">Win Rate</div>
                 <div class="signal-stat-value">{{ t.win_rate }}%</div>
@@ -80,6 +92,7 @@
                 <th>Пара</th>
                 <th>Сигнал</th>
                 <th>Z</th>
+                <th>Z завтра</th>
                 <th>Win %</th>
                 <th>P&L %</th>
                 <th>Дней</th>
@@ -92,6 +105,12 @@
                 <td><strong>{{ t.ticker_a }}/{{ t.ticker_b }}</strong></td>
                 <td>{{ t.signal[:24] }}</td>
                 <td class="text-mono">{{ t.z_now }}</td>
+                <td class="text-mono tomorrow-cell">
+                    {% if t.z_tomorrow is not none %}
+                    <span>{{ t.z_tomorrow }}</span>
+                    <span class="tomorrow-delta">{{ "%+.2f"|format(t.z_tomorrow_delta) }}</span>
+                    {% else %}—{% endif %}
+                </td>
                 <td>{{ t.win_rate }}%</td>
                 <td class="positive">+{{ t.avg_pnl_pct }}%</td>
                 <td>{{ t.avg_hold_days }}</td>

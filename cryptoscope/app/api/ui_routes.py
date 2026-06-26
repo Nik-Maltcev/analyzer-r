@@ -37,6 +37,27 @@ def _finite_bool(value) -> bool:
     return bool(f) if f is not None else False
 
 
+def _project_tomorrow_move(z_now, halflife):
+    """Project one-day Z-score mean reversion from the pair half-life."""
+    z = _finite_float(z_now)
+    hl = _finite_int(halflife)
+    if z is None or hl is None or hl <= 0:
+        return {
+            "z_tomorrow": None,
+            "z_tomorrow_delta": None,
+            "z_tomorrow_reversion_pct": None,
+        }
+
+    decay = 0.5 ** (1.0 / hl)
+    z_tomorrow = z * decay
+    delta = z_tomorrow - z
+    return {
+        "z_tomorrow": round(z_tomorrow, 2),
+        "z_tomorrow_delta": round(delta, 2),
+        "z_tomorrow_reversion_pct": round((1.0 - decay) * 100, 1),
+    }
+
+
 def _make_signal_cards(pairs, market="crypto", fav_pairs=None):
     """Convert pairs DataFrame to list of dicts for template rendering."""
     fav_set = set(fav_pairs) if fav_pairs else set()
@@ -47,6 +68,7 @@ def _make_signal_cards(pairs, market="crypto", fav_pairs=None):
         zf = _finite_float(row.get("z_forecast"))
         hl = _finite_int(row.get("halflife"))
         score = _finite_float(row.get("score"))
+        tomorrow_move = _project_tomorrow_move(z_now, hl)
         pair_id = f"{row['ticker_a']}_{row['ticker_b']}"
         signals.append({
             "pair_id": pair_id,
@@ -59,6 +81,7 @@ def _make_signal_cards(pairs, market="crypto", fav_pairs=None):
             "score": round(score, 3) if score is not None else None,
             "z_now": round(z_now, 2) if z_now is not None else None,
             "z_forecast": round(zf, 2) if zf is not None else None,
+            **tomorrow_move,
             "signal": row.get("signal", "Ждать"),
             "signal_type": row.get("signal_type", "wait"),
             "strength": row.get("strength", "Нет"),
@@ -79,6 +102,7 @@ def _make_forecast_trades(pairs, fav_pairs=None):
         win_rate = 65 if _finite_bool(row.get("is_coint")) else 50
         corr_val = _finite_float(row.get("corr"))
         z_forecast = _finite_float(row.get("z_forecast"))
+        tomorrow_move = _project_tomorrow_move(z_now, hl)
         pair_id = f"{row['ticker_a']}_{row['ticker_b']}"
 
         trades.append({
@@ -94,6 +118,7 @@ def _make_forecast_trades(pairs, fav_pairs=None):
             "halflife": hl,
             "z_now": round(float(z_now), 2) if z_now else None,
             "z_forecast": round(z_forecast, 2) if z_forecast is not None else None,
+            **tomorrow_move,
             "win_rate": round(float(win_rate), 1),
             "avg_pnl_pct": round(float(pnl_pct), 2),
             "avg_hold_days": round(float(min(hl, 30)), 1),
