@@ -2708,3 +2708,643 @@ button:focus-visible,
     padding: 20px;
     margin-top: 12px;
 }
+
+/* ---------- 30. Modern Trading Terminal Theme ---------- */
+:root {
+    --bg: #080a0d;
+    --bg-2: #0b0f14;
+    --surface-1: #0f141a;
+    --surface-2: #131a22;
+    --surface-3: #18212b;
+    --surface-hover: #1d2733;
+    --card: #10161d;
+    --card-2: #121922;
+    --card-elevated: #151e28;
+    --border: #24303d;
+    --border-strong: #344454;
+    --border-hover: #4b6175;
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --text: #d9e2ec;
+    --text-dim: #91a0af;
+    --text-muted: #657382;
+    --text-bright: #f5f8fb;
+    --blue: #4f8cff;
+    --blue-bright: #7aabff;
+    --green: #2fd08f;
+    --green-bright: #55e0aa;
+    --red: #ff5d5d;
+    --red-bright: #ff8080;
+    --orange: #f6b849;
+    --orange-bright: #ffd071;
+    --teal: #24c7c0;
+    --purple: #6f7cff;
+    --radius: 8px;
+    --radius-md: 8px;
+    --radius-sm: 6px;
+    --radius-xs: 4px;
+    --shadow-sm: 0 1px 0 rgba(255, 255, 255, 0.03);
+    --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.26);
+    --shadow-lg: 0 18px 42px rgba(0, 0, 0, 0.34);
+    --shadow-xl: 0 24px 56px rgba(0, 0, 0, 0.42);
+    --content-max: 1680px;
+    --navbar-h: 64px;
+}
+
+* {
+    letter-spacing: 0 !important;
+}
+
+html {
+    background: var(--bg);
+}
+
+body {
+    background:
+        linear-gradient(180deg, #090c10 0%, #0c1117 34%, #080a0d 100%);
+    color: var(--text);
+}
+
+h1,
+.display,
+h2,
+.section-title,
+h3,
+.card-title,
+.logo-text,
+.signal-name {
+    letter-spacing: 0 !important;
+}
+
+.navbar {
+    height: var(--navbar-h);
+    padding: 0 18px;
+    background: rgba(9, 12, 16, 0.94);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 12px 32px rgba(0, 0, 0, 0.24);
+    gap: 16px;
+}
+
+.navbar-brand {
+    min-width: 232px;
+    gap: 9px;
+}
+
+.logo-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    background: #111a23;
+    border: 1px solid #315064;
+    color: var(--teal);
+    box-shadow: inset 0 0 0 1px rgba(36, 199, 192, 0.1);
+}
+
+.logo-text {
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.logo-subtitle {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.navbar-tabs {
+    gap: 4px;
+    padding: 0 4px;
+}
+
+.nav-tab {
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    color: var(--text-dim);
+    background: transparent;
+}
+
+.nav-tab:hover {
+    color: var(--text-bright);
+    background: var(--surface-2);
+    border-color: var(--border);
+}
+
+.nav-tab.active {
+    color: var(--text-bright);
+    background: #17212b;
+    border-color: #395063;
+    box-shadow: inset 0 -2px 0 var(--teal);
+}
+
+.tab-icon {
+    opacity: 0.82;
+}
+
+.navbar-end {
+    gap: 10px;
+}
+
+.live-status,
+.auth-bar,
+#auth-status .auth-bar {
+    min-height: 34px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #0e141a;
+}
+
+.main-content {
+    max-width: var(--content-max);
+    padding: 18px;
+}
+
+.signals-page {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    grid-template-areas:
+        "market modes"
+        "calc content";
+    align-items: start;
+    gap: 12px;
+}
+
+.market-selector {
+    grid-area: market;
+}
+
+.calc-settings-bar {
+    grid-area: calc;
+    position: sticky;
+    top: calc(var(--navbar-h) + 14px);
+}
+
+.signals-mode-bar {
+    grid-area: modes;
+    margin: 0;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(14, 20, 26, 0.92);
+    box-shadow: var(--shadow-sm);
+}
+
+.signals-content {
+    grid-area: content;
+    min-width: 0;
+}
+
+.market-selector-bar,
+.calculator-settings,
+.mode-switcher {
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #0f151c;
+    box-shadow: var(--shadow-sm);
+}
+
+.market-selector-bar {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 10px;
+}
+
+.market-label {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.market-btn,
+.mode-btn {
+    min-height: 36px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-dim);
+    font-weight: 600;
+}
+
+.market-btn:hover,
+.mode-btn:hover {
+    color: var(--text-bright);
+    background: var(--surface-2);
+    border-color: var(--border);
+}
+
+.market-btn.active,
+.mode-btn.active {
+    color: var(--text-bright);
+    background: #14212a;
+    border-color: rgba(36, 199, 192, 0.45);
+    box-shadow: inset 3px 0 0 var(--teal);
+}
+
+.mode-switcher {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.mode-filters {
+    margin-top: 10px;
+}
+
+.calculator-settings {
+    padding: 12px;
+}
+
+.calculator-settings .calc-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+}
+
+.calc-field label,
+.signal-stat-label,
+.stat-card-label,
+.dashboard-stat-label,
+.detail-label {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.form-input,
+.form-input-sm,
+.form-range {
+    border-radius: 6px;
+    border-color: var(--border);
+    background: #0a0f14;
+}
+
+.form-input:focus,
+.form-input-sm:focus {
+    border-color: var(--teal);
+    box-shadow: 0 0 0 3px rgba(36, 199, 192, 0.12);
+}
+
+.calc-hint {
+    margin-top: 10px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.dashboard-banner,
+.signals-dashboard {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(160px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.glass-card,
+.dashboard-stat,
+.stat-card {
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #101720;
+    box-shadow: var(--shadow-sm);
+}
+
+.glass-card:hover,
+.dashboard-stat:hover,
+.stat-card:hover {
+    border-color: var(--border-hover);
+    transform: none;
+    box-shadow: var(--shadow-md);
+}
+
+.stat-card,
+.dashboard-stat {
+    min-height: 96px;
+    padding: 14px;
+}
+
+.stat-card-value,
+.dashboard-stat-value {
+    margin-top: 8px;
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.stat-card-sub,
+.dashboard-stat-sub {
+    color: var(--text-muted);
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 16px 0 10px;
+    padding: 0;
+    border: 0;
+}
+
+.section-header h3 {
+    color: var(--text-bright);
+    font-size: 14px;
+    text-transform: uppercase;
+}
+
+.cards-grid {
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 10px;
+}
+
+.signal-card {
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #101720;
+    box-shadow: var(--shadow-sm);
+    padding: 14px;
+}
+
+.signal-card:hover {
+    border-color: var(--border-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-lg);
+}
+
+.signal-card.signal-long_a,
+.signal-card.long_a,
+.signal-card.long {
+    border-left: 3px solid var(--green);
+}
+
+.signal-card.signal-short_a,
+.signal-card.short_a,
+.signal-card.short {
+    border-left: 3px solid var(--orange);
+}
+
+.signal-card.signal-wait,
+.signal-card.wait {
+    border-left: 3px solid var(--border-strong);
+}
+
+.signal-card-header {
+    min-height: 36px;
+    padding-right: 38px;
+    gap: 10px;
+}
+
+.signal-name {
+    font-size: 14px;
+    font-weight: 750;
+}
+
+.ticker-logo {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background-color: #0a0f14;
+}
+
+.fav-btn {
+    top: 10px;
+    right: 10px;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border-color: var(--border);
+    background: #0a0f14;
+}
+
+.fav-btn:hover,
+.fav-btn.favorited {
+    color: var(--orange-bright);
+    border-color: var(--orange);
+    background: rgba(246, 184, 73, 0.1);
+}
+
+.fav-btn-inline {
+    width: 26px;
+    height: 26px;
+    margin-right: 8px;
+}
+
+.signal-stats {
+    gap: 8px;
+}
+
+.signal-stat,
+.calc-field,
+.calc-block {
+    border-radius: 6px;
+    border-color: var(--border);
+    background: rgba(8, 12, 16, 0.58);
+}
+
+.signal-stat {
+    min-height: 64px;
+}
+
+.signal-stat-value,
+.calc-value {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+}
+
+.calc-block {
+    margin-top: 12px;
+    padding: 10px;
+}
+
+.badge {
+    min-height: 22px;
+    border-radius: 5px;
+    font-weight: 700;
+}
+
+.badge-blue {
+    color: #a9c5ff;
+    background: rgba(79, 140, 255, 0.12);
+    border-color: rgba(79, 140, 255, 0.28);
+}
+
+.badge-green {
+    color: #8cf0c4;
+    background: rgba(47, 208, 143, 0.11);
+    border-color: rgba(47, 208, 143, 0.28);
+}
+
+.badge-orange {
+    color: #ffd58b;
+    background: rgba(246, 184, 73, 0.12);
+    border-color: rgba(246, 184, 73, 0.3);
+}
+
+.badge-red {
+    color: #ff9d9d;
+    background: rgba(255, 93, 93, 0.12);
+    border-color: rgba(255, 93, 93, 0.28);
+}
+
+.badge-gray {
+    color: var(--text-dim);
+    background: rgba(145, 160, 175, 0.08);
+    border-color: rgba(145, 160, 175, 0.16);
+}
+
+.sparkline {
+    width: 100%;
+    height: 44px;
+    margin: 10px 0;
+    border-radius: 6px;
+    background: #0a0f14;
+    border: 1px solid var(--border);
+}
+
+.table-container {
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #0f151c;
+    box-shadow: var(--shadow-sm);
+}
+
+.data-table,
+.signals-table {
+    font-size: 12px;
+}
+
+.data-table th,
+.signals-table th {
+    height: 38px;
+    padding: 8px 12px;
+    color: var(--text-muted);
+    background: #0a0f14;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.data-table td,
+.signals-table td {
+    padding: 9px 12px;
+    border-bottom: 1px solid rgba(36, 48, 61, 0.72);
+}
+
+.data-table tbody tr:nth-child(even),
+.signals-table tbody tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.015);
+}
+
+.data-table tbody tr:hover,
+.signals-table tbody tr:hover {
+    background: rgba(36, 199, 192, 0.06);
+}
+
+.empty-state,
+.loading-container,
+.error-msg {
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #101720;
+}
+
+.toast {
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #101720;
+}
+
+.positions-grid {
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 10px;
+}
+
+.position-card,
+.portfolio-card,
+.scanner-btn,
+.chart-container,
+.spread-stats {
+    border-radius: 8px;
+    border-color: var(--border);
+    background: #101720;
+}
+
+.progress-bar-container,
+.progress-bar-fill,
+.forecast-status {
+    border-radius: 6px;
+}
+
+@media (max-width: 1180px) {
+    .signals-page {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "market"
+            "calc"
+            "modes"
+            "content";
+    }
+
+    .calc-settings-bar {
+        position: static;
+    }
+
+    .market-selector-bar {
+        grid-template-columns: auto repeat(3, minmax(86px, 1fr));
+        align-items: center;
+    }
+
+    .calculator-settings .calc-row {
+        grid-template-columns: repeat(4, minmax(120px, 1fr));
+    }
+}
+
+@media (max-width: 780px) {
+    .navbar {
+        height: auto;
+        min-height: var(--navbar-h);
+        align-items: flex-start;
+        flex-wrap: wrap;
+        padding: 10px 12px;
+    }
+
+    .navbar-brand {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .navbar-tabs {
+        order: 3;
+        width: 100%;
+    }
+
+    .navbar-end {
+        margin-left: auto;
+    }
+
+    .main-content {
+        padding: 12px;
+    }
+
+    .market-selector-bar,
+    .calculator-settings .calc-row,
+    .dashboard-banner,
+    .signals-dashboard {
+        grid-template-columns: 1fr;
+    }
+
+    .cards-grid,
+    .positions-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .signals-mode-bar {
+        overflow-x: auto;
+    }
+}
