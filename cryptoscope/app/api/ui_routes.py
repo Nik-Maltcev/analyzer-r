@@ -5,13 +5,18 @@ import pandas as pd
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from app.db.database import (
-    get_connection, fetch_pairs, fetch_prices, fetch_favorites,
-    fetch_favorites_history, db_status,
-)
-from app.core.cointegration import engle_granger, compute_zscore, forecast_zscore
-from app.core.scanners import corr_breakdown_scan, momentum_scan, drawdown_scan
+
+from app.core.cointegration import compute_zscore, engle_granger
+from app.core.scanners import corr_breakdown_scan, drawdown_scan, momentum_scan
 from app.core.signals import estimate_signal_timing
+from app.db.database import (
+    db_status,
+    fetch_favorites,
+    fetch_favorites_history,
+    fetch_pairs,
+    fetch_prices,
+    get_connection,
+)
 
 router = APIRouter(prefix="/tab", tags=["ui"])
 templates = Jinja2Templates(directory="app/templates")
@@ -199,7 +204,7 @@ async def tab_signals(
             pairs = await fetch_pairs(conn, market, min_corr)
 
         if pairs.empty:
-            return templates.TemplateResponse("components/signals_all.html", {
+            return templates.TemplateResponse(request, "components/signals_all.html", {
                 **ctx, "signals": [], "total": 0, "active": [],
             })
 
@@ -223,11 +228,11 @@ async def tab_signals(
         if mode == "forecast":
             active_pairs = pairs[pairs["signal_type"] != "wait"]
             if active_pairs.empty:
-                return templates.TemplateResponse("components/signals_forecast.html", {
+                return templates.TemplateResponse(request, "components/signals_forecast.html", {
                     **ctx, "trades": [], "total": 0,
                 })
             trades = _make_forecast_trades(active_pairs, fav_pair_ids)
-            return templates.TemplateResponse("components/signals_forecast.html", {
+            return templates.TemplateResponse(request, "components/signals_forecast.html", {
                 **ctx, "trades": trades, "total": len(trades),
             })
 
@@ -235,21 +240,21 @@ async def tab_signals(
             active_pairs = pairs[pairs["signal_type"] != "wait"]
             active_pairs = active_pairs[(active_pairs["halflife"].isna()) | (active_pairs["halflife"] <= 7)]
             if active_pairs.empty:
-                return templates.TemplateResponse("components/signals_forecast.html", {
+                return templates.TemplateResponse(request, "components/signals_forecast.html", {
                     **ctx, "trades": [], "total": 0, "is_short": True,
                 })
             trades = _make_forecast_trades(active_pairs, fav_pair_ids)
-            return templates.TemplateResponse("components/signals_forecast.html", {
+            return templates.TemplateResponse(request, "components/signals_forecast.html", {
                 **ctx, "trades": trades, "total": len(trades), "is_short": True,
             })
 
-        return templates.TemplateResponse("components/signals_all.html", {
+        return templates.TemplateResponse(request, "components/signals_all.html", {
             **ctx, "signals": signals, "active": active, "total": len(signals),
             "n_active": len(active), "min_corr": min_corr, "max_days": max_days,
         })
 
     except Exception as e:
-        return templates.TemplateResponse("components/signals_all.html", {
+        return templates.TemplateResponse(request, "components/signals_all.html", {
             **ctx, "signals": [], "total": 0, "active": [], "error": str(e),
         })
 
@@ -265,7 +270,7 @@ async def tab_dashboard(
     except Exception:
         dash = {"n_active": 0, "n_total": 0, "best_signal": None, "volatility": "Низкая"}
 
-    return templates.TemplateResponse("components/dashboard_partial.html", {
+    return templates.TemplateResponse(request, "components/dashboard_partial.html", {
         "request": request, "market": market, **dash,
     })
 
@@ -277,7 +282,7 @@ async def tab_portfolio(request: Request, market: str = Query("crypto")):
             pairs = await fetch_pairs(conn, market, 0.0)
             prices_df = await fetch_prices(conn, market)
     except Exception:
-        return templates.TemplateResponse("components/portfolio_tab.html", {
+        return templates.TemplateResponse(request, "components/portfolio_tab.html", {
             "request": request, "pairs": [], "tickers": [], "n_coint": 0, "total": 0,
         })
 
@@ -286,7 +291,7 @@ async def tab_portfolio(request: Request, market: str = Query("crypto")):
     all_pairs = pairs.to_dict(orient="records")
     n_coint = int(pairs["is_coint"].sum()) if not pairs.empty else 0
 
-    return templates.TemplateResponse("components/portfolio_tab.html", {
+    return templates.TemplateResponse(request, "components/portfolio_tab.html", {
         "request": request, "market": market,
         "top_pairs": top_pairs, "all_pairs": all_pairs,
         "tickers": tickers, "n_coint": n_coint, "total": len(all_pairs),
@@ -295,7 +300,11 @@ async def tab_portfolio(request: Request, market: str = Query("crypto")):
 
 @router.get("/scanners", response_class=HTMLResponse)
 async def tab_scanners(request: Request):
-    return templates.TemplateResponse("components/scanners_tab.html", {"request": request})
+    return templates.TemplateResponse(
+        request,
+        "components/scanners_tab.html",
+        {"request": request},
+    )
 
 
 @router.get("/scanner/{scanner_type}", response_class=HTMLResponse)
@@ -329,7 +338,7 @@ async def tab_scanner_content(
             prices_df = await fetch_prices(conn, market)
 
         if prices_df.empty:
-            return templates.TemplateResponse(template, ctx)
+            return templates.TemplateResponse(request, template, ctx)
 
         wide = prices_df.pivot(index="date", columns="ticker", values="close")
         tickers_list = list(wide.columns)
@@ -350,13 +359,13 @@ async def tab_scanner_content(
                 df = df[df["deviation"] >= min_deviation] if not df.empty else df
             results = _df_records(df)
 
-        return templates.TemplateResponse(template, {
+        return templates.TemplateResponse(request, template, {
             **ctx,
             "results": results,
             "total": len(results),
         })
     except Exception as e:
-        return templates.TemplateResponse(template, {
+        return templates.TemplateResponse(request, template, {
             **ctx,
             "error": str(e) if str(e) else "Scanner unavailable",
         })
@@ -448,7 +457,7 @@ async def tab_favorites(request: Request):
             favs = await fetch_favorites(conn)
 
         if favs.empty:
-            return templates.TemplateResponse("components/favorites_tab.html", {
+            return templates.TemplateResponse(request, "components/favorites_tab.html", {
                 "request": request, "favorites": [],
             })
 
@@ -549,11 +558,11 @@ async def tab_favorites(request: Request):
             })
 
     except Exception as e:
-        return templates.TemplateResponse("components/favorites_tab.html", {
+        return templates.TemplateResponse(request, "components/favorites_tab.html", {
             "request": request, "favorites": [], "error": str(e) if str(e) else "DB unavailable",
         })
 
-    return templates.TemplateResponse("components/favorites_tab.html", {
+    return templates.TemplateResponse(request, "components/favorites_tab.html", {
         "request": request, "favorites": active,
     })
 
@@ -565,13 +574,13 @@ async def tab_favorites_history(request: Request, limit: int = Query(10)):
             hist = await fetch_favorites_history(conn, limit=limit)
         history = hist.to_dict(orient="records") if not hist.empty else []
     except Exception as e:
-        return templates.TemplateResponse("components/favorites_history.html", {
+        return templates.TemplateResponse(request, "components/favorites_history.html", {
             "request": request,
             "history": [],
             "error": str(e) if str(e) else "DB unavailable",
         })
 
-    return templates.TemplateResponse("components/favorites_history.html", {
+    return templates.TemplateResponse(request, "components/favorites_history.html", {
         "request": request,
         "history": history,
     })
@@ -586,14 +595,14 @@ async def tab_data(request: Request):
         status = {"n_tickers": 0, "n_rows": 0, "date_min": None, "date_max": None,
                   "n_pairs": 0, "last_analysis": None, "last_update": None}
 
-    return templates.TemplateResponse("components/data_tab.html", {
+    return templates.TemplateResponse(request, "components/data_tab.html", {
         "request": request, "status": status,
     })
 
 
 @router.get("/ai", response_class=HTMLResponse)
 async def tab_ai(request: Request, market: str = Query("crypto")):
-    return templates.TemplateResponse("components/ai_tab.html", {
+    return templates.TemplateResponse(request, "components/ai_tab.html", {
         "request": request,
         "market": market,
     })

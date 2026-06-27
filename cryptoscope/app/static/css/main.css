@@ -3373,7 +3373,7 @@ h3,
     }
 
     .market-selector-bar {
-        grid-template-columns: auto repeat(4, minmax(86px, 1fr));
+        grid-template-columns: auto repeat(5, minmax(80px, 1fr));
         align-items: center;
     }
 

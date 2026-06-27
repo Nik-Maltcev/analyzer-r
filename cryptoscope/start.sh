@@ -5,9 +5,10 @@
 # 3. Load hourly candles
 # 4. Load RU market
 # 5. Load Brazil market
-# 6. Ensure favorites storage
-# 7. Start background updater loop
-# 8. Launch app
+# 6. Load Indonesia market
+# 7. Ensure favorites storage
+# 8. Start background updater loop
+# 9. Launch app
 
 set -e
 
@@ -64,10 +65,18 @@ if [ "$BR_COUNT" -gt 0 ] && [ "$BR_PAIR_COUNT" -lt 1 ]; then
     python /scripts/compute_analysis.py
 fi
 
-# 6. Ensure favorites table
+# 6. Load Indonesia IDX stocks
+python /scripts/load_indonesia.py
+ID_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='id';" 2>/dev/null || echo "0")
+ID_PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs WHERE market='id';" 2>/dev/null || echo "0")
+if [ "$ID_COUNT" -gt 0 ] && [ "$ID_PAIR_COUNT" -lt 1 ]; then
+    python /scripts/compute_analysis.py
+fi
+
+# 7. Ensure favorites table
 python /scripts/load_favorites.py
 
-# 7. Start background update loop (checks every 30s, runs daily_update at 06:00 UTC)
+# 8. Start background update loop (checks every 30s, runs daily_update at 06:00 UTC)
 (
     while true; do
         CURRENT_HOUR=$(date -u +%H)
@@ -81,6 +90,6 @@ python /scripts/load_favorites.py
     done
 ) &
 
-# 8. Launch FastAPI app
+# 9. Launch FastAPI app
 echo "Starting CryptoScope on port $PORT..."
 exec python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT"

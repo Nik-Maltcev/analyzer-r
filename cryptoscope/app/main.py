@@ -7,12 +7,21 @@ import time
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
 
+from app.api.ai import router as ai_router
+from app.api.charts import router as charts_router
+from app.api.data_view import router as data_router
+from app.api.favorites import router as favorites_router
+from app.api.health import router as health_router
+from app.api.portfolio import router as portfolio_router
+from app.api.scanners import router as scanners_router
+from app.api.signals import router as signals_router
+from app.api.ui_routes import router as ui_router
 from app.config import get_settings
-from app.db.database import set_db_path, init_db, get_connection, fetch_pairs, db_status
+from app.db.database import db_status, fetch_pairs, get_connection, init_db, set_db_path
 
 # Ensure cryptoscope is on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -59,17 +68,6 @@ app = FastAPI(
 
 # Static files
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-
-# Import and include routers
-from app.api.health import router as health_router
-from app.api.signals import router as signals_router
-from app.api.portfolio import router as portfolio_router
-from app.api.scanners import router as scanners_router
-from app.api.favorites import router as favorites_router
-from app.api.data_view import router as data_router
-from app.api.ai import router as ai_router
-from app.api.ui_routes import router as ui_router
-from app.api.charts import router as charts_router
 
 app.include_router(health_router)
 app.include_router(signals_router, prefix="/api")
@@ -120,7 +118,7 @@ async def _get_dashboard_context(market: str = "crypto"):
 async def index(request: Request):
     """Main page with pre-rendered signals data."""
     dash = await _get_dashboard_context("crypto")
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "settings": settings,
         "market": "crypto",
@@ -132,7 +130,7 @@ async def index(request: Request):
 async def app_page(request: Request):
     """Full app page."""
     dash = await _get_dashboard_context("crypto")
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "settings": settings,
         "market": "crypto",
@@ -143,7 +141,7 @@ async def app_page(request: Request):
 @app.get("/onboarding", response_class=HTMLResponse)
 async def onboarding(request: Request):
     """Onboarding wizard page."""
-    return templates.TemplateResponse("onboarding.html", {
+    return templates.TemplateResponse(request, "onboarding.html", {
         "request": request,
         "settings": settings,
     })

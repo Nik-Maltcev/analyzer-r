@@ -48,11 +48,25 @@ BRAZIL_TICKERS = [
     "ASAI3", "UGPA3", "CSAN3", "SLCE3", "RECV3",
 ]
 
+# LQ45 constituents effective from May through July 2026.
+INDONESIA_TICKERS = [
+    "AADI", "ADMR", "ADRO", "AKRA", "AMMN",
+    "AMRT", "ANTM", "ASII", "BBCA", "BBNI",
+    "BBRI", "BBTN", "BMRI", "BRPT", "BUMI",
+    "CPIN", "CUAN", "DEWA", "EMTK", "ESSA",
+    "EXCL", "GOTO", "HRTA", "ICBP", "INCO",
+    "INDF", "INKP", "ISAT", "ITMG", "JPFA",
+    "KLBF", "MAPI", "MBMA", "MDKA", "MEDC",
+    "PGAS", "PGEO", "PTBA", "SCMA", "SMGR",
+    "TLKM", "TOWR", "UNTR", "UNVR", "WIFI",
+]
+
 ALL_MARKETS = {
     "crypto": CRYPTO_TICKERS,
     "stocks": STOCK_TICKERS,
     "ru": RU_TICKERS,
     "br": BRAZIL_TICKERS,
+    "id": INDONESIA_TICKERS,
 }
 
 MARKET_NAMES = {
@@ -60,4 +74,5 @@ MARKET_NAMES = {
     "stocks": "Акции/ETF",
     "ru": "RU",
     "br": "Brasil B3",
+    "id": "Indonesia IDX",
 }

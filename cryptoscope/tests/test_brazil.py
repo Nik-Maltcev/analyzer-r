@@ -83,7 +83,7 @@ def test_fetch_retries_only_missing_tickers(monkeypatch):
             return full_download.loc[:, pd.IndexSlice[["PETR4.SA"], :]]
         return full_download
 
-    monkeypatch.setattr("app.data.brazil.time.sleep", lambda _: None)
+    monkeypatch.setattr("app.data.yahoo_market.time.sleep", lambda _: None)
     result = fetch_brazil_prices(
         tickers=["PETR4", "VALE3"],
         batch_size=2,

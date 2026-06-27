@@ -1,12 +1,11 @@
 """Signals API endpoints."""
 
 import numpy as np
-import pandas as pd
-from fastapi import APIRouter, Query, Request
-from app.db.database import get_connection, fetch_prices, fetch_pairs
-from app.core.cointegration import compute_zscore, forecast_zscore
-from app.core.signals import determine_signal, determine_strength, estimate_signal_timing
+from fastapi import APIRouter, Query
+
 from app.core.calculator import calc_signal_pnl
+from app.core.signals import estimate_signal_timing
+from app.db.database import fetch_pairs, fetch_prices, get_connection
 
 router = APIRouter(prefix="/signals", tags=["signals"])
 
@@ -54,7 +53,7 @@ def _project_tomorrow_move(z_now, halflife):
 
 @router.get("")
 async def get_signals(
-    market: str = Query("crypto", description="Market: crypto, stocks, ru, br"),
+    market: str = Query("crypto", description="Market: crypto, stocks, ru, br, id"),
     min_corr: float = Query(0.5, ge=0, le=1, description="Minimum correlation"),
     min_coint: bool = Query(False, description="Only cointegrated pairs"),
     max_days: int = Query(30, ge=1, le=60, description="Max days for quick signals"),
@@ -62,17 +61,17 @@ async def get_signals(
     """Get active trading signals."""
     async with get_connection() as conn:
         pairs = await fetch_pairs(conn, market, min_corr)
-    
+
     if pairs.empty:
         return {"signals": [], "total": 0, "active": 0}
-    
+
     # Filter cointegrated only
     if min_coint:
         pairs = pairs[pairs["is_coint"] == 1]
-    
+
     # Filter by half-life (fast signals)
     pairs = pairs[(pairs["halflife"].isna()) | (pairs["halflife"] <= max_days)]
-    
+
     # Convert to dict records
     signals = []
     for _, row in pairs.iterrows():
@@ -88,7 +87,7 @@ async def get_signals(
             hl,
             fallback_started_at=row.get("computed_at"),
         ) if signal_type != "wait" else estimate_signal_timing(None, hl)
-        
+
         signals.append({
             "pair_id": f"{row['ticker_a']}_{row['ticker_b']}",
             "ticker_a": row["ticker_a"],
@@ -105,9 +104,9 @@ async def get_signals(
             "signal_type": signal_type,
             "strength": row["strength"],
         })
-    
+
     active = [s for s in signals if s["signal_type"] != "wait"]
-    
+
     return {
         "signals": signals,
         "active_signals": active,
@@ -126,15 +125,15 @@ async def get_forecast_trades(
     """Get forecast trades (Прогноз mode)."""
     async with get_connection() as conn:
         pairs = await fetch_pairs(conn, market, min_corr)
-    
+
     if pairs.empty:
         return {"trades": [], "total": 0}
-    
+
     # Filter active signals
     active = pairs[pairs["signal_type"] != "wait"].copy()
     if active.empty:
         return {"trades": [], "total": 0}
-    
+
     trades = []
     for _, row in active.iterrows():
         z_now = _finite_float(row.get("z_now"), 0.0)
@@ -146,13 +145,13 @@ async def get_forecast_trades(
             hl,
             fallback_started_at=row.get("computed_at"),
         )
-        
+
         # Estimate P&L based on Z-score move
         pnl_est = abs(z_now) - 0.5  # expected move back to ±0.5
         pnl_pct = max(0, round(float(pnl_est), 2))
         win_rate = 65 if _finite_bool(row.get("is_coint")) else 50
         z_forecast = _finite_float(row.get("z_forecast"))
-        
+
         trades.append({
             "pair": f"{row['ticker_a']}/{row['ticker_b']}",
             "ticker_a": row["ticker_a"],
@@ -171,9 +170,9 @@ async def get_forecast_trades(
             "best_pnl": round(float(pnl_pct * 1.5), 2),
             "worst_pnl": round(float(-pnl_pct), 2),
         })
-    
+
     trades.sort(key=lambda x: abs(x.get("z_now", 0) or 0), reverse=True)
-    
+
     return {
         "trades": trades,
         "total": len(trades),
@@ -200,12 +199,12 @@ async def get_dashboard(
     async with get_connection() as conn:
         pairs = await fetch_pairs(conn, market, 0.5)
         prices_df = await fetch_prices(conn, market)
-    
+
     if pairs.empty:
         return {"n_active": 0, "n_total": 0, "best_signal": None}
-    
+
     active = pairs[pairs["signal_type"] != "wait"]
-    
+
     # Market volatility (7-day)
     volatility_str = "Низкая"
     if not prices_df.empty:
@@ -220,7 +219,7 @@ async def get_dashboard(
                 volatility_str = "Средняя"
         except Exception:
             pass
-    
+
     # Best signal
     best = None
     if not active.empty:
@@ -231,7 +230,7 @@ async def get_dashboard(
             "z_now": round(float(best_row.get("z_now", 0) or 0), 2),
             "strength": best_row.get("strength", "Нет"),
         }
-    
+
     return {
         "n_active": len(active),
         "n_total": len(pairs),

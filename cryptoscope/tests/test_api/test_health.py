@@ -1,21 +1,22 @@
 """Tests for health endpoint."""
 
-import pytest
-from httpx import AsyncClient, ASGITransport
-import sys
 import os
+import sys
+
+import pytest
+from httpx import ASGITransport, AsyncClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.db.database import set_db_path
 from app.config import get_settings
+from app.db.database import set_db_path
 
 
 @pytest.fixture
 def app(temp_db):
     """Create test FastAPI app with temp database."""
     set_db_path(temp_db)
-    
+
     from app.main import app
     return app
 
@@ -75,6 +76,17 @@ async def test_brazil_signals_endpoint(app):
 
 
 @pytest.mark.asyncio
+async def test_indonesia_signals_endpoint(app):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/signals?market=id")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 0
+        assert data["active"] == 0
+
+
+@pytest.mark.asyncio
 async def test_dashboard_endpoint(app, temp_db):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -93,6 +105,7 @@ async def test_index_page(app):
         assert response.status_code == 200
         assert "CryptoScope" in response.text
         assert 'data-market="br"' in response.text
+        assert 'data-market="id"' in response.text
 
 
 @pytest.mark.asyncio
