@@ -11,7 +11,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.cointegration import engle_granger, compute_zscore, forecast_zscore
-from app.core.signals import determine_signal, determine_strength, compute_pair_score
+from app.core.signals import (
+    compute_pair_score,
+    determine_signal,
+    determine_strength,
+    resolve_signal_started_at,
+)
 from app.core.scanners import correlation_matrix
 
 DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
@@ -39,6 +44,28 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
     
     if n < 2:
         return
+
+    pair_columns = {row[1] for row in conn.execute("PRAGMA table_info(pairs)")}
+    if "signal_started_at" not in pair_columns:
+        conn.execute("ALTER TABLE pairs ADD COLUMN signal_started_at TEXT")
+
+    previous_rows = conn.execute(
+        """
+        SELECT ticker_a, ticker_b, signal_type, signal_started_at, computed_at
+        FROM pairs
+        WHERE market = ?
+        """,
+        (market_name,),
+    ).fetchall()
+    previous_pairs = {
+        (row[0], row[1]): {
+            "signal_type": row[2],
+            "signal_started_at": row[3],
+            "computed_at": row[4],
+        }
+        for row in previous_rows
+    }
+    computed_at = time.strftime("%Y-%m-%d %H:%M:%S")
     
     # Log returns and correlation matrix
     log_rets = np.log(wide / wide.shift(1)).values
@@ -69,6 +96,14 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
             sig = determine_signal(z_now_val, z_forecast_val, ta, tb)
             strength = determine_strength(cg["is_coint"], z_now_val, z_forecast_val)
             score = compute_pair_score(corr_val, cg["is_coint"], cg["halflife"])
+            previous = previous_pairs.get((ta, tb), {})
+            signal_started_at = resolve_signal_started_at(
+                current_signal_type=sig["signal_type"],
+                previous_signal_type=previous.get("signal_type"),
+                previous_started_at=previous.get("signal_started_at"),
+                previous_computed_at=previous.get("computed_at"),
+                now=computed_at,
+            )
             
             results.append({
                 "market": market_name,
@@ -85,7 +120,8 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
                 "signal": sig["signal"],
                 "signal_type": sig["signal_type"],
                 "strength": strength,
-                "computed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "signal_started_at": signal_started_at,
+                "computed_at": computed_at,
             })
     
     # Write to DB

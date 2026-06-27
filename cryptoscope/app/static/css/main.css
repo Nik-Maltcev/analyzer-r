@@ -3251,6 +3251,58 @@ h3,
     background: rgba(36, 199, 192, 0.055);
 }
 
+.signal-timing {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 8px 0 12px;
+    border: 1px solid rgba(36, 199, 192, 0.28);
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(36, 199, 192, 0.055);
+}
+
+.signal-timing-item {
+    min-width: 0;
+    padding: 8px 9px;
+}
+
+.signal-timing-item + .signal-timing-item {
+    border-left: 1px solid var(--border);
+}
+
+.signal-timing-item span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.2;
+    text-transform: uppercase;
+}
+
+.signal-timing-item strong {
+    display: block;
+    margin-top: 3px;
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.signal-timing-remaining strong {
+    color: var(--teal);
+}
+
+.signal-timing.is-overdue {
+    border-color: rgba(255, 95, 115, 0.34);
+    background: rgba(255, 95, 115, 0.06);
+}
+
+.signal-timing.is-overdue .signal-timing-remaining strong {
+    color: var(--red-bright);
+}
+
 .signal-stat-sub {
     margin-top: 3px;
     font-size: 11px;

@@ -74,6 +74,26 @@
                 data-z-now="{{ s.z_now|default('') }}"
                 width="280" height="40"></canvas>
 
+        <div class="signal-timing {% if s.signal_is_expired %}is-overdue{% endif %}"
+             title="Ориентировочный срок рассчитан по статистическому полупериоду пары">
+            <div class="signal-timing-item">
+                <span>Сигнал с</span>
+                <strong>{{ s.signal_started_date|default("—", true) }}</strong>
+            </div>
+            <div class="signal-timing-item">
+                <span>Ожид. до</span>
+                <strong>{{ s.signal_expected_end_date|default("—", true) }}</strong>
+            </div>
+            <div class="signal-timing-item signal-timing-remaining">
+                <span>{% if s.signal_is_expired %}Сверх срока{% else %}Осталось{% endif %}</span>
+                <strong>
+                    {% if s.signal_days_remaining is none %}—
+                    {% elif s.signal_is_expired %}+{{ s.signal_days_overdue }} дн.
+                    {% else %}≈ {{ s.signal_days_remaining }} дн.{% endif %}
+                </strong>
+            </div>
+        </div>
+
         <div class="signal-stats">
             <div class="signal-stat">
                 <div class="signal-stat-label">Z сейчас</div>

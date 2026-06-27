@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS pairs (
     signal      TEXT,
     signal_type TEXT,
     strength    TEXT,
+    signal_started_at TEXT,
     computed_at TEXT DEFAULT (datetime('now')),
     UNIQUE (market, ticker_a, ticker_b)
 )

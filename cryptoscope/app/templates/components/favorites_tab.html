@@ -30,6 +30,26 @@
                     {{ '%+.2f'|format(f.pnl_total_pct) }}%
                 </div>
 
+                <div class="signal-timing {% if f.signal_is_expired %}is-overdue{% endif %}"
+                     title="Ориентировочный срок рассчитан от даты добавления по полупериоду пары">
+                    <div class="signal-timing-item">
+                        <span>Сигнал с</span>
+                        <strong>{{ f.signal_started_date|default("—", true) }}</strong>
+                    </div>
+                    <div class="signal-timing-item">
+                        <span>Ожид. до</span>
+                        <strong>{{ f.signal_expected_end_date|default("—", true) }}</strong>
+                    </div>
+                    <div class="signal-timing-item signal-timing-remaining">
+                        <span>{% if f.signal_is_expired %}Сверх срока{% else %}Осталось{% endif %}</span>
+                        <strong>
+                            {% if f.signal_days_remaining is none %}—
+                            {% elif f.signal_is_expired %}+{{ f.signal_days_overdue }} дн.
+                            {% else %}≈ {{ f.signal_days_remaining }} дн.{% endif %}
+                        </strong>
+                    </div>
+                </div>
+
                 <!-- Forecast status banner -->
                 <div class="forecast-status forecast-{{ f.status_color }}">
                     <div class="forecast-label">
@@ -61,14 +81,6 @@
                         <span class="detail-value">{{ f.signal[:30] }}</span>
                     </div>
                     <div class="detail-row">
-                        <span class="detail-label">Вход</span>
-                        <span class="detail-value">{{ f.entry_time[:16] if f.entry_time else '—' }}</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Дней в позиции</span>
-                        <span class="detail-value">{{ f.days_held }} дн.</span>
-                    </div>
-                    <div class="detail-row">
                         <span class="detail-label">Z на входе</span>
                         <span class="detail-value text-mono">{{ f.z_at_entry if f.z_at_entry is not none else '—' }}</span>
                     </div>
@@ -86,14 +98,6 @@
                         <span class="detail-label">Полупериод (HL)</span>
                         <span class="detail-value">{{ f.halflife|default('—') }} дн.</span>
                     </div>
-                    {% if f.hl_remaining is not none %}
-                    <div class="detail-row">
-                        <span class="detail-label">Осталось держать</span>
-                        <span class="detail-value {% if f.is_expired %}text-red{% elif f.hl_remaining <= 2 %}text-orange{% else %}text-green{% endif %}">
-                            {% if f.is_expired %}Просрочен{% else %}{{ f.hl_remaining }} дн.{% endif %}
-                        </span>
-                    </div>
-                    {% endif %}
                 </div>
 
                 <div class="position-actions">

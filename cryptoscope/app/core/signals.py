@@ -1,7 +1,104 @@
 """Signal computation and scoring."""
 
-import numpy as np
+import math
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+import numpy as np
+
+
+def resolve_signal_started_at(
+    current_signal_type: str,
+    previous_signal_type: Optional[str],
+    previous_started_at: Optional[str],
+    previous_computed_at: Optional[str],
+    now: str,
+) -> Optional[str]:
+    """Keep the start of an uninterrupted signal, resetting on direction changes."""
+    if current_signal_type == "wait":
+        return None
+    if previous_signal_type == current_signal_type:
+        return previous_started_at or previous_computed_at or now
+    return now
+
+
+def estimate_signal_timing(
+    started_at,
+    halflife: Optional[int],
+    now: Optional[datetime] = None,
+    fallback_started_at=None,
+) -> dict:
+    """Estimate a signal horizon from its start timestamp and statistical half-life."""
+    timing = {
+        "signal_started_at": None,
+        "signal_started_date": None,
+        "signal_expected_end_at": None,
+        "signal_expected_end_date": None,
+        "signal_days_elapsed": 0,
+        "signal_days_remaining": None,
+        "signal_days_overdue": 0,
+        "signal_is_expired": False,
+        "signal_time_progress_pct": 0,
+    }
+    if started_at is None and fallback_started_at is None:
+        return timing
+
+    start_dt = None
+    for candidate in (started_at, fallback_started_at):
+        try:
+            if isinstance(candidate, datetime):
+                parsed = candidate
+            else:
+                timestamp = str(candidate).strip().replace(" ", "T")
+                if timestamp.endswith("Z"):
+                    timestamp = f"{timestamp[:-1]}+00:00"
+                parsed = datetime.fromisoformat(timestamp)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            else:
+                parsed = parsed.astimezone(timezone.utc)
+            start_dt = parsed
+            break
+        except (TypeError, ValueError):
+            continue
+    if start_dt is None:
+        return timing
+
+    now_dt = now or datetime.now(timezone.utc)
+    if now_dt.tzinfo is None:
+        now_dt = now_dt.replace(tzinfo=timezone.utc)
+    else:
+        now_dt = now_dt.astimezone(timezone.utc)
+
+    elapsed_seconds = max(0.0, (now_dt - start_dt).total_seconds())
+    timing.update({
+        "signal_started_at": start_dt.isoformat(),
+        "signal_started_date": start_dt.strftime("%d.%m.%Y"),
+        "signal_days_elapsed": int(elapsed_seconds // 86400),
+    })
+
+    try:
+        hl = int(halflife) if halflife is not None else None
+    except (TypeError, ValueError):
+        hl = None
+    if not hl or hl <= 0:
+        return timing
+
+    expected_end = start_dt + timedelta(days=hl)
+    remaining_seconds = (expected_end - now_dt).total_seconds()
+    is_expired = remaining_seconds <= 0
+    days_remaining = 0 if is_expired else math.ceil(remaining_seconds / 86400)
+    days_overdue = math.ceil(abs(remaining_seconds) / 86400) if is_expired else 0
+
+    timing.update({
+        "signal_expected_end_at": expected_end.isoformat(),
+        "signal_expected_end_date": expected_end.strftime("%d.%m.%Y"),
+        "signal_days_remaining": days_remaining,
+        "signal_days_overdue": days_overdue,
+        "signal_is_expired": is_expired,
+        "signal_time_progress_pct": min(100, round(elapsed_seconds / (hl * 86400) * 100)),
+    })
+    return timing
 
 
 def determine_signal(z_now: Optional[float], z_forecast: Optional[float], ticker_a: str, ticker_b: str) -> dict:

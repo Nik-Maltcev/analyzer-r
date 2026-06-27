@@ -1,6 +1,5 @@
 """Favorites API endpoints."""
 
-from datetime import datetime, timezone
 import math
 from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
@@ -8,6 +7,7 @@ from app.db.database import (
     get_connection, fetch_favorites, fetch_favorites_history,
     toggle_favorite, close_favorite, delete_favorite,
 )
+from app.core.signals import estimate_signal_timing
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
 
@@ -108,22 +108,12 @@ async def get_favorites(user_id: str = Query("local")):
         else:
             pnl_total = 0
         
-        hl = row.get("halflife")
+        hl = _query_int(row.get("halflife"), None)
         entry_time = row.get("entry_time")
-        days_held = 0
-        hl_remaining = hl
-        is_expired = False
-        if entry_time:
-            try:
-                entry_dt = datetime.fromisoformat(entry_time.replace(" ", "T"))
-                if entry_dt.tzinfo is None:
-                    entry_dt = entry_dt.replace(tzinfo=timezone.utc)
-                days_held = max(0, (datetime.now(timezone.utc) - entry_dt).days)
-                if hl:
-                    hl_remaining = max(0, int(hl) - days_held)
-                    is_expired = days_held >= int(hl)
-            except Exception:
-                pass
+        timing = estimate_signal_timing(entry_time, hl)
+        days_held = timing["signal_days_elapsed"]
+        hl_remaining = timing["signal_days_remaining"]
+        is_expired = timing["signal_is_expired"]
 
         active_positions.append({
             "id": int(row["id"]),
@@ -143,6 +133,7 @@ async def get_favorites(user_id: str = Query("local")):
             "days_held": days_held,
             "hl_remaining": hl_remaining,
             "is_expired": is_expired,
+            **timing,
             "corr": row.get("corr"),
             "status": row.get("status", "active"),
         })

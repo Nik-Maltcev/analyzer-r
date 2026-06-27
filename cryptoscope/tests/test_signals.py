@@ -1,11 +1,19 @@
 """Tests for signal computation and scoring."""
 
-import sys
 import os
+import sys
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.core.signals import determine_signal, determine_strength, compute_pair_score, correlation_matrix
+from app.core.signals import (
+    compute_pair_score,
+    correlation_matrix,
+    determine_signal,
+    determine_strength,
+    estimate_signal_timing,
+    resolve_signal_started_at,
+)
 import numpy as np
 
 
@@ -79,6 +87,63 @@ class TestPairScore:
     def test_score_is_float(self):
         score = compute_pair_score(corr=0.5, is_coint=False, halflife=30)
         assert isinstance(score, float)
+
+
+class TestSignalTiming:
+    def test_estimates_remaining_days_and_end_date(self):
+        now = datetime(2026, 6, 27, 12, tzinfo=timezone.utc)
+
+        result = estimate_signal_timing("2026-06-26 12:00:00", 13, now=now)
+
+        assert result["signal_started_date"] == "26.06.2026"
+        assert result["signal_expected_end_date"] == "09.07.2026"
+        assert result["signal_days_elapsed"] == 1
+        assert result["signal_days_remaining"] == 12
+        assert result["signal_is_expired"] is False
+
+    def test_marks_overdue_signal(self):
+        now = datetime(2026, 6, 30, tzinfo=timezone.utc)
+
+        result = estimate_signal_timing("2026-06-26 00:00:00", 2, now=now)
+
+        assert result["signal_days_remaining"] == 0
+        assert result["signal_days_overdue"] == 2
+        assert result["signal_is_expired"] is True
+
+    def test_falls_back_to_last_computation_for_migrated_rows(self):
+        now = datetime(2026, 6, 27, 12, tzinfo=timezone.utc)
+
+        result = estimate_signal_timing(
+            np.nan,
+            13,
+            now=now,
+            fallback_started_at="2026-06-27 06:00:00",
+        )
+
+        assert result["signal_started_date"] == "27.06.2026"
+        assert result["signal_days_remaining"] == 13
+
+    def test_keeps_uninterrupted_signal_start(self):
+        result = resolve_signal_started_at(
+            current_signal_type="long_a",
+            previous_signal_type="long_a",
+            previous_started_at="2026-06-20 06:00:00",
+            previous_computed_at="2026-06-26 06:00:00",
+            now="2026-06-27 06:00:00",
+        )
+
+        assert result == "2026-06-20 06:00:00"
+
+    def test_resets_start_when_direction_changes(self):
+        result = resolve_signal_started_at(
+            current_signal_type="short_a",
+            previous_signal_type="long_a",
+            previous_started_at="2026-06-20 06:00:00",
+            previous_computed_at="2026-06-26 06:00:00",
+            now="2026-06-27 06:00:00",
+        )
+
+        assert result == "2026-06-27 06:00:00"
 
 
 class TestCorrelationMatrix:

@@ -39,6 +39,7 @@ def main():
             corr REAL, halflife INTEGER, t_stat REAL, is_coint INTEGER,
             hedge_ratio REAL, score REAL, z_now REAL, z_forecast REAL,
             signal TEXT, signal_type TEXT, strength TEXT,
+            signal_started_at TEXT,
             computed_at TEXT DEFAULT (datetime('now')),
             UNIQUE (market, ticker_a, ticker_b)
         )

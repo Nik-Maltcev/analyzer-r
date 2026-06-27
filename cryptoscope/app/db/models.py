@@ -21,6 +21,7 @@ class PairAnalysis(BaseModel):
     signal: str = "Ждать"
     signal_type: str = "wait"
     strength: str = "Нет"
+    signal_started_at: Optional[str] = None
     computed_at: Optional[str] = None
 
 
@@ -38,6 +39,9 @@ class SignalCard(BaseModel):
     halflife: Optional[int] = None
     score: Optional[float] = None
     is_favorite: bool = False
+    signal_started_at: Optional[str] = None
+    signal_expected_end_at: Optional[str] = None
+    signal_days_remaining: Optional[int] = None
 
 
 class FavoritePosition(BaseModel):

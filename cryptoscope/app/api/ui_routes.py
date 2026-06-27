@@ -2,7 +2,6 @@
 
 import numpy as np
 import pandas as pd
-from datetime import datetime, timezone
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -12,6 +11,7 @@ from app.db.database import (
 )
 from app.core.cointegration import engle_granger, compute_zscore, forecast_zscore
 from app.core.scanners import corr_breakdown_scan, momentum_scan, drawdown_scan
+from app.core.signals import estimate_signal_timing
 
 router = APIRouter(prefix="/tab", tags=["ui"])
 templates = Jinja2Templates(directory="app/templates")
@@ -79,6 +79,12 @@ def _make_signal_cards(pairs, market="crypto", fav_pairs=None):
         hl = _finite_int(row.get("halflife"))
         score = _finite_float(row.get("score"))
         tomorrow_move = _project_tomorrow_move(z_now, hl)
+        signal_type = row.get("signal_type", "wait")
+        timing = estimate_signal_timing(
+            row.get("signal_started_at"),
+            hl,
+            fallback_started_at=row.get("computed_at"),
+        ) if signal_type != "wait" else estimate_signal_timing(None, hl)
         pair_id = f"{row['ticker_a']}_{row['ticker_b']}"
         signals.append({
             "pair_id": pair_id,
@@ -92,8 +98,9 @@ def _make_signal_cards(pairs, market="crypto", fav_pairs=None):
             "z_now": round(z_now, 2) if z_now is not None else None,
             "z_forecast": round(zf, 2) if zf is not None else None,
             **tomorrow_move,
+            **timing,
             "signal": row.get("signal", "Ждать"),
-            "signal_type": row.get("signal_type", "wait"),
+            "signal_type": signal_type,
             "strength": row.get("strength", "Нет"),
             "is_favorite": pair_id in fav_set,
         })
@@ -113,6 +120,11 @@ def _make_forecast_trades(pairs, fav_pairs=None):
         corr_val = _finite_float(row.get("corr"))
         z_forecast = _finite_float(row.get("z_forecast"))
         tomorrow_move = _project_tomorrow_move(z_now, hl)
+        timing = estimate_signal_timing(
+            row.get("signal_started_at"),
+            hl,
+            fallback_started_at=row.get("computed_at"),
+        )
         pair_id = f"{row['ticker_a']}_{row['ticker_b']}"
 
         trades.append({
@@ -129,6 +141,7 @@ def _make_forecast_trades(pairs, fav_pairs=None):
             "z_now": round(float(z_now), 2) if z_now else None,
             "z_forecast": round(z_forecast, 2) if z_forecast is not None else None,
             **tomorrow_move,
+            **timing,
             "win_rate": round(float(win_rate), 1),
             "avg_pnl_pct": round(float(pnl_pct), 2),
             "avg_hold_days": round(float(min(hl, 30)), 1),
@@ -485,15 +498,8 @@ async def tab_favorites(request: Request):
             hl = _finite_int(row.get("halflife"))
             z_at_entry = _finite_float(row.get("z_at_entry"))
             entry_time = row.get("entry_time")
-            days_held = 0
-            if entry_time:
-                try:
-                    entry_dt = datetime.fromisoformat(entry_time.replace(" ", "T"))
-                    if entry_dt.tzinfo is None:
-                        entry_dt = entry_dt.replace(tzinfo=timezone.utc)
-                    days_held = max(0, (datetime.now(timezone.utc) - entry_dt).days)
-                except Exception:
-                    pass
+            holding_timing = estimate_signal_timing(entry_time, hl)
+            days_held = holding_timing["signal_days_elapsed"]
 
             # Recalculate current Z-score from price history
             z_now_live = None
@@ -538,6 +544,7 @@ async def tab_favorites(request: Request):
                 "days_held": days_held,
                 "z_at_entry": round(float(z_at_entry), 2) if z_at_entry else None,
                 "z_now_live": z_now_live,
+                **holding_timing,
                 **fc,
             })
 

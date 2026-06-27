@@ -5,7 +5,7 @@ import pandas as pd
 from fastapi import APIRouter, Query, Request
 from app.db.database import get_connection, fetch_prices, fetch_pairs
 from app.core.cointegration import compute_zscore, forecast_zscore
-from app.core.signals import determine_signal, determine_strength
+from app.core.signals import determine_signal, determine_strength, estimate_signal_timing
 from app.core.calculator import calc_signal_pnl
 
 router = APIRouter(prefix="/signals", tags=["signals"])
@@ -82,6 +82,12 @@ async def get_signals(
         zf = _finite_float(row.get("z_forecast"))
         hl = _finite_int(row.get("halflife"))
         tomorrow_move = _project_tomorrow_move(z_now, hl)
+        signal_type = row.get("signal_type", "wait")
+        timing = estimate_signal_timing(
+            row.get("signal_started_at"),
+            hl,
+            fallback_started_at=row.get("computed_at"),
+        ) if signal_type != "wait" else estimate_signal_timing(None, hl)
         
         signals.append({
             "pair_id": f"{row['ticker_a']}_{row['ticker_b']}",
@@ -94,8 +100,9 @@ async def get_signals(
             "z_now": round(z_now, 4) if z_now is not None else None,
             "z_forecast": round(zf, 4) if zf is not None else None,
             **tomorrow_move,
+            **timing,
             "signal": row["signal"],
-            "signal_type": row["signal_type"],
+            "signal_type": signal_type,
             "strength": row["strength"],
         })
     
@@ -134,6 +141,11 @@ async def get_forecast_trades(
         hl = _finite_int(row.get("halflife"), 30)
         avg_hold = min(hl, max_days)
         tomorrow_move = _project_tomorrow_move(z_now, hl)
+        timing = estimate_signal_timing(
+            row.get("signal_started_at"),
+            hl,
+            fallback_started_at=row.get("computed_at"),
+        )
         
         # Estimate P&L based on Z-score move
         pnl_est = abs(z_now) - 0.5  # expected move back to ±0.5
@@ -151,6 +163,7 @@ async def get_forecast_trades(
             "z_now": round(float(z_now), 4) if z_now else None,
             "z_forecast": round(z_forecast, 4) if z_forecast is not None else None,
             **tomorrow_move,
+            **timing,
             "win_rate": round(float(win_rate), 1),
             "n_similar": 0,
             "avg_pnl_pct": round(float(pnl_pct), 2),

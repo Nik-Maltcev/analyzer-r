@@ -24,6 +24,25 @@
                 {{ t.signal_type }}
             </span>
         </div>
+        <div class="signal-timing {% if t.signal_is_expired %}is-overdue{% endif %}"
+             title="Ориентировочный срок рассчитан по статистическому полупериоду пары">
+            <div class="signal-timing-item">
+                <span>Сигнал с</span>
+                <strong>{{ t.signal_started_date|default("—", true) }}</strong>
+            </div>
+            <div class="signal-timing-item">
+                <span>Ожид. до</span>
+                <strong>{{ t.signal_expected_end_date|default("—", true) }}</strong>
+            </div>
+            <div class="signal-timing-item signal-timing-remaining">
+                <span>{% if t.signal_is_expired %}Сверх срока{% else %}Осталось{% endif %}</span>
+                <strong>
+                    {% if t.signal_days_remaining is none %}—
+                    {% elif t.signal_is_expired %}+{{ t.signal_days_overdue }} дн.
+                    {% else %}≈ {{ t.signal_days_remaining }} дн.{% endif %}
+                </strong>
+            </div>
+        </div>
         <div class="signal-stats">
             <div class="signal-stat">
                 <div class="signal-stat-label">Z вход</div>

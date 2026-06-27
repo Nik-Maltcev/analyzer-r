@@ -42,6 +42,10 @@ async def init_db(db_path: Optional[str] = None):
     async with get_connection(db_path) as conn:
         for sql in ALL_TABLES_SQL:
             await conn.execute(sql)
+        cursor = await conn.execute("PRAGMA table_info(pairs)")
+        pair_columns = {row["name"] for row in await cursor.fetchall()}
+        if "signal_started_at" not in pair_columns:
+            await conn.execute("ALTER TABLE pairs ADD COLUMN signal_started_at TEXT")
         for sql in ALL_INDICES_SQL:
             await conn.execute(sql)
         await conn.commit()
