@@ -54,7 +54,7 @@ def _project_tomorrow_move(z_now, halflife):
 
 @router.get("")
 async def get_signals(
-    market: str = Query("crypto", description="Market: crypto, stocks, ru"),
+    market: str = Query("crypto", description="Market: crypto, stocks, ru, br"),
     min_corr: float = Query(0.5, ge=0, le=1, description="Minimum correlation"),
     min_coint: bool = Query(False, description="Only cointegrated pairs"),
     max_days: int = Query(30, ge=1, le=60, description="Max days for quick signals"),

@@ -6,7 +6,8 @@
 
     <div class="ai-controls">
         <button class="btn btn-primary btn-lg" 
-                hx-post="/api/ai/analyze?market=crypto" 
+                hx-post="/api/ai/analyze"
+                hx-vals='js:{market: currentMarket}'
                 hx-target="#ai-result" 
                 hx-swap="innerHTML"
                 hx-indicator="#ai-loading">

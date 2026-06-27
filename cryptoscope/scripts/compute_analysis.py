@@ -13,11 +13,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.core.cointegration import engle_granger, compute_zscore, forecast_zscore
 from app.core.signals import (
     compute_pair_score,
+    correlation_matrix,
     determine_signal,
     determine_strength,
     resolve_signal_started_at,
 )
-from app.core.scanners import correlation_matrix
 
 DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
 
@@ -153,7 +153,7 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
 def main():
     conn = sqlite3.connect(DB_PATH)
     
-    for market in ["crypto", "stocks", "ru"]:
+    for market in ["crypto", "stocks", "ru", "br"]:
         try:
             compute_market_pairs(market, conn)
         except Exception as e:

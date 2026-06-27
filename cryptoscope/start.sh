@@ -1,11 +1,13 @@
 #!/bin/bash
 # CryptoScope startup script
-# 1. Save env vars
-# 2. Rebuild DB if needed
-# 3. Auto-compute pairs if empty
-# 4. Load hourly/RU/favorites migrations
-# 5. Start background updater loop
-# 6. Launch app
+# 1. Rebuild DB if needed
+# 2. Auto-compute pairs if empty
+# 3. Load hourly candles
+# 4. Load RU market
+# 5. Load Brazil market
+# 6. Ensure favorites storage
+# 7. Start background updater loop
+# 8. Launch app
 
 set -e
 
@@ -54,10 +56,18 @@ if [ $? -eq 0 ]; then
     fi
 fi
 
-# 5. Ensure favorites table
+# 5. Load Brazil B3 stocks
+python /scripts/load_brazil.py
+BR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='br';" 2>/dev/null || echo "0")
+BR_PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs WHERE market='br';" 2>/dev/null || echo "0")
+if [ "$BR_COUNT" -gt 0 ] && [ "$BR_PAIR_COUNT" -lt 1 ]; then
+    python /scripts/compute_analysis.py
+fi
+
+# 6. Ensure favorites table
 python /scripts/load_favorites.py
 
-# 6. Start background update loop (checks every 30s, runs daily_update at 06:00 UTC)
+# 7. Start background update loop (checks every 30s, runs daily_update at 06:00 UTC)
 (
     while true; do
         CURRENT_HOUR=$(date -u +%H)
@@ -71,6 +81,6 @@ python /scripts/load_favorites.py
     done
 ) &
 
-# 7. Launch FastAPI app
+# 8. Launch FastAPI app
 echo "Starting CryptoScope on port $PORT..."
 exec python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT"

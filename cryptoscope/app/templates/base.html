@@ -24,7 +24,7 @@
             <a href="/" class="nav-tab active" data-tab="signals">
                 <span class="tab-icon">🚦</span> Сигналы
             </a>
-            <a href="#" class="nav-tab" data-tab="portfolio" hx-get="/tab/portfolio" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">
+            <a href="#" class="nav-tab" data-tab="portfolio" hx-get="/tab/portfolio" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-vals='js:{market: currentMarket}'>
                 <span class="tab-icon">📊</span> Портфель
             </a>
             <a href="#" class="nav-tab" data-tab="scanners" hx-get="/tab/scanners" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">
@@ -36,7 +36,7 @@
             <a href="#" class="nav-tab" data-tab="data" hx-get="/tab/data" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">
                 <span class="tab-icon">📂</span> Данные
             </a>
-            <a href="#" class="nav-tab" data-tab="ai" hx-get="/tab/ai" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">
+            <a href="#" class="nav-tab" data-tab="ai" hx-get="/tab/ai" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-vals='js:{market: currentMarket}'>
                 <span class="tab-icon">🤖</span> AI-аналитик
             </a>
         </div>

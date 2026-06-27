@@ -243,6 +243,7 @@
 <script>
 (function () {
     'use strict';
+    const signalMarket = {{ market|default("crypto")|tojson }};
 
     /* ---------- Sparklines ---------- */
     function drawSparkline(canvas, values) {
@@ -308,7 +309,7 @@
         const ta = canvas.dataset.tickerA;
         const tb = canvas.dataset.tickerB;
         if (!ta || !tb) return;
-        fetch(`/api/charts/sparkline/${encodeURIComponent(ta)}/${encodeURIComponent(tb)}`)
+        fetch(`/api/charts/sparkline/${encodeURIComponent(ta)}/${encodeURIComponent(tb)}?market=${encodeURIComponent(signalMarket)}`)
             .then(r => r.json())
             .then(data => {
                 const vals = (data && (data.values || data.zscores)) || [];

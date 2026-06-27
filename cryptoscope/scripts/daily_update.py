@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Daily price update from Twelve Data API + recompute analysis (port of daily_update.R)."""
+"""Daily market price refresh and pair-analysis recomputation."""
 
 import asyncio
 import os
@@ -13,11 +13,13 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.data.tickers import CRYPTO_TICKERS, STOCK_TICKERS
+from app.data.brazil import fetch_brazil_prices, upsert_brazil_prices
 from app.data.fetcher import fetch_batch
+from app.data.tickers import BRAZIL_TICKERS, CRYPTO_TICKERS, STOCK_TICKERS
 
 DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
 API_KEY = os.environ.get("TWELVEDATA_API_KEY", "")
+BRAZIL_HISTORY_YEARS = int(os.environ.get("BRAZIL_HISTORY_YEARS", "3"))
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
@@ -82,20 +84,55 @@ def update_market(tickers: list, market_name: str, conn: sqlite3.Connection, api
     return rows_added
 
 
+def update_brazil_market(conn: sqlite3.Connection) -> int:
+    """Refresh a rolling adjusted history for Brazil B3 equities."""
+    try:
+        prices = fetch_brazil_prices(history_years=BRAZIL_HISTORY_YEARS)
+        rows_written = upsert_brazil_prices(conn, prices, BRAZIL_TICKERS)
+        tickers_ok = prices["ticker"].nunique() if not prices.empty else 0
+        status = "ok" if rows_written else "error"
+        message = "Brazil adjusted history refreshed" if rows_written else "No Brazil data returned"
+    except Exception as exc:
+        rows_written = 0
+        tickers_ok = 0
+        status = "error"
+        message = f"Brazil update failed: {exc}"
+
+    conn.execute(
+        """
+        INSERT INTO update_log (market, tickers_ok, tickers_fail, rows_added, status, message)
+        VALUES ('br', ?, ?, ?, ?, ?)
+        """,
+        (
+            tickers_ok,
+            max(0, len(BRAZIL_TICKERS) - tickers_ok),
+            rows_written,
+            status,
+            message,
+        ),
+    )
+    conn.commit()
+    print(
+        f"  [br] OK={tickers_ok} "
+        f"FAIL={max(0, len(BRAZIL_TICKERS) - tickers_ok)} ROWS={rows_written}"
+    )
+    return rows_written
+
+
 def main():
-    if not API_KEY:
-        print("TWELVEDATA_API_KEY not set, skipping update")
-        return
-    
     conn = sqlite3.connect(DB_PATH)
     
     total = 0
-    total += update_market(CRYPTO_TICKERS, "crypto", conn, API_KEY)
-    total += update_market(STOCK_TICKERS, "stocks", conn, API_KEY)
+    if API_KEY:
+        total += update_market(CRYPTO_TICKERS, "crypto", conn, API_KEY)
+        total += update_market(STOCK_TICKERS, "stocks", conn, API_KEY)
+    else:
+        print("TWELVEDATA_API_KEY not set, skipping crypto and stocks")
+    total += update_brazil_market(conn)
     
     conn.close()
     
-    print(f"\nTotal new rows: {total}")
+    print(f"\nTotal inserted or refreshed rows: {total}")
     
     # Recompute analysis
     if total > 0:

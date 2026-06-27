@@ -64,6 +64,17 @@ async def test_signals_endpoint(app, temp_db):
 
 
 @pytest.mark.asyncio
+async def test_brazil_signals_endpoint(app):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/signals?market=br")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 0
+        assert data["active"] == 0
+
+
+@pytest.mark.asyncio
 async def test_dashboard_endpoint(app, temp_db):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -81,6 +92,7 @@ async def test_index_page(app):
         response = await client.get("/")
         assert response.status_code == 200
         assert "CryptoScope" in response.text
+        assert 'data-market="br"' in response.text
 
 
 @pytest.mark.asyncio

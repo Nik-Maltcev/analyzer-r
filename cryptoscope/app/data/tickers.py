@@ -37,14 +37,27 @@ RU_TICKERS = [
     "SNGS", "AFLT", "MOEX", "PHOR", "PLZL", "TCSG",
 ]
 
+BRAZIL_TICKERS = [
+    "PETR4", "VALE3", "ITUB4", "BBDC4", "BBAS3",
+    "ABEV3", "WEGE3", "B3SA3", "AXIA3", "PRIO3",
+    "SUZB3", "GGBR4", "CSNA3", "PSSA3", "MBRF3",
+    "EMBJ3", "RENT3", "RAIL3", "RADL3", "RDOR3",
+    "HAPV3", "EQTL3", "CMIG4", "VIVT3", "TIMS3",
+    "TOTS3", "LREN3", "MGLU3", "CYRE3", "MULT3",
+    "BBSE3", "BPAC11", "SANB11", "KLBN11", "ENEV3",
+    "ASAI3", "UGPA3", "CSAN3", "SLCE3", "RECV3",
+]
+
 ALL_MARKETS = {
     "crypto": CRYPTO_TICKERS,
     "stocks": STOCK_TICKERS,
     "ru": RU_TICKERS,
+    "br": BRAZIL_TICKERS,
 }
 
 MARKET_NAMES = {
     "crypto": "Crypto",
     "stocks": "Акции/ETF",
     "ru": "RU",
+    "br": "Brasil B3",
 }

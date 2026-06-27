@@ -96,6 +96,7 @@
 
 <script>
 let spreadChart = null;
+const portfolioMarket = {{ market|default("crypto")|tojson }};
 
 function loadSpreadChart() {
     const ta = document.getElementById('spread-a').value;
@@ -105,7 +106,7 @@ function loadSpreadChart() {
     const taEnc = ta.replace('/', '.');
     const tbEnc = tb.replace('/', '.');
     
-    fetch(`/api/charts/spread/${taEnc}/${tbEnc}?market=crypto`)
+    fetch(`/api/charts/spread/${taEnc}/${tbEnc}?market=${encodeURIComponent(portfolioMarket)}`)
         .then(r => r.json())
         .then(data => renderSpreadChart(data))
         .catch(e => showToast('Ошибка загрузки графика', 'error'));
