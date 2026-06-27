@@ -97,6 +97,7 @@ CREATE_FAVORITES = """
 CREATE TABLE IF NOT EXISTS favorites (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     pair         TEXT NOT NULL,
+    market       TEXT DEFAULT 'crypto',
     ticker_a     TEXT NOT NULL,
     ticker_b     TEXT NOT NULL,
     signal       TEXT,

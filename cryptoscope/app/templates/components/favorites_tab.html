@@ -16,6 +16,7 @@
                         <strong>{{ f.ticker_a }} / {{ f.ticker_b }}</strong>
                     </div>
                     <div class="position-badges">
+                        <span class="badge badge-gray">{{ f.market|upper }}</span>
                         {% if f.is_expired %}
                         <span class="badge badge-red" title="Сигнал держится дольше полупериода">⚠ Просрочен</span>
                         {% endif %}
@@ -88,6 +89,18 @@
                     <div class="detail-row">
                         <span class="detail-label">Z сейчас</span>
                         <span class="detail-value text-mono {% if f.z_now_live >= 2 %}text-orange{% elif f.z_now_live <= -2 %}text-green{% endif %}">{{ f.z_now_live }}</span>
+                    </div>
+                    {% endif %}
+                    {% if f.price_a_entry is not none and f.price_a_now is not none %}
+                    <div class="detail-row">
+                        <span class="detail-label">{{ f.ticker_a }}: вход → сейчас</span>
+                        <span class="detail-value text-mono">{{ f.price_a_entry }} → {{ f.price_a_now }}</span>
+                    </div>
+                    {% endif %}
+                    {% if f.price_b_entry is not none and f.price_b_now is not none %}
+                    <div class="detail-row">
+                        <span class="detail-label">{{ f.ticker_b }}: вход → сейчас</span>
+                        <span class="detail-value text-mono">{{ f.price_b_entry }} → {{ f.price_b_now }}</span>
                     </div>
                     {% endif %}
                     <div class="detail-row">

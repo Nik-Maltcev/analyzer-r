@@ -1,10 +1,11 @@
-import pytest
-import numpy as np
-import pandas as pd
-import sqlite3
 import os
+import sqlite3
 import tempfile
 from typing import Optional
+
+import numpy as np
+import pandas as pd
+import pytest
 
 
 @pytest.fixture
@@ -12,17 +13,16 @@ def sample_prices():
     """Generate synthetic cointegrated price series."""
     np.random.seed(42)
     n = 500
-    t = np.arange(n)
-    
+
     # Random walk (common trend)
     rw = np.cumsum(np.random.randn(n) * 0.01)
-    
+
     # Asset A: random walk + small noise
     pa = 100 * np.exp(rw + np.random.randn(n) * 0.005)
-    
+
     # Asset B: 0.5 * random_walk + larger noise (cointegrated with A)
     pb = 50 * np.exp(0.5 * rw + np.random.randn(n) * 0.008)
-    
+
     return pa, pb
 
 
@@ -55,16 +55,16 @@ def temp_db():
     """Create a temporary SQLite database for testing."""
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
-    
+
     conn = sqlite3.connect(path)
-    
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS prices (
             ticker TEXT NOT NULL, date TEXT NOT NULL, close REAL NOT NULL,
             volume REAL, market TEXT, PRIMARY KEY (ticker, date)
         )
     """)
-    
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS pairs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,11 +76,12 @@ def temp_db():
             computed_at TEXT, UNIQUE (market, ticker_a, ticker_b)
         )
     """)
-    
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS favorites (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pair TEXT NOT NULL, ticker_a TEXT NOT NULL, ticker_b TEXT NOT NULL,
+            pair TEXT NOT NULL, market TEXT DEFAULT 'crypto',
+            ticker_a TEXT NOT NULL, ticker_b TEXT NOT NULL,
             signal TEXT, signal_type TEXT, z_at_entry REAL,
             price_a_entry REAL, price_b_entry REAL,
             entry_time TEXT, exit_time TEXT, exit_price_a REAL,
@@ -89,7 +90,20 @@ def temp_db():
             user_id TEXT DEFAULT 'local', created_at TEXT
         )
     """)
-    
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS update_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT DEFAULT (datetime('now')),
+            market TEXT,
+            tickers_ok INTEGER,
+            tickers_fail INTEGER,
+            rows_added INTEGER,
+            status TEXT,
+            message TEXT
+        )
+    """)
+
     # Seed some test data
     dates = [f'2024-01-{d:02d}' for d in range(1, 31)]
     for i, date in enumerate(dates):
@@ -101,14 +115,14 @@ def temp_db():
             "INSERT OR IGNORE INTO prices (ticker, date, close, market) VALUES (?, ?, ?, ?)",
             ("ETH/USD", date, 2000 + i * 10 + np.random.randn() * 30, "crypto")
         )
-    
+
     conn.execute("""
         INSERT OR IGNORE INTO pairs (market, ticker_a, ticker_b, corr, halflife, t_stat, is_coint, score, z_now, signal, signal_type, strength)
         VALUES ('crypto', 'BTC/USD', 'ETH/USD', 0.85, 30, -3.5, 1, 1.15, 2.3, 'Шорт BTC / Лонг ETH', 'short_a', 'Сильный')
     """)
-    
+
     conn.commit()
-    
+
     yield path
     conn.close()
     os.unlink(path)

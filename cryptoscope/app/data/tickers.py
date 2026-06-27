@@ -34,7 +34,7 @@ STOCK_TICKERS = [
 RU_TICKERS = [
     "SBER", "GAZP", "LKOH", "GMKN", "ROSN", "VTBR",
     "TATN", "NVTK", "ALRS", "MTSS", "MGNT", "CHMF",
-    "SNGS", "AFLT", "MOEX", "PHOR", "PLZL", "TCSG",
+    "SNGS", "AFLT", "MOEX", "PHOR", "PLZL", "T",
 ]
 
 BRAZIL_TICKERS = [

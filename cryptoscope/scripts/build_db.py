@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Build SQLite database from seed CSVs (port of build_db.R)."""
 
-import sqlite3
-import pandas as pd
 import os
+import sqlite3
 import sys
+
+import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -18,7 +19,7 @@ DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
 def main():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
-    
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS prices (
             ticker TEXT NOT NULL,
@@ -31,7 +32,7 @@ def main():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prices_ticker ON prices(ticker)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prices_date ON prices(date)")
-    
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS pairs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,7 +47,7 @@ def main():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pairs_market ON pairs(market)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pairs_score ON pairs(score DESC)")
-    
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS signals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,7 +57,7 @@ def main():
             created_at TEXT DEFAULT (datetime('now'))
         )
     """)
-    
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS update_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,7 +66,7 @@ def main():
             rows_added INTEGER, status TEXT, message TEXT
         )
     """)
-    
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS hourly_prices (
             ticker TEXT NOT NULL, timestamp TEXT NOT NULL,
@@ -76,11 +77,12 @@ def main():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_hourly_ticker ON hourly_prices(ticker)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_hourly_hour ON hourly_prices(hour)")
-    
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS favorites (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pair TEXT NOT NULL, ticker_a TEXT NOT NULL, ticker_b TEXT NOT NULL,
+            pair TEXT NOT NULL, market TEXT DEFAULT 'crypto',
+            ticker_a TEXT NOT NULL, ticker_b TEXT NOT NULL,
             signal TEXT, signal_type TEXT, z_at_entry REAL,
             price_a_entry REAL, price_b_entry REAL,
             entry_time TEXT, exit_time TEXT, exit_price_a REAL,
@@ -89,7 +91,7 @@ def main():
             user_id TEXT DEFAULT 'local', created_at TEXT DEFAULT (datetime('now'))
         )
     """)
-    
+
     # Load main CSV
     if os.path.exists(CSV_PATH):
         print(f"Loading {CSV_PATH}...")
@@ -101,7 +103,7 @@ def main():
         print(f"  Inserted {len(df)} rows")
     else:
         print(f"CSV not found: {CSV_PATH}")
-    
+
     # Load RU CSV
     if os.path.exists(RU_CSV_PATH):
         print(f"Loading {RU_CSV_PATH}...")
@@ -113,7 +115,7 @@ def main():
         df = df[(df["close"].notna()) & (df["close"] > 0)]
         df.to_sql("prices", conn, if_exists="append", index=False)
         print(f"  Inserted {len(df)} RU rows")
-    
+
     # Load hourly CSV
     if os.path.exists(HOURLY_PATH):
         print(f"Loading {HOURLY_PATH}...")
@@ -123,7 +125,7 @@ def main():
         df = df[[c for c in cols if c in df.columns]]
         df.to_sql("hourly_prices", conn, if_exists="append", index=False)
         print(f"  Inserted {len(df)} hourly rows")
-    
+
     # Log
     conn.execute("""
         INSERT INTO update_log (market, tickers_ok, rows_added, status, message)
@@ -131,9 +133,9 @@ def main():
     """, ("all", conn.execute("SELECT COUNT(DISTINCT ticker) FROM prices").fetchone()[0],
           conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0],
           "ok", "Database built from seed CSVs"))
-    
+
     conn.commit()
-    
+
     n_tickers = conn.execute("SELECT COUNT(DISTINCT ticker) FROM prices").fetchone()[0]
     n_rows = conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0]
     print(f"\nDatabase built: {n_tickers} tickers, {n_rows} rows")

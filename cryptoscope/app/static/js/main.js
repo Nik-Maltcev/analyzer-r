@@ -88,6 +88,7 @@ function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, 
     params.set('ticker_b', tickerB || '');
     params.set('signal', signal || '');
     params.set('signal_type', signalType || 'wait');
+    params.set('market', currentMarket || 'crypto');
     appendNumber('z_at_entry', zAtEntry);
     appendNumber('price_a_entry', priceA);
     appendNumber('price_b_entry', priceB);

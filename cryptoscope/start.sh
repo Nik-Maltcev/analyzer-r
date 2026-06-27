@@ -3,10 +3,10 @@
 # 1. Rebuild DB if needed
 # 2. Auto-compute pairs if empty
 # 3. Load hourly candles
-# 4. Load RU market
-# 5. Load Brazil market
-# 6. Load Indonesia market
-# 7. Ensure favorites storage
+# 4. Ensure favorites storage
+# 5. Load and refresh RU market
+# 6. Load Brazil market
+# 7. Load Indonesia market
 # 8. Start background updater loop
 # 9. Launch app
 
@@ -46,8 +46,12 @@ fi
 # 3. Load hourly candles
 python /scripts/load_hourly.py
 
-# 4. Load Russian stocks
+# 4. Ensure favorites table and migrations
+python /scripts/load_favorites.py
+
+# 5. Load and refresh Russian stocks
 python /scripts/load_ru.py
+python /scripts/update_ru.py
 if [ $? -eq 0 ]; then
     # Recompute if RU data exists but RU pairs are missing.
     RU_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='ru';" 2>/dev/null || echo "0")
@@ -57,7 +61,7 @@ if [ $? -eq 0 ]; then
     fi
 fi
 
-# 5. Load Brazil B3 stocks
+# 6. Load Brazil B3 stocks
 python /scripts/load_brazil.py
 BR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='br';" 2>/dev/null || echo "0")
 BR_PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs WHERE market='br';" 2>/dev/null || echo "0")
@@ -65,16 +69,13 @@ if [ "$BR_COUNT" -gt 0 ] && [ "$BR_PAIR_COUNT" -lt 1 ]; then
     python /scripts/compute_analysis.py
 fi
 
-# 6. Load Indonesia IDX stocks
+# 7. Load Indonesia IDX stocks
 python /scripts/load_indonesia.py
 ID_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='id';" 2>/dev/null || echo "0")
 ID_PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs WHERE market='id';" 2>/dev/null || echo "0")
 if [ "$ID_COUNT" -gt 0 ] && [ "$ID_PAIR_COUNT" -lt 1 ]; then
     python /scripts/compute_analysis.py
 fi
-
-# 7. Ensure favorites table
-python /scripts/load_favorites.py
 
 # 8. Start background update loop (checks every 30s, runs daily_update at 06:00 UTC)
 (

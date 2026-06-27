@@ -1,19 +1,18 @@
 """Signal computation and scoring."""
 
 import math
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
 
 def resolve_signal_started_at(
     current_signal_type: str,
-    previous_signal_type: Optional[str],
-    previous_started_at: Optional[str],
-    previous_computed_at: Optional[str],
+    previous_signal_type: str | None,
+    previous_started_at: str | None,
+    previous_computed_at: str | None,
     now: str,
-) -> Optional[str]:
+) -> str | None:
     """Keep the start of an uninterrupted signal, resetting on direction changes."""
     if current_signal_type == "wait":
         return None
@@ -24,8 +23,8 @@ def resolve_signal_started_at(
 
 def estimate_signal_timing(
     started_at,
-    halflife: Optional[int],
-    now: Optional[datetime] = None,
+    halflife: int | None,
+    now: datetime | None = None,
     fallback_started_at=None,
 ) -> dict:
     """Estimate a signal horizon from its start timestamp and statistical half-life."""
@@ -54,9 +53,9 @@ def estimate_signal_timing(
                     timestamp = f"{timestamp[:-1]}+00:00"
                 parsed = datetime.fromisoformat(timestamp)
             if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
+                parsed = parsed.replace(tzinfo=UTC)
             else:
-                parsed = parsed.astimezone(timezone.utc)
+                parsed = parsed.astimezone(UTC)
             start_dt = parsed
             break
         except (TypeError, ValueError):
@@ -64,11 +63,11 @@ def estimate_signal_timing(
     if start_dt is None:
         return timing
 
-    now_dt = now or datetime.now(timezone.utc)
+    now_dt = now or datetime.now(UTC)
     if now_dt.tzinfo is None:
-        now_dt = now_dt.replace(tzinfo=timezone.utc)
+        now_dt = now_dt.replace(tzinfo=UTC)
     else:
-        now_dt = now_dt.astimezone(timezone.utc)
+        now_dt = now_dt.astimezone(UTC)
 
     elapsed_seconds = max(0.0, (now_dt - start_dt).total_seconds())
     timing.update({
@@ -101,38 +100,38 @@ def estimate_signal_timing(
     return timing
 
 
-def determine_signal(z_now: Optional[float], z_forecast: Optional[float], ticker_a: str, ticker_b: str) -> dict:
+def determine_signal(z_now: float | None, z_forecast: float | None, ticker_a: str, ticker_b: str) -> dict:
     """
     Determine trading signal from Z-score and forecast.
-    
+
     Returns:
         dict with signal, signal_type, strength
     """
     signal = "Ждать"
     signal_type = "wait"
     strength = "Нет"
-    
+
     if z_now is None and z_forecast is None:
         return {"signal": signal, "signal_type": signal_type, "strength": strength}
-    
+
     z_cur = z_now if z_now is not None else 0
     z_hat = z_forecast if z_forecast is not None else 0
-    
+
     if z_cur >= 2 or z_hat >= 2:
         signal = f"Шорт {ticker_a} / Лонг {ticker_b}"
         signal_type = "short_a"
     elif z_cur <= -2 or z_hat <= -2:
         signal = f"Лонг {ticker_a} / Шорт {ticker_b}"
         signal_type = "long_a"
-    
+
     return {"signal": signal, "signal_type": signal_type}
 
 
-def determine_strength(is_coint: bool, z_now: Optional[float], z_forecast: Optional[float]) -> str:
+def determine_strength(is_coint: bool, z_now: float | None, z_forecast: float | None) -> str:
     """Determine signal strength category."""
     z_cur = abs(z_now) if z_now is not None else 0
     z_hat = abs(z_forecast) if z_forecast is not None else 0
-    
+
     if is_coint and z_cur >= 2:
         return "Сильный"
     elif z_hat >= 2:
@@ -142,7 +141,7 @@ def determine_strength(is_coint: bool, z_now: Optional[float], z_forecast: Optio
     return "Нет"
 
 
-def compute_pair_score(corr: float, is_coint: bool, halflife: Optional[int]) -> float:
+def compute_pair_score(corr: float, is_coint: bool, halflife: int | None) -> float:
     """Compute composite pair score for ranking."""
     score = abs(corr)
     if is_coint:
@@ -154,13 +153,16 @@ def compute_pair_score(corr: float, is_coint: bool, halflife: Optional[int]) -> 
 
 def correlation_matrix(log_returns: np.ndarray) -> np.ndarray:
     """Compute correlation matrix from log return matrix."""
-    T, N = log_returns.shape
-    corr = np.zeros((N, N))
-    
-    for i in range(N):
-        for j in range(i, N):
+    _, n_assets = log_returns.shape
+    corr = np.zeros((n_assets, n_assets))
+
+    for i in range(n_assets):
+        for j in range(i, n_assets):
             ok = ~np.isnan(log_returns[:, i]) & ~np.isnan(log_returns[:, j])
             if ok.sum() >= 30:
+                if i == j:
+                    corr[i, i] = 1.0 if np.std(log_returns[ok, i]) > 0 else 0.0
+                    continue
                 c = float(np.corrcoef(log_returns[ok, i], log_returns[ok, j])[0, 1])
                 corr[i, j] = c if not np.isnan(c) else 0.0
                 corr[j, i] = corr[i, j]

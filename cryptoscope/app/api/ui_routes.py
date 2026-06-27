@@ -216,7 +216,14 @@ async def tab_signals(
         fav_pair_ids = set()
         try:
             async with get_connection() as conn:
-                cursor = await conn.execute("SELECT pair FROM favorites WHERE status = 'active'")
+                cursor = await conn.execute(
+                    """
+                    SELECT pair FROM favorites
+                    WHERE status = 'active'
+                      AND COALESCE(market, 'crypto') = ?
+                    """,
+                    (market,),
+                )
                 fav_rows = await cursor.fetchall()
                 fav_pair_ids = set(r[0] for r in fav_rows)
         except Exception:
@@ -462,43 +469,55 @@ async def tab_favorites(request: Request):
             })
 
         # Fetch latest price per ticker + price history for Z-score recalculation
-        tickers_set = set(favs["ticker_a"].tolist() + favs["ticker_b"].tolist())
+        ticker_keys = set()
+        for _, favorite in favs.iterrows():
+            market = favorite.get("market") or "crypto"
+            ticker_keys.add((market, favorite["ticker_a"]))
+            ticker_keys.add((market, favorite["ticker_b"]))
         latest_prices = {}
-        price_history = {}  # ticker -> np.array of close prices
+        price_history = {}  # (market, ticker) -> np.array of close prices
 
         async with get_connection() as conn:
-            for ticker in tickers_set:
+            for market, ticker in ticker_keys:
                 cursor = await conn.execute(
-                    "SELECT close FROM prices WHERE ticker = ? ORDER BY date",
-                    (ticker,)
+                    """
+                    SELECT close FROM prices
+                    WHERE ticker = ? AND market = ?
+                    ORDER BY date
+                    """,
+                    (ticker, market)
                 )
                 rows = await cursor.fetchall()
                 if rows:
                     prices = np.array([float(r[0]) for r in rows if r[0] and r[0] > 0])
-                    price_history[ticker] = prices
-                    latest_prices[ticker] = float(prices[-1]) if len(prices) > 0 else 0
+                    price_history[(market, ticker)] = prices
+                    latest_prices[(market, ticker)] = (
+                        float(prices[-1]) if len(prices) > 0 else 0
+                    )
 
                 # Binance live prices
-                try:
-                    from app.data.binance_ws import get_live_price
-                    live = get_live_price(ticker)
-                    if live is not None and live > 0:
-                        latest_prices[ticker] = float(live)
-                except ImportError:
-                    pass
+                if market == "crypto":
+                    try:
+                        from app.data.binance_ws import get_live_price
+                        live = get_live_price(ticker)
+                        if live is not None and live > 0:
+                            latest_prices[(market, ticker)] = float(live)
+                    except ImportError:
+                        pass
 
         for _, row in favs.iterrows():
+            market = row.get("market") or "crypto"
             entry_a = row.get("price_a_entry")
             entry_b = row.get("price_b_entry")
 
             # Backfill entry from DB if 0
             if not entry_a or entry_a == 0:
-                entry_a = latest_prices.get(row["ticker_a"], 0)
+                entry_a = latest_prices.get((market, row["ticker_a"]), 0)
             if not entry_b or entry_b == 0:
-                entry_b = latest_prices.get(row["ticker_b"], 0)
+                entry_b = latest_prices.get((market, row["ticker_b"]), 0)
 
-            p_a = latest_prices.get(row["ticker_a"], 0)
-            p_b = latest_prices.get(row["ticker_b"], 0)
+            p_a = latest_prices.get((market, row["ticker_a"]), 0)
+            p_b = latest_prices.get((market, row["ticker_b"]), 0)
             pnl_a = (p_a / entry_a - 1) * 100 if entry_a and entry_a > 0 and p_a else 0
             pnl_b = (p_b / entry_b - 1) * 100 if entry_b and entry_b > 0 and p_b else 0
             st = row.get("signal_type", "wait")
@@ -512,8 +531,8 @@ async def tab_favorites(request: Request):
 
             # Recalculate current Z-score from price history
             z_now_live = None
-            ta_hist = price_history.get(row["ticker_a"])
-            tb_hist = price_history.get(row["ticker_b"])
+            ta_hist = price_history.get((market, row["ticker_a"]))
+            tb_hist = price_history.get((market, row["ticker_b"]))
             if ta_hist is not None and tb_hist is not None and len(ta_hist) >= 60 and len(tb_hist) >= 60:
                 min_len = min(len(ta_hist), len(tb_hist))
                 pa_arr = ta_hist[-min_len:]
@@ -542,11 +561,16 @@ async def tab_favorites(request: Request):
             active.append({
                 "id": int(row["id"]),
                 "pair": row["pair"],
+                "market": market,
                 "ticker_a": row["ticker_a"],
                 "ticker_b": row["ticker_b"],
                 "signal": row.get("signal", ""),
                 "signal_type": st,
                 "pnl_total_pct": round(float(total_pnl), 2),
+                "price_a_entry": round(float(entry_a), 4) if entry_a else None,
+                "price_b_entry": round(float(entry_b), 4) if entry_b else None,
+                "price_a_now": round(float(p_a), 4) if p_a else None,
+                "price_b_now": round(float(p_b), 4) if p_b else None,
                 "entry_time": entry_time,
                 "corr": row.get("corr"),
                 "halflife": hl,

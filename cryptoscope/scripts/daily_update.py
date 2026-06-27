@@ -17,10 +17,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.data.brazil import fetch_brazil_prices, upsert_brazil_prices
 from app.data.fetcher import fetch_batch
 from app.data.indonesia import fetch_indonesia_prices, upsert_indonesia_prices
+from app.data.moex import (
+    fetch_ru_prices,
+    latest_ru_start_dates,
+    migrate_legacy_ru_ticker,
+    reprice_active_ru_favorites,
+    upsert_ru_prices,
+)
 from app.data.tickers import (
     BRAZIL_TICKERS,
     CRYPTO_TICKERS,
     INDONESIA_TICKERS,
+    RU_TICKERS,
     STOCK_TICKERS,
 )
 
@@ -140,6 +148,50 @@ def update_adjusted_market(
     return rows_written
 
 
+def update_ru_market(conn: sqlite3.Connection) -> int:
+    """Refresh completed daily candles for MOEX equities."""
+    try:
+        migrate_legacy_ru_ticker(conn)
+        start_dates = latest_ru_start_dates(conn, RU_TICKERS)
+        prices = asyncio.run(
+            fetch_ru_prices(tickers=RU_TICKERS, start_dates=start_dates)
+        )
+        rows_written = upsert_ru_prices(conn, prices, RU_TICKERS)
+        reprice_active_ru_favorites(conn)
+        tickers_ok = prices["ticker"].nunique() if not prices.empty else 0
+        status = "ok" if rows_written else "error"
+        message = (
+            "MOEX delayed daily candles refreshed"
+            if rows_written
+            else "No MOEX data returned"
+        )
+    except Exception as exc:
+        rows_written = 0
+        tickers_ok = 0
+        status = "error"
+        message = f"MOEX update failed: {exc}"
+
+    conn.execute(
+        """
+        INSERT INTO update_log (market, tickers_ok, tickers_fail, rows_added, status, message)
+        VALUES ('ru', ?, ?, ?, ?, ?)
+        """,
+        (
+            tickers_ok,
+            max(0, len(RU_TICKERS) - tickers_ok),
+            rows_written,
+            status,
+            message,
+        ),
+    )
+    conn.commit()
+    print(
+        f"  [ru] OK={tickers_ok} "
+        f"FAIL={max(0, len(RU_TICKERS) - tickers_ok)} ROWS={rows_written}"
+    )
+    return rows_written
+
+
 def update_brazil_market(conn: sqlite3.Connection) -> int:
     """Refresh a rolling adjusted history for Brazil B3 equities."""
     return update_adjusted_market(
@@ -175,6 +227,7 @@ def main():
         total += update_market(STOCK_TICKERS, "stocks", conn, API_KEY)
     else:
         print("TWELVEDATA_API_KEY not set, skipping crypto and stocks")
+    total += update_ru_market(conn)
     total += update_brazil_market(conn)
     total += update_indonesia_market(conn)
 
