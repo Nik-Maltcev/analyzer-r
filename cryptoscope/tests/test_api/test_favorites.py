@@ -159,7 +159,16 @@ async def test_existing_favorite_market_is_inferred_from_pair():
         market = conn.execute(
             "SELECT market FROM favorites WHERE pair = 'SBER_GAZP'"
         ).fetchone()[0]
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(favorites)").fetchall()
+        }
         conn.close()
         assert market == "ru"
+        assert {
+            "hedge_ratio_entry",
+            "spread_mean_entry",
+            "spread_sd_entry",
+        }.issubset(columns)
     finally:
         os.unlink(path)

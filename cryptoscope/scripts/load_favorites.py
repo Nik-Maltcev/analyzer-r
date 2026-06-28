@@ -18,6 +18,8 @@ def main():
                 pair TEXT NOT NULL, market TEXT DEFAULT 'crypto',
                 ticker_a TEXT NOT NULL, ticker_b TEXT NOT NULL,
                 signal TEXT, signal_type TEXT, z_at_entry REAL,
+                hedge_ratio_entry REAL, spread_mean_entry REAL,
+                spread_sd_entry REAL,
                 price_a_entry REAL, price_b_entry REAL,
                 entry_time TEXT, exit_time TEXT, exit_price_a REAL,
                 exit_price_b REAL, exit_pnl_pct REAL,
@@ -34,6 +36,15 @@ def main():
         conn.execute(
             "ALTER TABLE favorites ADD COLUMN market TEXT DEFAULT 'crypto'"
         )
+    for column in (
+        "hedge_ratio_entry",
+        "spread_mean_entry",
+        "spread_sd_entry",
+    ):
+        if column not in columns:
+            conn.execute(
+                f"ALTER TABLE favorites ADD COLUMN {column} REAL"
+            )
 
     conn.execute(
         """

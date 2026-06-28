@@ -83,6 +83,8 @@ def temp_db():
             pair TEXT NOT NULL, market TEXT DEFAULT 'crypto',
             ticker_a TEXT NOT NULL, ticker_b TEXT NOT NULL,
             signal TEXT, signal_type TEXT, z_at_entry REAL,
+            hedge_ratio_entry REAL, spread_mean_entry REAL,
+            spread_sd_entry REAL,
             price_a_entry REAL, price_b_entry REAL,
             entry_time TEXT, exit_time TEXT, exit_price_a REAL,
             exit_price_b REAL, exit_pnl_pct REAL,

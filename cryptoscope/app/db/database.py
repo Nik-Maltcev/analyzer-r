@@ -4,9 +4,16 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import aiosqlite
+import numpy as np
 import pandas as pd
 
-from app.db.schema import ALL_INDICES_SQL, ALL_TABLES_SQL, PAIR_COLUMN_MIGRATIONS
+from app.core.cointegration import fit_fixed_zscore_model
+from app.db.schema import (
+    ALL_INDICES_SQL,
+    ALL_TABLES_SQL,
+    FAVORITE_COLUMN_MIGRATIONS,
+    PAIR_COLUMN_MIGRATIONS,
+)
 
 DB_PATH = "/data/market.db"
 
@@ -80,6 +87,11 @@ async def init_db(db_path: str | None = None):
             await conn.execute(
                 "ALTER TABLE favorites ADD COLUMN market TEXT DEFAULT 'crypto'"
             )
+        for column, definition in FAVORITE_COLUMN_MIGRATIONS.items():
+            if column not in favorite_columns:
+                await conn.execute(
+                    f"ALTER TABLE favorites ADD COLUMN {column} {definition}"
+                )
         await conn.execute(
             """
             UPDATE favorites
@@ -157,6 +169,118 @@ async def fetch_favorites_history(conn: aiosqlite.Connection, user_id: str = "lo
     return pd.DataFrame([dict(r) for r in rows])
 
 
+def _valid_fixed_model(row) -> bool:
+    try:
+        values = (
+            float(row.get("hedge_ratio_entry")),
+            float(row.get("spread_mean_entry")),
+            float(row.get("spread_sd_entry")),
+        )
+        return all(np.isfinite(value) for value in values) and values[2] > 0
+    except (TypeError, ValueError):
+        return False
+
+
+async def build_favorite_z_model(
+    conn: aiosqlite.Connection,
+    market: str,
+    ticker_a: str,
+    ticker_b: str,
+    z_at_entry=None,
+    price_a_entry=None,
+    price_b_entry=None,
+) -> dict[str, Any]:
+    """Build a fixed model from date-aligned prices and anchor it at entry."""
+    cursor = await conn.execute(
+        """
+        SELECT hedge_ratio
+        FROM pairs
+        WHERE market = ? AND ticker_a = ? AND ticker_b = ?
+        LIMIT 1
+        """,
+        (market, ticker_a, ticker_b),
+    )
+    pair_row = await cursor.fetchone()
+    hedge_ratio = pair_row["hedge_ratio"] if pair_row else None
+
+    cursor = await conn.execute(
+        """
+        SELECT pa.close AS close_a, pb.close AS close_b
+        FROM prices AS pa
+        JOIN prices AS pb
+          ON pb.date = pa.date
+         AND pb.market = pa.market
+        WHERE pa.market = ?
+          AND pa.ticker = ?
+          AND pb.ticker = ?
+        ORDER BY pa.date
+        """,
+        (market, ticker_a, ticker_b),
+    )
+    rows = await cursor.fetchall()
+    if not rows:
+        return {}
+
+    prices_a = np.asarray([row["close_a"] for row in rows], dtype=float)
+    prices_b = np.asarray([row["close_b"] for row in rows], dtype=float)
+    if market == "ru":
+        prices_a = prices_a[-252:]
+        prices_b = prices_b[-252:]
+
+    return fit_fixed_zscore_model(
+        prices_a,
+        prices_b,
+        z_at_entry=z_at_entry,
+        price_a_entry=price_a_entry,
+        price_b_entry=price_b_entry,
+        hedge_ratio=hedge_ratio,
+    )
+
+
+async def ensure_favorite_z_model(
+    conn: aiosqlite.Connection,
+    favorite,
+) -> dict[str, Any]:
+    """Backfill a fixed model for a favorite created before model snapshots."""
+    if _valid_fixed_model(favorite):
+        return {
+            key: favorite.get(key)
+            for key in FAVORITE_COLUMN_MIGRATIONS
+        }
+
+    model = await build_favorite_z_model(
+        conn,
+        favorite.get("market") or "crypto",
+        favorite["ticker_a"],
+        favorite["ticker_b"],
+        z_at_entry=favorite.get("z_at_entry"),
+        price_a_entry=favorite.get("price_a_entry"),
+        price_b_entry=favorite.get("price_b_entry"),
+    )
+    if not model:
+        return {}
+
+    await conn.execute(
+        """
+        UPDATE favorites
+        SET z_at_entry = ?,
+            hedge_ratio_entry = ?,
+            spread_mean_entry = ?,
+            spread_sd_entry = ?
+        WHERE id = ?
+        """,
+        (
+            model.get("z_at_entry"),
+            model["hedge_ratio_entry"],
+            model["spread_mean_entry"],
+            model["spread_sd_entry"],
+            int(favorite["id"]),
+        ),
+    )
+    await conn.commit()
+    return model
+
+
 async def toggle_favorite(conn: aiosqlite.Connection, pair: str, ticker_a: str, ticker_b: str,
                           user_id: str = "local", market: str = "crypto", **kwargs) -> dict[str, Any]:
     """Toggle a favorite: add if not exists, remove if exists."""
@@ -196,15 +320,30 @@ async def toggle_favorite(conn: aiosqlite.Connection, pair: str, ticker_a: str, 
                 else:
                     price_b = float(row2[0])
 
+    model = await build_favorite_z_model(
+        conn,
+        market,
+        ticker_a,
+        ticker_b,
+        z_at_entry=kwargs.get("z_at_entry"),
+        price_a_entry=price_a,
+        price_b_entry=price_b,
+    )
+    z_at_entry = model.get("z_at_entry", kwargs.get("z_at_entry", 0))
+
     await conn.execute("""
         INSERT INTO favorites (pair, market, ticker_a, ticker_b, signal, signal_type, z_at_entry,
+                              hedge_ratio_entry, spread_mean_entry, spread_sd_entry,
                               price_a_entry, price_b_entry, entry_time, status, halflife, corr, user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 'active', ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 'active', ?, ?, ?)
     """, (
         pair, market, ticker_a, ticker_b,
         kwargs.get("signal", ""),
         kwargs.get("signal_type", "wait"),
-        kwargs.get("z_at_entry", 0),
+        z_at_entry,
+        model.get("hedge_ratio_entry"),
+        model.get("spread_mean_entry"),
+        model.get("spread_sd_entry"),
         price_a,
         price_b,
         kwargs.get("halflife"),

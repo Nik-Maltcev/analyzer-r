@@ -6,11 +6,12 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from app.core.cointegration import compute_zscore, engle_granger
+from app.core.cointegration import compute_fixed_zscore, compute_zscore, engle_granger
 from app.core.scanners import corr_breakdown_scan, drawdown_scan, momentum_scan
 from app.core.signals import estimate_signal_timing
 from app.db.database import (
     db_status,
+    ensure_favorite_z_model,
     fetch_favorites,
     fetch_favorites_history,
     fetch_pairs,
@@ -512,6 +513,19 @@ async def tab_favorites(request: Request):
     try:
         async with get_connection() as conn:
             favs = await fetch_favorites(conn)
+            model_backfilled = False
+            for _, favorite in favs.iterrows():
+                fixed_sd = _finite_float(favorite.get("spread_sd_entry"))
+                if (
+                    _finite_float(favorite.get("hedge_ratio_entry")) is None
+                    or _finite_float(favorite.get("spread_mean_entry")) is None
+                    or fixed_sd is None
+                    or fixed_sd <= 0
+                ):
+                    if await ensure_favorite_z_model(conn, favorite):
+                        model_backfilled = True
+            if model_backfilled:
+                favs = await fetch_favorites(conn)
 
         if favs.empty:
             return templates.TemplateResponse(request, "components/favorites_tab.html", {
@@ -589,10 +603,24 @@ async def tab_favorites(request: Request):
             days_held = holding_timing["signal_days_elapsed"]
 
             # Recalculate current Z-score from price history
-            z_now_live = None
+            z_now_live = compute_fixed_zscore(
+                p_a,
+                p_b,
+                row.get("hedge_ratio_entry"),
+                row.get("spread_mean_entry"),
+                row.get("spread_sd_entry"),
+            )
+            if z_now_live is not None:
+                z_now_live = round(z_now_live, 2)
             ta_hist = price_history.get((market, row["ticker_a"]))
             tb_hist = price_history.get((market, row["ticker_b"]))
-            if ta_hist is not None and tb_hist is not None and len(ta_hist) >= 60 and len(tb_hist) >= 60:
+            if (
+                z_now_live is None
+                and ta_hist is not None
+                and tb_hist is not None
+                and len(ta_hist) >= 60
+                and len(tb_hist) >= 60
+            ):
                 min_len = min(len(ta_hist), len(tb_hist))
                 pa_arr = ta_hist[-min_len:]
                 pb_arr = tb_hist[-min_len:]

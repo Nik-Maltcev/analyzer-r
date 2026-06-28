@@ -1,12 +1,20 @@
 """Tests for Engle-Granger cointegration, Z-score, AR(1) forecast."""
 
-import numpy as np
-import sys
 import os
+import sys
+
+import numpy as np
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.core.cointegration import engle_granger, compute_zscore, forecast_zscore
+from app.core.cointegration import (
+    compute_fixed_zscore,
+    compute_zscore,
+    engle_granger,
+    fit_fixed_zscore_model,
+    forecast_zscore,
+)
 
 
 class TestEngleGranger:
@@ -74,6 +82,56 @@ class TestEngleGranger:
             assert isinstance(result["hedge_ratio"], float)
         if result["halflife"] is not None:
             assert isinstance(result["halflife"], (int, float))
+
+
+class TestFixedZScoreModel:
+    def test_entry_prices_are_anchored_to_signal_z(self, sample_prices):
+        pa, pb = sample_prices
+        model = fit_fixed_zscore_model(
+            pa,
+            pb,
+            z_at_entry=-2.0,
+            price_a_entry=pa[-1],
+            price_b_entry=pb[-1],
+        )
+
+        z_now = compute_fixed_zscore(
+            pa[-1],
+            pb[-1],
+            model["hedge_ratio_entry"],
+            model["spread_mean_entry"],
+            model["spread_sd_entry"],
+        )
+
+        assert z_now == pytest.approx(-2.0)
+
+    def test_saved_model_stays_anchored_after_history_changes(
+        self,
+        sample_prices,
+    ):
+        pa, pb = sample_prices
+        model = fit_fixed_zscore_model(
+            pa,
+            pb,
+            z_at_entry=2.4,
+            price_a_entry=pa[-1],
+            price_b_entry=pb[-1],
+        )
+
+        # A later analysis can refit independently without changing this model.
+        fit_fixed_zscore_model(
+            np.append(pa, pa[-1]),
+            np.append(pb, pb[-1]),
+        )
+        fixed_z = compute_fixed_zscore(
+            pa[-1],
+            pb[-1],
+            model["hedge_ratio_entry"],
+            model["spread_mean_entry"],
+            model["spread_sd_entry"],
+        )
+
+        assert fixed_z == pytest.approx(2.4)
 
 
 class TestZScore:

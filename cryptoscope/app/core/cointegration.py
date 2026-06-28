@@ -96,6 +96,108 @@ def compute_zscore(pa: np.ndarray, pb: np.ndarray, hedge_ratio: Optional[float] 
         return {"zscores": None, "z_now": None, "sd": None, "mean": None, "n": 0}
 
 
+def fit_fixed_zscore_model(
+    pa: np.ndarray,
+    pb: np.ndarray,
+    z_at_entry: Optional[float] = None,
+    price_a_entry: Optional[float] = None,
+    price_b_entry: Optional[float] = None,
+    hedge_ratio: Optional[float] = None,
+    min_obs: int = 30,
+) -> dict:
+    """Fit and anchor a Z-score model for the lifetime of a favorite."""
+    try:
+        pa = np.asarray(pa, dtype=float)
+        pb = np.asarray(pb, dtype=float)
+        ok = np.isfinite(pa) & np.isfinite(pb) & (pa > 0) & (pb > 0)
+        pa = pa[ok]
+        pb = pb[ok]
+        if len(pa) < min_obs:
+            return {}
+
+        hr = hedge_ratio
+        if hr is None or not np.isfinite(float(hr)):
+            hr = engle_granger(pa, pb, min_obs=min_obs).get("hedge_ratio")
+        if hr is None or not np.isfinite(float(hr)):
+            return {}
+        hr = float(hr)
+
+        zres = compute_zscore(pa, pb, hr, min_obs=min_obs)
+        spread_sd = zres.get("sd")
+        spread_mean = zres.get("mean")
+        if (
+            spread_sd is None
+            or spread_mean is None
+            or not np.isfinite(float(spread_sd))
+            or float(spread_sd) <= 0
+        ):
+            return {}
+
+        spread_sd = float(spread_sd)
+        spread_mean = float(spread_mean)
+        entry_z = (
+            float(z_at_entry)
+            if z_at_entry is not None and np.isfinite(float(z_at_entry))
+            else None
+        )
+        entry_prices_valid = (
+            price_a_entry is not None
+            and price_b_entry is not None
+            and np.isfinite(float(price_a_entry))
+            and np.isfinite(float(price_b_entry))
+            and float(price_a_entry) > 0
+            and float(price_b_entry) > 0
+        )
+
+        if entry_prices_valid:
+            entry_spread = (
+                np.log(float(price_a_entry))
+                - hr * np.log(float(price_b_entry))
+            )
+            if entry_z is None:
+                entry_z = (entry_spread - spread_mean) / spread_sd
+            else:
+                # Keep the signal's entry Z while freezing future model changes.
+                spread_mean = entry_spread - entry_z * spread_sd
+        elif entry_z is None:
+            entry_z = zres.get("z_now")
+
+        return {
+            "hedge_ratio_entry": hr,
+            "spread_mean_entry": spread_mean,
+            "spread_sd_entry": spread_sd,
+            "z_at_entry": float(entry_z) if entry_z is not None else None,
+        }
+    except (TypeError, ValueError, FloatingPointError):
+        return {}
+
+
+def compute_fixed_zscore(
+    price_a: float,
+    price_b: float,
+    hedge_ratio: float,
+    spread_mean: float,
+    spread_sd: float,
+) -> Optional[float]:
+    """Calculate current Z using model parameters frozen at entry."""
+    try:
+        values = [
+            float(price_a),
+            float(price_b),
+            float(hedge_ratio),
+            float(spread_mean),
+            float(spread_sd),
+        ]
+        if not all(np.isfinite(value) for value in values):
+            return None
+        pa, pb, hr, mean, sd = values
+        if pa <= 0 or pb <= 0 or sd <= 0:
+            return None
+        return float((np.log(pa) - hr * np.log(pb) - mean) / sd)
+    except (TypeError, ValueError, FloatingPointError):
+        return None
+
+
 def forecast_zscore(zscores: np.ndarray, min_obs: int = 20) -> dict:
     """
     AR(1) one-step-ahead forecast of Z-score.

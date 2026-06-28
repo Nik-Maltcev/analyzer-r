@@ -62,6 +62,12 @@ PAIR_COLUMN_MIGRATIONS = {
     "risk_reason": "TEXT",
 }
 
+FAVORITE_COLUMN_MIGRATIONS = {
+    "hedge_ratio_entry": "REAL",
+    "spread_mean_entry": "REAL",
+    "spread_sd_entry": "REAL",
+}
+
 CREATE_PAIRS_INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_pairs_market ON pairs(market)",
     "CREATE INDEX IF NOT EXISTS idx_pairs_score ON pairs(score DESC)",
@@ -126,6 +132,9 @@ CREATE TABLE IF NOT EXISTS favorites (
     signal       TEXT,
     signal_type  TEXT,
     z_at_entry   REAL,
+    hedge_ratio_entry REAL,
+    spread_mean_entry REAL,
+    spread_sd_entry REAL,
     price_a_entry REAL,
     price_b_entry REAL,
     entry_time   TEXT,
