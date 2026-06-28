@@ -1023,6 +1023,8 @@ body,
     align-items: center;
     justify-content: center;
     padding: 24px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .modal.hidden {
@@ -1047,8 +1049,15 @@ body,
     padding: 24px;
     width: 90%;
     max-width: 440px;
+    max-height: calc(100dvh - 48px);
+    overflow-y: auto;
     box-shadow: var(--shadow-xl), 0 0 40px rgba(0, 0, 0, 0.4);
     animation: scaleIn 0.2s ease;
+    margin: auto;
+}
+
+body.modal-open {
+    overflow: hidden;
 }
 
 .modal-lg {
@@ -2335,6 +2344,7 @@ body,
     .modal-content {
         padding: 18px;
         width: 100%;
+        max-height: calc(100dvh - 24px);
     }
     #toast-container {
         bottom: 12px;

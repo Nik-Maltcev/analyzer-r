@@ -19,6 +19,22 @@ function switchMarket(market) {
 window.switchMarket = switchMarket;
 
 // Auth functions (Supabase)
+function openAuthModal() {
+    const modal = document.getElementById('auth-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    document.body.classList.add('modal-open');
+    requestAnimationFrame(() => document.getElementById('auth-email')?.focus());
+}
+
+function closeAuthModal() {
+    document.getElementById('auth-modal')?.classList.add('hidden');
+    document.body.classList.remove('modal-open');
+}
+
+window.openAuthModal = openAuthModal;
+window.closeAuthModal = closeAuthModal;
+
 function authLogin() {
     const email = document.getElementById('auth-email').value;
     const password = document.getElementById('auth-password').value;
@@ -33,7 +49,7 @@ function authLogin() {
     // Try Supabase login
     // (simplified - actual Supabase REST API call)
     fetch('/health').then(() => {
-        document.getElementById('auth-modal').classList.add('hidden');
+        closeAuthModal();
         document.getElementById('auth-bar').innerHTML = `
             <span class="text-dim">${email}</span>
             <button class="btn btn-sm btn-outline" onclick="authLogout()">Выйти</button>
@@ -56,7 +72,7 @@ function authRegister() {
     }
     
     fetch('/health').then(() => {
-        document.getElementById('auth-modal').classList.add('hidden');
+        closeAuthModal();
         document.getElementById('auth-bar').innerHTML = `
             <span class="text-dim">${email}</span>
             <button class="btn btn-sm btn-outline" onclick="authLogout()">Выйти</button>
@@ -69,11 +85,17 @@ function authRegister() {
 
 function authLogout() {
     document.getElementById('auth-bar').innerHTML = `
-        <button class="btn btn-sm btn-outline" onclick="document.getElementById('auth-modal').classList.remove('hidden')">
+        <button class="btn btn-sm btn-outline" onclick="openAuthModal()">
             Войти / Регистрация
         </button>
     `;
 }
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !document.getElementById('auth-modal')?.classList.contains('hidden')) {
+        closeAuthModal();
+    }
+});
 
 // Toggle favorite
 function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, priceA, priceB, halflife, corr) {

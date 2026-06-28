@@ -1,30 +1,5 @@
 <div class="auth-bar" id="auth-bar">
-    <button class="btn btn-sm btn-outline" onclick="document.getElementById('auth-modal').classList.remove('hidden')">
+    <button class="btn btn-sm btn-outline" onclick="openAuthModal()">
         Войти / Регистрация
     </button>
-</div>
-
-<div id="auth-modal" class="modal hidden">
-    <div class="modal-backdrop" onclick="this.parentElement.classList.add('hidden')"></div>
-    <div class="modal-content">
-        <div class="modal-header">
-            <h3>Вход / Регистрация</h3>
-            <button class="modal-close" onclick="document.getElementById('auth-modal').classList.add('hidden')">&times;</button>
-        </div>
-        <div class="modal-body">
-            <div class="form-group">
-                <label>Email</label>
-                <input type="email" id="auth-email" class="form-input" placeholder="user@example.com">
-            </div>
-            <div class="form-group">
-                <label>Пароль</label>
-                <input type="password" id="auth-password" class="form-input" placeholder="••••••">
-            </div>
-            <div class="form-actions">
-                <button class="btn btn-primary" onclick="authLogin()">Войти</button>
-                <button class="btn btn-secondary" onclick="authRegister()">Регистрация</button>
-            </div>
-            <div id="auth-error" class="error-msg hidden"></div>
-        </div>
-    </div>
 </div>

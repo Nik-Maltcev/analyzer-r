@@ -106,6 +106,7 @@ async def test_index_page(app):
         assert "CryptoScope" in response.text
         assert 'data-market="br"' in response.text
         assert 'data-market="id"' in response.text
+        assert response.text.index("</nav>") < response.text.index('id="auth-modal"')
 
 
 @pytest.mark.asyncio
