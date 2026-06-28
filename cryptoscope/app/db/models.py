@@ -18,9 +18,19 @@ class PairAnalysis(BaseModel):
     score: Optional[float] = None
     z_now: Optional[float] = None
     z_forecast: Optional[float] = None
+    z_forecast_low: Optional[float] = None
+    z_forecast_high: Optional[float] = None
     signal: str = "Ждать"
     signal_type: str = "wait"
     strength: str = "Нет"
+    signal_eligible: bool = True
+    is_coint_stable: bool = False
+    coint_stability: Optional[float] = None
+    coint_windows: Optional[str] = None
+    market_regime: str = "normal"
+    market_volatility: Optional[float] = None
+    event_risk: bool = False
+    risk_reason: Optional[str] = None
     signal_started_at: Optional[str] = None
     computed_at: Optional[str] = None
 
@@ -34,10 +44,19 @@ class SignalCard(BaseModel):
     strength: str
     z_now: Optional[float] = None
     z_forecast: Optional[float] = None
+    z_forecast_low: Optional[float] = None
+    z_forecast_high: Optional[float] = None
     corr: Optional[float] = None
     is_coint: bool = False
+    is_coint_stable: bool = False
+    coint_stability: Optional[float] = None
     halflife: Optional[int] = None
     score: Optional[float] = None
+    signal_eligible: bool = True
+    market_regime: str = "normal"
+    market_volatility: Optional[float] = None
+    event_risk: bool = False
+    risk_reason: Optional[str] = None
     is_favorite: bool = False
     signal_started_at: Optional[str] = None
     signal_expected_end_at: Optional[str] = None

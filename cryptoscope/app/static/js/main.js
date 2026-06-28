@@ -1,10 +1,12 @@
 // CryptoScope — Main JavaScript
 
 // Global market state
-let currentMarket = 'crypto';
+let currentMarket = window.CRYPTOSCOPE_INITIAL_MARKET || 'crypto';
+window.currentMarket = currentMarket;
 
 function switchMarket(market) {
     currentMarket = market;
+    window.currentMarket = market;
     document.querySelectorAll('.market-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.market === market);
     });
@@ -14,6 +16,7 @@ function switchMarket(market) {
     const mode = activeMode ? activeMode.dataset.mode : 'all';
     htmx.ajax('GET', '/tab/signals?mode=' + mode + '&market=' + market, {target: '#signals-content', swap: 'innerHTML'});
 }
+window.switchMarket = switchMarket;
 
 // Auth functions (Supabase)
 function authLogin() {

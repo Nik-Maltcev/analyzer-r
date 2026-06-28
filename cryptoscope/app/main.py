@@ -6,7 +6,7 @@ import sys
 import time
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -32,6 +32,7 @@ set_db_path(settings.db_path)
 templates = Jinja2Templates(directory="app/templates")
 
 START_TIME = time.time()
+SUPPORTED_MARKETS = {"crypto", "stocks", "ru", "br", "id"}
 
 
 @asynccontextmanager
@@ -95,6 +96,12 @@ async def _get_dashboard_context(market: str = "crypto"):
 
     active = pairs[pairs["signal_type"] != "wait"]
     n_active = len(active)
+    regime = pairs.iloc[0].get("market_regime") or "normal"
+    volatility = {
+        "stress": "Стрессовая",
+        "elevated": "Повышенная",
+        "normal": "Обычная",
+    }.get(regime, "Обычная")
 
     best = None
     if not active.empty:
@@ -107,7 +114,7 @@ async def _get_dashboard_context(market: str = "crypto"):
         "n_active": n_active,
         "n_total": len(pairs),
         "best_signal": best,
-        "volatility": "Средняя",
+        "volatility": volatility,
         "last_analysis": st.get("last_analysis"),
         "db_tickers": st.get("n_tickers", 0),
         "db_rows": st.get("n_rows", 0),
@@ -115,25 +122,33 @@ async def _get_dashboard_context(market: str = "crypto"):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def index(
+    request: Request,
+    market: str = Query("crypto"),
+):
     """Main page with pre-rendered signals data."""
-    dash = await _get_dashboard_context("crypto")
+    market = market if market in SUPPORTED_MARKETS else "crypto"
+    dash = await _get_dashboard_context(market)
     return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "settings": settings,
-        "market": "crypto",
+        "market": market,
         **dash,
     })
 
 
 @app.get("/app", response_class=HTMLResponse)
-async def app_page(request: Request):
+async def app_page(
+    request: Request,
+    market: str = Query("crypto"),
+):
     """Full app page."""
-    dash = await _get_dashboard_context("crypto")
+    market = market if market in SUPPORTED_MARKETS else "crypto"
+    dash = await _get_dashboard_context(market)
     return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "settings": settings,
-        "market": "crypto",
+        "market": market,
         **dash,
     })
 

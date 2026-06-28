@@ -109,6 +109,17 @@ async def test_index_page(app):
 
 
 @pytest.mark.asyncio
+async def test_index_page_can_open_ru_market(app):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/?market=ru")
+        assert response.status_code == 200
+        assert 'window.CRYPTOSCOPE_INITIAL_MARKET = "ru"' in response.text
+        assert 'class="market-btn active" data-market="ru"' in response.text
+        assert "market=ru" in response.text
+
+
+@pytest.mark.asyncio
 async def test_onboarding_page(app):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

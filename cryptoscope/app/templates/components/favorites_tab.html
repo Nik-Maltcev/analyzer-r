@@ -31,6 +31,13 @@
                     {{ '%+.2f'|format(f.pnl_total_pct) }}%
                 </div>
 
+                {% if f.risk_reason %}
+                <div class="pair-risk-note {% if f.market_regime == 'stress' %}is-stress{% endif %}">
+                    <strong>{% if not f.signal_eligible %}Перепроверить{% else %}Контроль риска{% endif %}</strong>
+                    <span>{{ f.risk_reason }}</span>
+                </div>
+                {% endif %}
+
                 <div class="signal-timing {% if f.signal_is_expired %}is-overdue{% endif %}"
                      title="Ориентировочный срок рассчитан от даты добавления по полупериоду пары">
                     <div class="signal-timing-item">

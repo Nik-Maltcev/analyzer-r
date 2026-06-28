@@ -39,7 +39,13 @@ def main():
             market TEXT NOT NULL, ticker_a TEXT NOT NULL, ticker_b TEXT NOT NULL,
             corr REAL, halflife INTEGER, t_stat REAL, is_coint INTEGER,
             hedge_ratio REAL, score REAL, z_now REAL, z_forecast REAL,
+            z_forecast_low REAL, z_forecast_high REAL,
             signal TEXT, signal_type TEXT, strength TEXT,
+            signal_eligible INTEGER DEFAULT 1,
+            is_coint_stable INTEGER DEFAULT 0,
+            coint_stability REAL, coint_windows TEXT,
+            market_regime TEXT DEFAULT 'normal', market_volatility REAL,
+            event_risk INTEGER DEFAULT 0, risk_reason TEXT,
             signal_started_at TEXT,
             computed_at TEXT DEFAULT (datetime('now')),
             UNIQUE (market, ticker_a, ticker_b)

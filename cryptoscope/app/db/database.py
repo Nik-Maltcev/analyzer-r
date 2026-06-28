@@ -6,7 +6,7 @@ from typing import Any
 import aiosqlite
 import pandas as pd
 
-from app.db.schema import ALL_INDICES_SQL, ALL_TABLES_SQL
+from app.db.schema import ALL_INDICES_SQL, ALL_TABLES_SQL, PAIR_COLUMN_MIGRATIONS
 
 DB_PATH = "/data/market.db"
 
@@ -46,6 +46,34 @@ async def init_db(db_path: str | None = None):
         pair_columns = {row["name"] for row in await cursor.fetchall()}
         if "signal_started_at" not in pair_columns:
             await conn.execute("ALTER TABLE pairs ADD COLUMN signal_started_at TEXT")
+        for column, definition in PAIR_COLUMN_MIGRATIONS.items():
+            if column not in pair_columns:
+                await conn.execute(
+                    f"ALTER TABLE pairs ADD COLUMN {column} {definition}"
+                )
+        await conn.execute(
+            """
+            UPDATE pairs
+            SET is_coint_stable = COALESCE(is_coint, 0),
+                coint_stability = CASE WHEN is_coint = 1 THEN 100 ELSE 0 END,
+                coint_windows = CASE
+                    WHEN is_coint = 1 THEN '{"legacy":true}'
+                    ELSE '{"legacy":false}'
+                END
+            WHERE market != 'ru' AND coint_windows IS NULL
+            """
+        )
+        await conn.execute(
+            """
+            UPDATE pairs
+            SET signal = 'Наблюдение: требуется свежий расчёт',
+                signal_type = 'wait',
+                strength = 'Наблюдение',
+                signal_eligible = 0,
+                risk_reason = 'Защитные метрики ещё не рассчитаны'
+            WHERE market = 'ru' AND coint_windows IS NULL
+            """
+        )
         cursor = await conn.execute("PRAGMA table_info(favorites)")
         favorite_columns = {row["name"] for row in await cursor.fetchall()}
         if "market" not in favorite_columns:

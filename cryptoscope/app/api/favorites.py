@@ -95,6 +95,7 @@ async def get_favorites(user_id: str = Query("local")):
         ticker_keys.add((market, favorite["ticker_b"]))
 
     latest_prices = {}
+    pair_risks = {}
     async with get_connection() as conn:
         for market, ticker in ticker_keys:
             cursor = await conn.execute(
@@ -108,6 +109,14 @@ async def get_favorites(user_id: str = Query("local")):
             row = await cursor.fetchone()
             if row:
                 latest_prices[(market, ticker)] = float(row[0])
+        cursor = await conn.execute("SELECT * FROM pairs")
+        for pair_row in await cursor.fetchall():
+            pair_data = dict(pair_row)
+            pair_risks[(
+                pair_data.get("market"),
+                pair_data.get("ticker_a"),
+                pair_data.get("ticker_b"),
+            )] = pair_data
 
     active_positions = []
     for _, row in favs.iterrows():
@@ -145,6 +154,14 @@ async def get_favorites(user_id: str = Query("local")):
         days_held = timing["signal_days_elapsed"]
         hl_remaining = timing["signal_days_remaining"]
         is_expired = timing["signal_is_expired"]
+        pair_risk = pair_risks.get(
+            (market, row["ticker_a"], row["ticker_b"]),
+            {},
+        )
+        default_eligible = 0 if market == "ru" else 1
+        risk_reason = pair_risk.get("risk_reason")
+        if market == "ru" and not pair_risk:
+            risk_reason = "Пара отсутствует в свежем анализе"
 
         active_positions.append({
             "id": int(row["id"]),
@@ -165,6 +182,25 @@ async def get_favorites(user_id: str = Query("local")):
             "days_held": days_held,
             "hl_remaining": hl_remaining,
             "is_expired": is_expired,
+            "signal_eligible": _query_int(
+                pair_risk.get("signal_eligible"),
+                default_eligible,
+            ) == 1,
+            "is_coint_stable": _query_int(
+                pair_risk.get("is_coint_stable"),
+                0,
+            ) == 1,
+            "coint_stability": _query_float(
+                pair_risk.get("coint_stability"),
+                None,
+            ),
+            "market_regime": pair_risk.get("market_regime") or "normal",
+            "market_volatility": _query_float(
+                pair_risk.get("market_volatility"),
+                None,
+            ),
+            "event_risk": _query_int(pair_risk.get("event_risk"), 0) == 1,
+            "risk_reason": risk_reason,
             **timing,
             "corr": row.get("corr"),
             "status": row.get("status", "active"),

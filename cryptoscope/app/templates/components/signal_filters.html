@@ -1,6 +1,7 @@
 <div class="signal-filters">
     <label class="filter-check">
-        <input type="checkbox" id="filter-coint"
+        <input type="checkbox" id="filter-coint" name="min_coint" value="true"
+               {% if min_coint %}checked{% endif %}
                hx-get="/tab/signals?mode=all"
                hx-target="#signals-content" hx-swap="innerHTML"
                hx-include="#filter-corr,#filter-days">
@@ -8,14 +9,14 @@
     </label>
     <label class="filter-slider">
         Мин. корреляция: <span id="corr-value">0.5</span>
-        <input type="range" id="filter-corr" min="0" max="1" step="0.05" value="0.5"
+        <input type="range" id="filter-corr" name="min_corr" min="0" max="1" step="0.05" value="{{ min_corr|default(0.5) }}"
                hx-get="/tab/signals?mode=all"
                hx-target="#signals-content" hx-swap="innerHTML"
                hx-include="#filter-coint,#filter-days">
     </label>
     <label class="filter-slider">
         Макс. дней: <span id="days-value">30</span>
-        <input type="range" id="filter-days" min="3" max="60" step="1" value="30"
+        <input type="range" id="filter-days" name="max_days" min="3" max="60" step="1" value="{{ max_days|default(30) }}"
                hx-get="/tab/signals?mode=all"
                hx-target="#signals-content" hx-swap="innerHTML"
                hx-include="#filter-coint,#filter-corr">

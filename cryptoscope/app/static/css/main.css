@@ -3323,6 +3323,74 @@ h3,
     font-weight: 700;
 }
 
+.market-risk-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(245, 158, 11, 0.34);
+    border-radius: 6px;
+    background: rgba(245, 158, 11, 0.07);
+    color: var(--text);
+    font-size: 12px;
+}
+
+.market-risk-banner strong {
+    color: var(--orange);
+    white-space: nowrap;
+}
+
+.market-risk-banner.is-stress {
+    border-color: rgba(255, 95, 115, 0.42);
+    background: rgba(255, 95, 115, 0.08);
+}
+
+.market-risk-banner.is-stress strong {
+    color: var(--red-bright);
+}
+
+.market-risk-value {
+    margin-left: auto;
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+}
+
+.pair-risk-note {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+    margin: 8px 0;
+    padding: 8px 9px;
+    border-left: 2px solid var(--orange);
+    border-radius: 4px;
+    background: rgba(245, 158, 11, 0.07);
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.pair-risk-note strong {
+    color: var(--orange);
+    white-space: nowrap;
+}
+
+.pair-risk-note.is-stress {
+    border-left-color: var(--red-bright);
+    background: rgba(255, 95, 115, 0.07);
+}
+
+.pair-risk-note.is-stress strong {
+    color: var(--red-bright);
+}
+
+.fav-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+}
+
 .empty-state,
 .loading-container,
 .error-msg {
@@ -3423,5 +3491,15 @@ h3,
 
     .signals-mode-bar {
         overflow-x: auto;
+    }
+
+    .market-risk-banner {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .market-risk-value {
+        margin-left: 0;
     }
 }

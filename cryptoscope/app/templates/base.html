@@ -11,6 +11,7 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org/dist/ext/json-enc.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script>window.CRYPTOSCOPE_INITIAL_MARKET = {{ market|default("crypto")|tojson }};</script>
     <script src="/static/js/main.js" defer></script>
 </head>
 <body>

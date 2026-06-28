@@ -81,6 +81,8 @@ def _make_signal_cards(pairs, market="crypto", fav_pairs=None):
         corr_val = _finite_float(row.get("corr"))
         z_now = _finite_float(row.get("z_now"))
         zf = _finite_float(row.get("z_forecast"))
+        zf_low = _finite_float(row.get("z_forecast_low"))
+        zf_high = _finite_float(row.get("z_forecast_high"))
         hl = _finite_int(row.get("halflife"))
         score = _finite_float(row.get("score"))
         tomorrow_move = _project_tomorrow_move(z_now, hl)
@@ -102,6 +104,16 @@ def _make_signal_cards(pairs, market="crypto", fav_pairs=None):
             "score": round(score, 3) if score is not None else None,
             "z_now": round(z_now, 2) if z_now is not None else None,
             "z_forecast": round(zf, 2) if zf is not None else None,
+            "z_forecast_low": round(zf_low, 2) if zf_low is not None else None,
+            "z_forecast_high": round(zf_high, 2) if zf_high is not None else None,
+            "signal_eligible": _finite_bool(row.get("signal_eligible")),
+            "is_coint_stable": _finite_bool(row.get("is_coint_stable")),
+            "coint_stability": _finite_float(row.get("coint_stability")),
+            "coint_windows": row.get("coint_windows"),
+            "market_regime": row.get("market_regime") or "normal",
+            "market_volatility": _finite_float(row.get("market_volatility")),
+            "event_risk": _finite_bool(row.get("event_risk")),
+            "risk_reason": row.get("risk_reason"),
             **tomorrow_move,
             **timing,
             "signal": row.get("signal", "Ждать"),
@@ -124,6 +136,8 @@ def _make_forecast_trades(pairs, fav_pairs=None):
         win_rate = 65 if _finite_bool(row.get("is_coint")) else 50
         corr_val = _finite_float(row.get("corr"))
         z_forecast = _finite_float(row.get("z_forecast"))
+        zf_low = _finite_float(row.get("z_forecast_low"))
+        zf_high = _finite_float(row.get("z_forecast_high"))
         tomorrow_move = _project_tomorrow_move(z_now, hl)
         timing = estimate_signal_timing(
             row.get("signal_started_at"),
@@ -145,6 +159,14 @@ def _make_forecast_trades(pairs, fav_pairs=None):
             "halflife": hl,
             "z_now": round(float(z_now), 2) if z_now else None,
             "z_forecast": round(z_forecast, 2) if z_forecast is not None else None,
+            "z_forecast_low": round(zf_low, 2) if zf_low is not None else None,
+            "z_forecast_high": round(zf_high, 2) if zf_high is not None else None,
+            "is_coint_stable": _finite_bool(row.get("is_coint_stable")),
+            "coint_stability": _finite_float(row.get("coint_stability")),
+            "market_regime": row.get("market_regime") or "normal",
+            "market_volatility": _finite_float(row.get("market_volatility")),
+            "event_risk": _finite_bool(row.get("event_risk")),
+            "risk_reason": row.get("risk_reason"),
             **tomorrow_move,
             **timing,
             "win_rate": round(float(win_rate), 1),
@@ -165,6 +187,12 @@ async def _dash_data(conn, market):
 
     active = pairs[pairs["signal_type"] != "wait"]
     n_active = len(active)
+    regime = pairs.iloc[0].get("market_regime") or "normal"
+    volatility = {
+        "stress": "Стрессовая",
+        "elevated": "Повышенная",
+        "normal": "Обычная",
+    }.get(regime, "Обычная")
 
     best = None
     if not active.empty:
@@ -179,7 +207,7 @@ async def _dash_data(conn, market):
         "n_active": n_active,
         "n_total": len(pairs),
         "best_signal": best,
-        "volatility": "Средняя",
+        "volatility": volatility,
     }
 
 
@@ -189,6 +217,7 @@ async def tab_signals(
     market: str = Query("crypto"),
     mode: str = Query("all"),
     min_corr: float = Query(0.5),
+    min_coint: bool = Query(False),
     max_days: int = Query(30),
 ):
     ctx = {
@@ -196,6 +225,7 @@ async def tab_signals(
         "mode": mode,
         "market": market,
         "min_corr": min_corr,
+        "min_coint": min_coint,
         "max_days": max_days,
     }
 
@@ -207,6 +237,14 @@ async def tab_signals(
             return templates.TemplateResponse(request, "components/signals_all.html", {
                 **ctx, "signals": [], "total": 0, "active": [],
             })
+
+        if min_coint:
+            coint_column = (
+                "is_coint_stable"
+                if market == "ru" and "is_coint_stable" in pairs.columns
+                else "is_coint"
+            )
+            pairs = pairs[pairs[coint_column] == 1]
 
         # Filter by half-life
         pairs = pairs[(pairs["halflife"].isna()) | (pairs["halflife"] <= max_days)]
@@ -231,16 +269,22 @@ async def tab_signals(
 
         signals = _make_signal_cards(pairs, market, fav_pair_ids)
         active = [s for s in signals if s["signal_type"] != "wait"]
+        market_regime = signals[0]["market_regime"] if signals else "normal"
+        market_volatility = signals[0]["market_volatility"] if signals else None
 
         if mode == "forecast":
             active_pairs = pairs[pairs["signal_type"] != "wait"]
             if active_pairs.empty:
                 return templates.TemplateResponse(request, "components/signals_forecast.html", {
                     **ctx, "trades": [], "total": 0,
+                    "market_regime": market_regime,
+                    "market_volatility": market_volatility,
                 })
             trades = _make_forecast_trades(active_pairs, fav_pair_ids)
             return templates.TemplateResponse(request, "components/signals_forecast.html", {
                 **ctx, "trades": trades, "total": len(trades),
+                "market_regime": market_regime,
+                "market_volatility": market_volatility,
             })
 
         if mode == "short":
@@ -249,15 +293,21 @@ async def tab_signals(
             if active_pairs.empty:
                 return templates.TemplateResponse(request, "components/signals_forecast.html", {
                     **ctx, "trades": [], "total": 0, "is_short": True,
+                    "market_regime": market_regime,
+                    "market_volatility": market_volatility,
                 })
             trades = _make_forecast_trades(active_pairs, fav_pair_ids)
             return templates.TemplateResponse(request, "components/signals_forecast.html", {
                 **ctx, "trades": trades, "total": len(trades), "is_short": True,
+                "market_regime": market_regime,
+                "market_volatility": market_volatility,
             })
 
         return templates.TemplateResponse(request, "components/signals_all.html", {
             **ctx, "signals": signals, "active": active, "total": len(signals),
             "n_active": len(active), "min_corr": min_corr, "max_days": max_days,
+            "market_regime": market_regime,
+            "market_volatility": market_volatility,
         })
 
     except Exception as e:
@@ -476,6 +526,7 @@ async def tab_favorites(request: Request):
             ticker_keys.add((market, favorite["ticker_b"]))
         latest_prices = {}
         price_history = {}  # (market, ticker) -> np.array of close prices
+        pair_risks = {}
 
         async with get_connection() as conn:
             for market, ticker in ticker_keys:
@@ -504,6 +555,14 @@ async def tab_favorites(request: Request):
                             latest_prices[(market, ticker)] = float(live)
                     except ImportError:
                         pass
+            cursor = await conn.execute("SELECT * FROM pairs")
+            for pair_row in await cursor.fetchall():
+                pair_data = dict(pair_row)
+                pair_risks[(
+                    pair_data.get("market"),
+                    pair_data.get("ticker_a"),
+                    pair_data.get("ticker_b"),
+                )] = pair_data
 
         for _, row in favs.iterrows():
             market = row.get("market") or "crypto"
@@ -537,6 +596,9 @@ async def tab_favorites(request: Request):
                 min_len = min(len(ta_hist), len(tb_hist))
                 pa_arr = ta_hist[-min_len:]
                 pb_arr = tb_hist[-min_len:]
+                if market == "ru":
+                    pa_arr = pa_arr[-252:]
+                    pb_arr = pb_arr[-252:]
                 cg = engle_granger(pa_arr, pb_arr)
                 zres = compute_zscore(pa_arr, pb_arr, cg["hedge_ratio"])
                 if zres["z_now"] is not None:
@@ -557,6 +619,29 @@ async def tab_favorites(request: Request):
                 hl=hl,
                 pnl_pct=total_pnl,
             )
+            pair_risk = pair_risks.get(
+                (market, row["ticker_a"], row["ticker_b"]),
+                {},
+            )
+            signal_eligible = _finite_bool(
+                pair_risk.get(
+                    "signal_eligible",
+                    0 if market == "ru" else 1,
+                )
+            )
+            risk_reason = pair_risk.get("risk_reason")
+            if market == "ru" and not pair_risk:
+                risk_reason = "Пара отсутствует в свежем анализе"
+            if market == "ru" and not signal_eligible:
+                fc.update({
+                    "status": "Перепроверить",
+                    "status_color": "orange",
+                    "status_detail": (
+                        risk_reason
+                        or "Текущая модель больше не подтверждает сигнал"
+                    ),
+                    "recommendation": "hold_warn",
+                })
 
             active.append({
                 "id": int(row["id"]),
@@ -577,6 +662,19 @@ async def tab_favorites(request: Request):
                 "days_held": days_held,
                 "z_at_entry": round(float(z_at_entry), 2) if z_at_entry else None,
                 "z_now_live": z_now_live,
+                "signal_eligible": signal_eligible,
+                "is_coint_stable": _finite_bool(
+                    pair_risk.get("is_coint_stable")
+                ),
+                "coint_stability": _finite_float(
+                    pair_risk.get("coint_stability")
+                ),
+                "market_regime": pair_risk.get("market_regime") or "normal",
+                "market_volatility": _finite_float(
+                    pair_risk.get("market_volatility")
+                ),
+                "event_risk": _finite_bool(pair_risk.get("event_risk")),
+                "risk_reason": risk_reason,
                 **holding_timing,
                 **fc,
             })

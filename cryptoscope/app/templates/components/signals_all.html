@@ -4,6 +4,21 @@
 <div class="error-msg">{{ error }}</div>
 {% endif %}
 
+{% if market_regime == "stress" %}
+<div class="market-risk-banner is-stress">
+    <strong>Стрессовый режим рынка</strong>
+    <span>Прогнозы расширены до диапазона, нестабильные RU-пары заблокированы.</span>
+    {% if market_volatility is not none %}
+    <span class="market-risk-value">Волатильность: {{ "%.0f"|format(market_volatility) }}%</span>
+    {% endif %}
+</div>
+{% elif market_regime == "elevated" %}
+<div class="market-risk-banner is-elevated">
+    <strong>Повышенная волатильность</strong>
+    <span>Сигналы требуют дополнительного подтверждения.</span>
+</div>
+{% endif %}
+
 {% if signals is defined and signals %}
 
 <!-- ============================== DASHBOARD BANNER ============================== -->
@@ -74,6 +89,13 @@
                 data-z-now="{{ s.z_now|default('') }}"
                 width="280" height="40"></canvas>
 
+        {% if s.risk_reason %}
+        <div class="pair-risk-note {% if s.market_regime == 'stress' %}is-stress{% endif %}">
+            <strong>Контроль риска</strong>
+            <span>{{ s.risk_reason }}</span>
+        </div>
+        {% endif %}
+
         <div class="signal-timing {% if s.signal_is_expired %}is-overdue{% endif %}"
              title="Ориентировочный срок рассчитан по статистическому полупериоду пары">
             <div class="signal-timing-item">
@@ -102,8 +124,14 @@
                 </div>
             </div>
             <div class="signal-stat">
-                <div class="signal-stat-label">Z прогноз</div>
-                <div class="signal-stat-value">{{ s.z_forecast|default("—") }}</div>
+                <div class="signal-stat-label">
+                    {% if s.market_regime == "stress" %}Z сценарий{% else %}Z прогноз{% endif %}
+                </div>
+                <div class="signal-stat-value">
+                    {% if s.market_regime == "stress" and s.z_forecast_low is not none and s.z_forecast_high is not none %}
+                    {{ s.z_forecast_low }}…{{ s.z_forecast_high }}
+                    {% else %}{{ s.z_forecast|default("—") }}{% endif %}
+                </div>
             </div>
             <div class="signal-stat signal-stat-tomorrow">
                 <div class="signal-stat-label">Z завтра</div>
@@ -128,7 +156,11 @@
             <div class="signal-stat">
                 <div class="signal-stat-label">Коинтеграция</div>
                 <div class="signal-stat-value">
-                    {% if s.is_coint %}<span style="color:var(--green)">✓</span>{% else %}<span style="color:var(--text-muted)">—</span>{% endif %}
+                    {% if s.is_coint_stable %}
+                    <span class="badge badge-green">{{ s.coint_stability|default(0, true)|round|int }}% стаб.</span>
+                    {% elif s.is_coint %}
+                    <span class="badge badge-orange">{{ s.coint_stability|default(0, true)|round|int }}%</span>
+                    {% else %}<span style="color:var(--text-muted)">—</span>{% endif %}
                 </div>
             </div>
             <div class="signal-stat">
@@ -200,16 +232,25 @@
             {% for s in signals %}
             <tr>
                 <td>
+                    {% if market == "ru" and not s.signal_eligible %}
+                    <button class="fav-btn fav-btn-inline" disabled
+                            title="{{ s.risk_reason|default('Сигнал не прошёл контроль риска', true) }}">☆</button>
+                    {% else %}
                     <button class="fav-btn fav-btn-inline {% if s.is_favorite %}favorited{% endif %}" data-pair="{{ s.pair_id }}"
                             onclick="toggleFavorite('{{ s.pair_id }}','{{ s.ticker_a }}','{{ s.ticker_b }}','{{ s.signal }}','{{ s.signal_type }}','{{ s.z_now|default('') }}',0,0,'{{ s.halflife|default('') }}','{{ s.corr|default(0) }}')">
                         {% if s.is_favorite %}★{% else %}☆{% endif %}
                     </button>
+                    {% endif %}
                     <strong>{{ s.ticker_a }}/{{ s.ticker_b }}</strong>
                 </td>
                 <td class="text-mono z-cell {% if s.z_now and s.z_now >= 2 %}cell-heat-orange{% elif s.z_now and s.z_now <= -2 %}cell-heat-green{% endif %}">
                     {{ s.z_now|default("—") }}
                 </td>
-                <td class="text-mono">{{ s.z_forecast|default("—") }}</td>
+                <td class="text-mono">
+                    {% if s.market_regime == "stress" and s.z_forecast_low is not none and s.z_forecast_high is not none %}
+                    {{ s.z_forecast_low }}…{{ s.z_forecast_high }}
+                    {% else %}{{ s.z_forecast|default("—") }}{% endif %}
+                </td>
                 <td class="text-mono tomorrow-cell">
                     {% if s.z_tomorrow is not none %}
                     <span>{{ s.z_tomorrow }}</span>
@@ -218,7 +259,7 @@
                 </td>
                 <td>
                     <span class="badge {% if s.signal_type == 'short_a' %}badge-orange{% elif s.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
-                        {{ s.signal_type }}
+                        {% if s.signal_type == "wait" and s.risk_reason %}наблюдение{% else %}{{ s.signal_type }}{% endif %}
                     </span>
                 </td>
                 <td>
@@ -231,7 +272,13 @@
                         {{ s.corr_pct|default("—") }}%
                     </span>
                 </td>
-                <td class="text-mono">{% if s.is_coint %}<span style="color:var(--green)">✓</span>{% else %}<span style="color:var(--text-muted)">—</span>{% endif %}</td>
+                <td class="text-mono" title="{{ s.risk_reason|default('', true) }}">
+                    {% if s.is_coint_stable %}
+                    <span class="badge badge-green">{{ s.coint_stability|default(0, true)|round|int }}%</span>
+                    {% elif s.is_coint %}
+                    <span class="badge badge-orange">{{ s.coint_stability|default(0, true)|round|int }}%</span>
+                    {% else %}<span style="color:var(--text-muted)">—</span>{% endif %}
+                </td>
                 <td class="text-mono">{{ s.halflife|default("—") }}</td>
                 <td class="text-mono">{{ s.score|default("—") }}</td>
             </tr>

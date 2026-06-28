@@ -67,7 +67,12 @@ async def get_signals(
 
     # Filter cointegrated only
     if min_coint:
-        pairs = pairs[pairs["is_coint"] == 1]
+        coint_column = (
+            "is_coint_stable"
+            if market == "ru" and "is_coint_stable" in pairs.columns
+            else "is_coint"
+        )
+        pairs = pairs[pairs[coint_column] == 1]
 
     # Filter by half-life (fast signals)
     pairs = pairs[(pairs["halflife"].isna()) | (pairs["halflife"] <= max_days)]
@@ -79,6 +84,8 @@ async def get_signals(
         score = _finite_float(row.get("score"))
         z_now = _finite_float(row.get("z_now"))
         zf = _finite_float(row.get("z_forecast"))
+        zf_low = _finite_float(row.get("z_forecast_low"))
+        zf_high = _finite_float(row.get("z_forecast_high"))
         hl = _finite_int(row.get("halflife"))
         tomorrow_move = _project_tomorrow_move(z_now, hl)
         signal_type = row.get("signal_type", "wait")
@@ -98,6 +105,16 @@ async def get_signals(
             "score": round(score, 4) if score is not None else None,
             "z_now": round(z_now, 4) if z_now is not None else None,
             "z_forecast": round(zf, 4) if zf is not None else None,
+            "z_forecast_low": round(zf_low, 4) if zf_low is not None else None,
+            "z_forecast_high": round(zf_high, 4) if zf_high is not None else None,
+            "signal_eligible": _finite_bool(row.get("signal_eligible")),
+            "is_coint_stable": _finite_bool(row.get("is_coint_stable")),
+            "coint_stability": _finite_float(row.get("coint_stability")),
+            "coint_windows": row.get("coint_windows"),
+            "market_regime": row.get("market_regime") or "normal",
+            "market_volatility": _finite_float(row.get("market_volatility")),
+            "event_risk": _finite_bool(row.get("event_risk")),
+            "risk_reason": row.get("risk_reason"),
             **tomorrow_move,
             **timing,
             "signal": row["signal"],
@@ -151,6 +168,9 @@ async def get_forecast_trades(
         pnl_pct = max(0, round(float(pnl_est), 2))
         win_rate = 65 if _finite_bool(row.get("is_coint")) else 50
         z_forecast = _finite_float(row.get("z_forecast"))
+        zf_low = _finite_float(row.get("z_forecast_low"))
+        zf_high = _finite_float(row.get("z_forecast_high"))
+        is_stable = _finite_bool(row.get("is_coint_stable"))
 
         trades.append({
             "pair": f"{row['ticker_a']}/{row['ticker_b']}",
@@ -161,6 +181,14 @@ async def get_forecast_trades(
             "strength": row.get("strength", "Нет"),
             "z_now": round(float(z_now), 4) if z_now else None,
             "z_forecast": round(z_forecast, 4) if z_forecast is not None else None,
+            "z_forecast_low": round(zf_low, 4) if zf_low is not None else None,
+            "z_forecast_high": round(zf_high, 4) if zf_high is not None else None,
+            "is_coint_stable": is_stable,
+            "coint_stability": _finite_float(row.get("coint_stability")),
+            "market_regime": row.get("market_regime") or "normal",
+            "market_volatility": _finite_float(row.get("market_volatility")),
+            "event_risk": _finite_bool(row.get("event_risk")),
+            "risk_reason": row.get("risk_reason"),
             **tomorrow_move,
             **timing,
             "win_rate": round(float(win_rate), 1),
@@ -177,6 +205,9 @@ async def get_forecast_trades(
         "trades": trades,
         "total": len(trades),
         "market": market,
+        "market_regime": (
+            trades[0]["market_regime"] if trades else "normal"
+        ),
     }
 
 
@@ -207,15 +238,22 @@ async def get_dashboard(
 
     # Market volatility (7-day)
     volatility_str = "Низкая"
+    stored_regime = pairs.iloc[0].get("market_regime") or "normal"
+    if stored_regime == "stress":
+        volatility_str = "Стрессовая"
+    elif stored_regime == "elevated":
+        volatility_str = "Повышенная"
+    elif stored_regime == "normal":
+        volatility_str = "Обычная"
     if not prices_df.empty:
         try:
             wide = prices_df.pivot(index="date", columns="ticker", values="close")
             latest = wide.iloc[-1]
             week_ago = wide.iloc[-min(8, len(wide))]
             avg_change = float(abs(latest / week_ago - 1).mean() * 100)
-            if avg_change > 10:
+            if stored_regime == "normal" and avg_change > 10:
                 volatility_str = "Высокая"
-            elif avg_change > 5:
+            elif stored_regime == "normal" and avg_change > 5:
                 volatility_str = "Средняя"
         except Exception:
             pass

@@ -3,6 +3,21 @@
 <div class="error-msg">{{ error }}</div>
 {% endif %}
 
+{% if market_regime == "stress" %}
+<div class="market-risk-banner is-stress">
+    <strong>Стрессовый режим рынка</strong>
+    <span>Показываем диапазон сценария только для устойчивых пар.</span>
+    {% if market_volatility is not none %}
+    <span class="market-risk-value">Волатильность: {{ "%.0f"|format(market_volatility) }}%</span>
+    {% endif %}
+</div>
+{% elif market_regime == "elevated" %}
+<div class="market-risk-banner is-elevated">
+    <strong>Повышенная волатильность</strong>
+    <span>Диапазон прогноза расширен.</span>
+</div>
+{% endif %}
+
 {% if trades is defined and trades %}
 <div class="section-header">
     <h3>
@@ -24,6 +39,12 @@
                 {{ t.signal_type }}
             </span>
         </div>
+        {% if t.risk_reason %}
+        <div class="pair-risk-note {% if t.market_regime == 'stress' %}is-stress{% endif %}">
+            <strong>Контроль риска</strong>
+            <span>{{ t.risk_reason }}</span>
+        </div>
+        {% endif %}
         <div class="signal-timing {% if t.signal_is_expired %}is-overdue{% endif %}"
              title="Ориентировочный срок рассчитан по статистическому полупериоду пары">
             <div class="signal-timing-item">
@@ -49,8 +70,14 @@
                 <div class="signal-stat-value">{{ t.z_now|default("—") }}</div>
             </div>
             <div class="signal-stat">
-                <div class="signal-stat-label">Z прогноз</div>
-                <div class="signal-stat-value">{{ t.z_forecast|default("—") }}</div>
+                <div class="signal-stat-label">
+                    {% if t.market_regime == "stress" %}Z сценарий{% else %}Z прогноз{% endif %}
+                </div>
+                <div class="signal-stat-value">
+                    {% if t.market_regime == "stress" and t.z_forecast_low is not none and t.z_forecast_high is not none %}
+                    {{ t.z_forecast_low }}…{{ t.z_forecast_high }}
+                    {% else %}{{ t.z_forecast|default("—") }}{% endif %}
+                </div>
             </div>
             <div class="signal-stat signal-stat-tomorrow">
                 <div class="signal-stat-label">Z завтра</div>
@@ -77,6 +104,10 @@
                 <div class="signal-stat-value {% if is_short and t.avg_hold_days <= 3 %}text-orange{% elif is_short %}text-blue{% endif %}">
                     {{ t.avg_hold_days }}
                 </div>
+            </div>
+            <div class="signal-stat">
+                <div class="signal-stat-label">Стабильность</div>
+                <div class="signal-stat-value">{{ t.coint_stability|default(0, true)|round|int }}%</div>
             </div>
             <div class="signal-stat">
                 <div class="signal-stat-label">Сила</div>
@@ -125,7 +156,9 @@
                 <td>{{ t.signal[:24] }}</td>
                 <td class="text-mono">{{ t.z_now }}</td>
                 <td class="text-mono tomorrow-cell">
-                    {% if t.z_tomorrow is not none %}
+                    {% if t.market_regime == "stress" and t.z_forecast_low is not none and t.z_forecast_high is not none %}
+                    <span>{{ t.z_forecast_low }}…{{ t.z_forecast_high }}</span>
+                    {% elif t.z_tomorrow is not none %}
                     <span>{{ t.z_tomorrow }}</span>
                     <span class="tomorrow-delta">{{ "%+.2f"|format(t.z_tomorrow_delta) }}</span>
                     {% else %}—{% endif %}
