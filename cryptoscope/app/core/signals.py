@@ -1,6 +1,5 @@
 """Signal computation and scoring."""
 
-import math
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -69,11 +68,13 @@ def estimate_signal_timing(
     else:
         now_dt = now_dt.astimezone(UTC)
 
-    elapsed_seconds = max(0.0, (now_dt - start_dt).total_seconds())
+    # The UI presents dates, so count crossed calendar days instead of full
+    # 24-hour intervals. A signal from the 26th is two days old on the 28th.
+    elapsed_days = max(0, (now_dt.date() - start_dt.date()).days)
     timing.update({
         "signal_started_at": start_dt.isoformat(),
         "signal_started_date": start_dt.strftime("%d.%m.%Y"),
-        "signal_days_elapsed": int(elapsed_seconds // 86400),
+        "signal_days_elapsed": elapsed_days,
     })
 
     try:
@@ -84,10 +85,10 @@ def estimate_signal_timing(
         return timing
 
     expected_end = start_dt + timedelta(days=hl)
-    remaining_seconds = (expected_end - now_dt).total_seconds()
-    is_expired = remaining_seconds <= 0
-    days_remaining = 0 if is_expired else math.ceil(remaining_seconds / 86400)
-    days_overdue = math.ceil(abs(remaining_seconds) / 86400) if is_expired else 0
+    days_until_end = (expected_end.date() - now_dt.date()).days
+    is_expired = days_until_end <= 0
+    days_remaining = max(0, days_until_end)
+    days_overdue = max(0, -days_until_end)
 
     timing.update({
         "signal_expected_end_at": expected_end.isoformat(),
@@ -95,7 +96,7 @@ def estimate_signal_timing(
         "signal_days_remaining": days_remaining,
         "signal_days_overdue": days_overdue,
         "signal_is_expired": is_expired,
-        "signal_time_progress_pct": min(100, round(elapsed_seconds / (hl * 86400) * 100)),
+        "signal_time_progress_pct": min(100, round(elapsed_days / hl * 100)),
     })
     return timing
 

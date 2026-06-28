@@ -101,6 +101,15 @@ class TestSignalTiming:
         assert result["signal_days_remaining"] == 12
         assert result["signal_is_expired"] is False
 
+    def test_counts_calendar_days_instead_of_complete_24_hour_periods(self):
+        now = datetime(2026, 6, 28, 7, tzinfo=timezone.utc)
+
+        result = estimate_signal_timing("2026-06-26 23:00:00", 13, now=now)
+
+        assert result["signal_days_elapsed"] == 2
+        assert result["signal_days_remaining"] == 11
+        assert result["signal_time_progress_pct"] == 15
+
     def test_marks_overdue_signal(self):
         now = datetime(2026, 6, 30, tzinfo=timezone.utc)
 
