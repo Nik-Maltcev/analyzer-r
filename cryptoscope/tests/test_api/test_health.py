@@ -107,6 +107,8 @@ async def test_landing_page(app):
         assert "990 ₽" in response.text
         assert "7 900 ₽" in response.text
         assert response.text.count('href="/app"') >= 4
+        assert "paypal.com/sdk/js" in response.text
+        assert 'id="paypal-container-DNWAM39RY9XML"' in response.text
 
 
 @pytest.mark.asyncio

@@ -456,6 +456,45 @@ a {
     max-width: 900px;
 }
 
+.paypal-checkout {
+    align-items: center;
+    border-bottom: 1px solid var(--landing-line);
+    border-top: 1px solid var(--landing-line);
+    display: grid;
+    gap: 48px;
+    grid-template-columns: 1fr minmax(300px, 420px);
+    margin: 56px auto 0;
+    max-width: 900px;
+    padding: 32px 0;
+}
+
+.paypal-checkout-copy h3 {
+    font-size: 24px;
+    margin: 8px 0;
+}
+
+.paypal-checkout-copy p,
+.paypal-status {
+    color: var(--landing-muted);
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.paypal-checkout-action {
+    min-height: 160px;
+}
+
+.paypal-status {
+    color: var(--landing-coral);
+    margin-top: 10px;
+    text-align: center;
+}
+
+.hidden {
+    display: none !important;
+}
+
 .price-card {
     background: var(--landing-surface);
     border: 1px solid var(--landing-line);
@@ -722,6 +761,13 @@ a {
     .price-card {
         min-height: 430px;
         padding: 28px 24px;
+    }
+
+    .paypal-checkout {
+        align-items: stretch;
+        gap: 26px;
+        grid-template-columns: 1fr;
+        margin-top: 40px;
     }
 
     .price-value strong {

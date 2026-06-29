@@ -10,6 +10,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/landing.css">
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+    <script id="paypal-sdk"
+            src="https://www.paypal.com/sdk/js?client-id=BAAcqbJ_FI0s3Uq5-RSJBi-88N-CntiFQQBBQxV-wjqnZe-ELs27-nLOoB4JCYsnXXLblOc96x05RnUACw&components=hosted-buttons&disable-funding=venmo&currency=USD"
+            crossorigin="anonymous" async></script>
     <script src="/static/js/landing.js" defer></script>
 </head>
 <body>
@@ -231,6 +234,18 @@
                     </ul>
                     <a class="button button-primary" href="/app">Попробовать 3 дня бесплатно</a>
                 </article>
+            </div>
+            <div class="paypal-checkout">
+                <div class="paypal-checkout-copy">
+                    <span class="section-label">Оплата</span>
+                    <h3>PayPal</h3>
+                    <p>Оплата обрабатывается на стороне PayPal, итоговая сумма отображается в USD.</p>
+                </div>
+                <div class="paypal-checkout-action">
+                    <div id="paypal-container-DNWAM39RY9XML"
+                         aria-label="Оплата через PayPal"></div>
+                    <p class="paypal-status hidden" id="paypal-status" role="status"></p>
+                </div>
             </div>
         </section>
 
