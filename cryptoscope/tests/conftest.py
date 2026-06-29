@@ -94,6 +94,35 @@ def temp_db():
     """)
 
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS auth_users (
+            id TEXT PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            created_at TEXT DEFAULT (datetime('now')),
+            last_login_at TEXT
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS auth_magic_links (
+            token_hash TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            used_at TEXT,
+            request_ip TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS auth_sessions (
+            token_hash TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS update_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT DEFAULT (datetime('now')),

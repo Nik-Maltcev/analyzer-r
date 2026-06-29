@@ -2016,6 +2016,43 @@ body.modal-open {
     gap: 8px;
 }
 
+.auth-email {
+    color: var(--text-secondary);
+    font-size: 13px;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.auth-hint {
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.5;
+    margin: -2px 0 16px;
+}
+
+.auth-message {
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.5;
+    margin-top: 14px;
+    padding: 10px 12px;
+}
+
+.auth-message.success {
+    background: rgba(52, 211, 153, 0.08);
+    border-color: rgba(52, 211, 153, 0.35);
+    color: var(--green);
+}
+
+.auth-message.error {
+    background: rgba(248, 113, 113, 0.08);
+    border-color: rgba(248, 113, 113, 0.35);
+    color: var(--red);
+}
+
 /* Market selector */
 .market-selector {
     margin-bottom: 0;

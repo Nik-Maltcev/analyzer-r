@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_anon_key: str = ""
 
+    resend_api_key: str = ""
+    resend_from_email: str = "CryptoScope <onboarding@resend.dev>"
+    app_base_url: str = ""
+    magic_link_ttl_minutes: int = 15
+    auth_session_days: int = 30
+    auth_legacy_owner_email: str = ""
+
     twelve_data_api_key: str = ""
 
     telegram_bot_token: str = ""

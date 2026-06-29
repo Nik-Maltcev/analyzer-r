@@ -4,6 +4,17 @@
         <p class="page-desc">Активные позиции с live P&L и прогнозом</p>
     </div>
 
+    {% if auth_required %}
+    <div class="section">
+        <div class="empty-state auth-required-state">
+            <span class="empty-icon">✉</span>
+            <p>Войдите, чтобы сохранять сигналы</p>
+            <button class="btn btn-primary" type="button" onclick="openAuthModal()">
+                Получить ссылку для входа
+            </button>
+        </div>
+    </div>
+    {% else %}
     <div class="section">
         <h3>Активные позиции ({{ favorites|length }})</h3>
         {% if favorites %}
@@ -147,4 +158,5 @@
             <div class="skeleton-card"></div>
         </div>
     </div>
+    {% endif %}
 </div>

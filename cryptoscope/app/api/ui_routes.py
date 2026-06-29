@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from app.auth import get_current_user
 from app.core.cointegration import compute_fixed_zscore, compute_zscore, engle_granger
 from app.core.scanners import corr_breakdown_scan, drawdown_scan, momentum_scan
 from app.core.signals import estimate_signal_timing
@@ -254,17 +255,20 @@ async def tab_signals(
         # Wrapped in try/except so favorites query failure doesn't kill signals
         fav_pair_ids = set()
         try:
-            async with get_connection() as conn:
-                cursor = await conn.execute(
-                    """
-                    SELECT pair FROM favorites
-                    WHERE status = 'active'
-                      AND COALESCE(market, 'crypto') = ?
-                    """,
-                    (market,),
-                )
-                fav_rows = await cursor.fetchall()
-                fav_pair_ids = set(r[0] for r in fav_rows)
+            user = await get_current_user(request)
+            if user:
+                async with get_connection() as conn:
+                    cursor = await conn.execute(
+                        """
+                        SELECT pair FROM favorites
+                        WHERE status = 'active'
+                          AND user_id = ?
+                          AND COALESCE(market, 'crypto') = ?
+                        """,
+                        (user.id, market),
+                    )
+                    fav_rows = await cursor.fetchall()
+                    fav_pair_ids = set(r[0] for r in fav_rows)
         except Exception:
             pass
 
@@ -510,9 +514,16 @@ def _forecast_status(z_now, z_entry, signal_type, days_held, hl, pnl_pct):
 @router.get("/favorites", response_class=HTMLResponse)
 async def tab_favorites(request: Request):
     active = []
+    user = await get_current_user(request)
+    if user is None:
+        return templates.TemplateResponse(request, "components/favorites_tab.html", {
+            "request": request,
+            "favorites": [],
+            "auth_required": True,
+        })
     try:
         async with get_connection() as conn:
-            favs = await fetch_favorites(conn)
+            favs = await fetch_favorites(conn, user.id)
             model_backfilled = False
             for _, favorite in favs.iterrows():
                 fixed_sd = _finite_float(favorite.get("spread_sd_entry"))
@@ -719,9 +730,15 @@ async def tab_favorites(request: Request):
 
 @router.get("/favorites/history", response_class=HTMLResponse)
 async def tab_favorites_history(request: Request, limit: int = Query(10)):
+    user = await get_current_user(request)
+    if user is None:
+        return templates.TemplateResponse(request, "components/favorites_history.html", {
+            "request": request,
+            "history": [],
+        })
     try:
         async with get_connection() as conn:
-            hist = await fetch_favorites_history(conn, limit=limit)
+            hist = await fetch_favorites_history(conn, user_id=user.id, limit=limit)
         history = hist.to_dict(orient="records") if not hist.empty else []
     except Exception as e:
         return templates.TemplateResponse(request, "components/favorites_history.html", {

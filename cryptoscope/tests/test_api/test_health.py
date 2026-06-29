@@ -98,12 +98,23 @@ async def test_dashboard_endpoint(app, temp_db):
 
 
 @pytest.mark.asyncio
-async def test_index_page(app):
+async def test_landing_page(app):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/")
         assert response.status_code == 200
         assert "CryptoScope" in response.text
+        assert "990 ₽" in response.text
+        assert "7 900 ₽" in response.text
+        assert response.text.count('href="/app"') >= 4
+
+
+@pytest.mark.asyncio
+async def test_app_page(app):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/app")
+        assert response.status_code == 200
         assert 'data-market="br"' in response.text
         assert 'data-market="id"' in response.text
         assert response.text.index("</nav>") < response.text.index('id="auth-modal"')
@@ -113,7 +124,7 @@ async def test_index_page(app):
 async def test_index_page_can_open_ru_market(app):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/?market=ru")
+        response = await client.get("/app?market=ru")
         assert response.status_code == 200
         assert 'window.CRYPTOSCOPE_INITIAL_MARKET = "ru"' in response.text
         assert 'class="market-btn active" data-market="ru"' in response.text

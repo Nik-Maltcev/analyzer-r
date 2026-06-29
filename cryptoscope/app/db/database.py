@@ -355,22 +355,43 @@ async def toggle_favorite(conn: aiosqlite.Connection, pair: str, ticker_a: str, 
 
 
 async def close_favorite(conn: aiosqlite.Connection, fav_id: int, exit_price_a: float,
-                         exit_price_b: float, exit_pnl_pct: float) -> dict[str, Any]:
+                         exit_price_b: float, exit_pnl_pct: float,
+                         user_id: str | None = None) -> dict[str, Any]:
     """Close an active favorite position."""
-    await conn.execute("""
-        UPDATE favorites SET status = 'closed', exit_time = datetime('now'),
-            exit_price_a = ?, exit_price_b = ?, exit_pnl_pct = ?
-        WHERE id = ?
-    """, (exit_price_a, exit_price_b, exit_pnl_pct, fav_id))
+    if user_id is None:
+        cursor = await conn.execute("""
+            UPDATE favorites SET status = 'closed', exit_time = datetime('now'),
+                exit_price_a = ?, exit_price_b = ?, exit_pnl_pct = ?
+            WHERE id = ?
+        """, (exit_price_a, exit_price_b, exit_pnl_pct, fav_id))
+    else:
+        cursor = await conn.execute("""
+            UPDATE favorites SET status = 'closed', exit_time = datetime('now'),
+                exit_price_a = ?, exit_price_b = ?, exit_pnl_pct = ?
+            WHERE id = ? AND user_id = ?
+        """, (exit_price_a, exit_price_b, exit_pnl_pct, fav_id, user_id))
     await conn.commit()
-    return {"action": "closed", "id": fav_id}
+    return {"action": "closed", "id": fav_id, "updated": cursor.rowcount == 1}
 
 
-async def delete_favorite(conn: aiosqlite.Connection, fav_id: int) -> dict[str, Any]:
+async def delete_favorite(
+    conn: aiosqlite.Connection,
+    fav_id: int,
+    user_id: str | None = None,
+) -> dict[str, Any]:
     """Delete a favorite from history."""
-    await conn.execute("DELETE FROM favorites WHERE id = ?", (fav_id,))
+    if user_id is None:
+        cursor = await conn.execute(
+            "DELETE FROM favorites WHERE id = ?",
+            (fav_id,),
+        )
+    else:
+        cursor = await conn.execute(
+            "DELETE FROM favorites WHERE id = ? AND user_id = ?",
+            (fav_id, user_id),
+        )
     await conn.commit()
-    return {"action": "deleted", "id": fav_id}
+    return {"action": "deleted", "id": fav_id, "deleted": cursor.rowcount == 1}
 
 
 async def db_status(conn: aiosqlite.Connection) -> dict[str, Any]:

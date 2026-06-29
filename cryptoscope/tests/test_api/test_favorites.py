@@ -7,6 +7,7 @@ import tempfile
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.auth import SESSION_COOKIE_NAME, hash_auth_token
 from app.db.database import (
     fetch_favorites,
     get_connection,
@@ -15,6 +16,27 @@ from app.db.database import (
     toggle_favorite,
 )
 from app.db.schema import CREATE_PAIRS
+
+TEST_USER_ID = "test-user"
+TEST_EMAIL = "user@example.com"
+TEST_SESSION = "test-session-token"
+
+
+def _add_auth_session(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        INSERT INTO auth_users (id, email)
+        VALUES (?, ?)
+        """,
+        (TEST_USER_ID, TEST_EMAIL),
+    )
+    conn.execute(
+        """
+        INSERT INTO auth_sessions (token_hash, user_id, expires_at)
+        VALUES (?, ?, '2099-01-01 00:00:00')
+        """,
+        (hash_auth_token(TEST_SESSION), TEST_USER_ID),
+    )
 
 
 @pytest.fixture
@@ -28,6 +50,7 @@ def app(temp_db):
 @pytest.mark.asyncio
 async def test_ru_favorite_uses_moex_market_prices(app, temp_db):
     conn = sqlite3.connect(temp_db)
+    _add_auth_session(conn)
     conn.executemany(
         "INSERT INTO prices (ticker, date, close, volume, market) VALUES (?, ?, ?, ?, ?)",
         [
@@ -45,15 +68,17 @@ async def test_ru_favorite_uses_moex_market_prices(app, temp_db):
         )
         VALUES (
             'SBER_GAZP', 'ru', 'SBER', 'GAZP', 'Test', 'long_a',
-            100, 200, '2026-06-25 12:00:00', 'active', 'local'
+            100, 200, '2026-06-25 12:00:00', 'active', ?
         )
-        """
+        """,
+        (TEST_USER_ID,),
     )
     conn.commit()
     conn.close()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
+        client.cookies.set(SESSION_COOKIE_NAME, TEST_SESSION)
         response = await client.get("/api/favorites")
         assert response.status_code == 200
         favorite = response.json()["favorites"][0]
@@ -74,6 +99,58 @@ async def test_ru_favorite_uses_moex_market_prices(app, temp_db):
     ).fetchone()
     conn.close()
     assert closed == (110, 190, 15.0, "closed")
+
+
+@pytest.mark.asyncio
+async def test_favorites_require_authentication(app):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/favorites")
+
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_user_cannot_close_another_users_favorite(app, temp_db):
+    conn = sqlite3.connect(temp_db)
+    _add_auth_session(conn)
+    conn.execute(
+        """
+        INSERT INTO auth_users (id, email)
+        VALUES ('other-user', 'other@example.com')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO favorites (
+            pair, market, ticker_a, ticker_b, signal_type,
+            price_a_entry, price_b_entry, entry_time, status, user_id
+        )
+        VALUES (
+            'BTC_ETH', 'crypto', 'BTC/USD', 'ETH/USD', 'long_a',
+            40000, 2000, datetime('now'), 'active', 'other-user'
+        )
+        """
+    )
+    favorite_id = conn.execute(
+        "SELECT id FROM favorites WHERE user_id = 'other-user'"
+    ).fetchone()[0]
+    conn.commit()
+    conn.close()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        client.cookies.set(SESSION_COOKIE_NAME, TEST_SESSION)
+        response = await client.post(f"/api/favorites/close/{favorite_id}")
+
+    assert response.status_code == 404
+    conn = sqlite3.connect(temp_db)
+    status = conn.execute(
+        "SELECT status FROM favorites WHERE id = ?",
+        (favorite_id,),
+    ).fetchone()[0]
+    conn.close()
+    assert status == "active"
 
 
 @pytest.mark.asyncio

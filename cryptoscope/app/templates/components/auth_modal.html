@@ -3,26 +3,26 @@
     <div class="modal-backdrop" onclick="closeAuthModal()"></div>
     <div class="modal-content auth-modal-content">
         <div class="modal-header">
-            <h3 id="auth-modal-title">Вход / Регистрация</h3>
+            <h3 id="auth-modal-title">Вход в CryptoScope</h3>
             <button class="modal-close" type="button" onclick="closeAuthModal()"
                     aria-label="Закрыть">&times;</button>
         </div>
         <div class="modal-body">
-            <div class="form-group">
-                <label for="auth-email">Email</label>
-                <input type="email" id="auth-email" class="form-input"
-                       placeholder="user@example.com" autocomplete="email">
-            </div>
-            <div class="form-group">
-                <label for="auth-password">Пароль</label>
-                <input type="password" id="auth-password" class="form-input"
-                       placeholder="••••••" autocomplete="current-password">
-            </div>
-            <div class="form-actions">
-                <button class="btn btn-primary" type="button" onclick="authLogin()">Войти</button>
-                <button class="btn btn-secondary" type="button" onclick="authRegister()">Регистрация</button>
-            </div>
-            <div id="auth-error" class="error-msg hidden"></div>
+            <form id="magic-link-form" onsubmit="requestMagicLink(event)">
+                <div class="form-group">
+                    <label for="auth-email">Email</label>
+                    <input type="email" id="auth-email" class="form-input"
+                           placeholder="user@example.com" autocomplete="email"
+                           inputmode="email" required>
+                </div>
+                <p class="auth-hint">Отправим одноразовую ссылку. Пароль не нужен.</p>
+                <div class="form-actions">
+                    <button class="btn btn-primary" id="auth-submit" type="submit">
+                        Получить ссылку
+                    </button>
+                </div>
+                <div id="auth-message" class="auth-message hidden" role="status"></div>
+            </form>
         </div>
     </div>
 </div>

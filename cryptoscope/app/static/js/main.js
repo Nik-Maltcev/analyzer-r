@@ -18,7 +18,7 @@ function switchMarket(market) {
 }
 window.switchMarket = switchMarket;
 
-// Auth functions (Supabase)
+// Passwordless authentication
 function openAuthModal() {
     const modal = document.getElementById('auth-modal');
     if (!modal) return;
@@ -35,65 +35,112 @@ function closeAuthModal() {
 window.openAuthModal = openAuthModal;
 window.closeAuthModal = closeAuthModal;
 
-function authLogin() {
-    const email = document.getElementById('auth-email').value;
-    const password = document.getElementById('auth-password').value;
-    const errorEl = document.getElementById('auth-error');
-    
-    if (!email || !password) {
-        errorEl.textContent = 'Введите email и пароль';
-        errorEl.classList.remove('hidden');
-        return;
-    }
-    
-    // Try Supabase login
-    // (simplified - actual Supabase REST API call)
-    fetch('/health').then(() => {
-        closeAuthModal();
-        document.getElementById('auth-bar').innerHTML = `
-            <span class="text-dim">${email}</span>
-            <button class="btn btn-sm btn-outline" onclick="authLogout()">Выйти</button>
-        `;
-    }).catch(e => {
-        errorEl.textContent = 'Ошибка входа';
-        errorEl.classList.remove('hidden');
-    });
+function setAuthMessage(message, type = '') {
+    const messageEl = document.getElementById('auth-message');
+    if (!messageEl) return;
+    messageEl.textContent = message;
+    messageEl.className = `auth-message ${type}`.trim();
 }
 
-function authRegister() {
-    const email = document.getElementById('auth-email').value;
-    const password = document.getElementById('auth-password').value;
-    const errorEl = document.getElementById('auth-error');
-    
-    if (!email || !password) {
-        errorEl.textContent = 'Введите email и пароль';
-        errorEl.classList.remove('hidden');
+function renderAuthBar(email = null) {
+    const bar = document.getElementById('auth-bar');
+    if (!bar) return;
+    bar.replaceChildren();
+
+    if (email) {
+        const emailEl = document.createElement('span');
+        emailEl.className = 'auth-email';
+        emailEl.textContent = email;
+        const logoutButton = document.createElement('button');
+        logoutButton.className = 'btn btn-sm btn-outline';
+        logoutButton.type = 'button';
+        logoutButton.textContent = 'Выйти';
+        logoutButton.addEventListener('click', authLogout);
+        bar.append(emailEl, logoutButton);
         return;
     }
-    
-    fetch('/health').then(() => {
-        closeAuthModal();
-        document.getElementById('auth-bar').innerHTML = `
-            <span class="text-dim">${email}</span>
-            <button class="btn btn-sm btn-outline" onclick="authLogout()">Выйти</button>
-        `;
-    }).catch(e => {
-        errorEl.textContent = 'Ошибка регистрации';
-        errorEl.classList.remove('hidden');
-    });
+
+    const loginButton = document.createElement('button');
+    loginButton.className = 'btn btn-sm btn-outline';
+    loginButton.type = 'button';
+    loginButton.textContent = 'Войти';
+    loginButton.addEventListener('click', openAuthModal);
+    bar.append(loginButton);
 }
 
-function authLogout() {
-    document.getElementById('auth-bar').innerHTML = `
-        <button class="btn btn-sm btn-outline" onclick="openAuthModal()">
-            Войти / Регистрация
-        </button>
-    `;
+async function refreshAuthStatus() {
+    try {
+        const response = await fetch('/api/auth/me', {credentials: 'same-origin'});
+        const data = await response.json();
+        renderAuthBar(data.authenticated ? data.email : null);
+    } catch (_) {
+        renderAuthBar();
+    }
+}
+
+async function requestMagicLink(event) {
+    event?.preventDefault();
+    const emailInput = document.getElementById('auth-email');
+    const submitButton = document.getElementById('auth-submit');
+    const email = emailInput?.value.trim();
+    if (!email || !emailInput.checkValidity()) {
+        emailInput?.reportValidity();
+        return;
+    }
+
+    submitButton.disabled = true;
+    submitButton.textContent = 'Отправляем...';
+    setAuthMessage('', 'hidden');
+    try {
+        const response = await fetch('/api/auth/magic-link', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({email})
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.detail || 'Не удалось отправить письмо');
+        }
+        setAuthMessage(data.message || 'Ссылка отправлена на почту', 'success');
+        submitButton.textContent = 'Отправить ещё раз';
+    } catch (error) {
+        setAuthMessage(error.message || 'Не удалось отправить письмо', 'error');
+        submitButton.textContent = 'Получить ссылку';
+    } finally {
+        submitButton.disabled = false;
+    }
+}
+
+async function authLogout() {
+    try {
+        await fetch('/api/auth/logout', {
+            method: 'POST',
+            credentials: 'same-origin'
+        });
+    } finally {
+        window.location.href = '/';
+    }
 }
 
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !document.getElementById('auth-modal')?.classList.contains('hidden')) {
         closeAuthModal();
+    }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    refreshAuthStatus();
+    const url = new URL(window.location.href);
+    const authResult = url.searchParams.get('auth');
+    if (authResult === 'success') {
+        showToast('Вход выполнен', 'success');
+    } else if (authResult === 'invalid') {
+        openAuthModal();
+        setAuthMessage('Ссылка недействительна или уже использована', 'error');
+    }
+    if (authResult) {
+        url.searchParams.delete('auth');
+        window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
     }
 });
 
@@ -125,6 +172,7 @@ function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, 
     })
     .then(async r => {
         const data = await r.json().catch(() => ({}));
+        if (r.status === 401) openAuthModal();
         if (!r.ok) throw new Error(data.detail || 'Не удалось обновить избранное');
         return data;
     })
@@ -160,14 +208,19 @@ function closeFavorite(favId) {
     fetch(`/api/favorites/close/${favId}?exit_price_a=0&exit_price_b=0&exit_pnl_pct=0`, {
         method: 'POST'
     })
-    .then(r => r.json())
+    .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (r.status === 401) openAuthModal();
+        if (!r.ok) throw new Error(data.detail || 'Ошибка закрытия');
+        return data;
+    })
     .then(data => {
         if (data.action === 'closed') {
             showToast('Позиция закрыта', 'success');
             htmx.ajax('GET', '/tab/favorites', {target: '#main-content', swap: 'innerHTML'});
         }
     })
-    .catch(e => showToast('Ошибка закрытия', 'error'));
+    .catch(e => showToast(e.message || 'Ошибка закрытия', 'error'));
 }
 
 // Toast notifications

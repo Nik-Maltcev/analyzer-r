@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="CryptoScope — терминал парного трейдинга для поиска рыночных отклонений и контроля открытых сигналов.">
+    <title>CryptoScope — сигналы парного трейдинга</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/landing.css">
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+    <script src="/static/js/landing.js" defer></script>
+</head>
+<body>
+    <header class="landing-nav">
+        <a class="landing-brand" href="/" aria-label="CryptoScope">
+            <span class="landing-brand-mark">C</span>
+            <span>CryptoScope</span>
+        </a>
+        <nav class="landing-links" aria-label="Основная навигация">
+            <a href="#features">Возможности</a>
+            <a href="#markets">Рынки</a>
+            <a href="#pricing">Тарифы</a>
+        </nav>
+        <a class="button button-quiet nav-action" href="/app">
+            Открыть сервис
+            <i data-lucide="arrow-up-right" aria-hidden="true"></i>
+        </a>
+    </header>
+
+    <main>
+        <section class="landing-hero">
+            <div class="hero-shade" aria-hidden="true"></div>
+            <div class="hero-content">
+                <div class="hero-kicker">
+                    <span class="live-pulse"></span>
+                    Аналитика пяти рынков
+                </div>
+                <h1>CryptoScope</h1>
+                <p class="hero-lead">
+                    Терминал парного трейдинга, который находит отклонения,
+                    показывает ожидаемый возврат и помогает сопровождать сигнал.
+                </p>
+                <div class="hero-actions">
+                    <a class="button button-primary" href="/app">
+                        Попробовать 3 дня бесплатно
+                        <i data-lucide="arrow-right" aria-hidden="true"></i>
+                    </a>
+                    <a class="text-link" href="#product">
+                        Посмотреть возможности
+                        <i data-lucide="chevron-down" aria-hidden="true"></i>
+                    </a>
+                </div>
+                <p class="hero-note">Без привязки карты на этапе тестового запуска</p>
+            </div>
+        </section>
+
+        <section class="proof-strip" aria-label="Ключевые преимущества">
+            <div class="proof-item">
+                <strong>5</strong>
+                <span>рынков в одном терминале</span>
+            </div>
+            <div class="proof-item">
+                <strong>24/7</strong>
+                <span>live-цены для криптовалют</span>
+            </div>
+            <div class="proof-item">
+                <strong>Z-score</strong>
+                <span>единая логика сигналов</span>
+            </div>
+            <div class="proof-item">
+                <strong>HL</strong>
+                <span>оценка срока возврата</span>
+            </div>
+        </section>
+
+        <section class="landing-section product-section" id="product">
+            <div class="section-heading">
+                <span class="section-label">Рабочий процесс</span>
+                <h2>От сигнала до закрытия позиции</h2>
+                <p>
+                    Вся история пары остаётся перед глазами: точка входа,
+                    текущий Z-score, срок сигнала, риск и фактическое движение цен.
+                </p>
+            </div>
+            <div class="product-frame">
+                <img src="/static/img/product-terminal.png"
+                     alt="Экран избранного CryptoScope с активными парными позициями"
+                     width="1033" height="737" loading="lazy">
+                <div class="product-caption">
+                    <span>Избранное</span>
+                    <strong>Контроль позиции в реальном времени</strong>
+                </div>
+            </div>
+        </section>
+
+        <section class="landing-section features-section" id="features">
+            <div class="section-heading compact">
+                <span class="section-label">Возможности</span>
+                <h2>Меньше шума. Больше контекста.</h2>
+            </div>
+            <div class="feature-grid">
+                <article class="feature-item">
+                    <i data-lucide="radio-tower" aria-hidden="true"></i>
+                    <h3>Сигналы отклонений</h3>
+                    <p>Текущий и прогнозный Z-score, корреляция, коинтеграция и сила сигнала.</p>
+                </article>
+                <article class="feature-item">
+                    <i data-lucide="scan-search" aria-hidden="true"></i>
+                    <h3>Рыночные сканеры</h3>
+                    <p>Слом корреляции, моментум и просадки без ручного перебора сотен инструментов.</p>
+                </article>
+                <article class="feature-item">
+                    <i data-lucide="shield-check" aria-hidden="true"></i>
+                    <h3>Контроль риска</h3>
+                    <p>Режим рынка, аномальные гэпы и устойчивость связи помогают отсеивать слабые идеи.</p>
+                </article>
+                <article class="feature-item">
+                    <i data-lucide="timer-reset" aria-hidden="true"></i>
+                    <h3>Срок сигнала</h3>
+                    <p>Полупериод и календарь позиции показывают, сколько времени осталось до пересмотра.</p>
+                </article>
+                <article class="feature-item">
+                    <i data-lucide="star" aria-hidden="true"></i>
+                    <h3>Личное избранное</h3>
+                    <p>Magic link вместо пароля, раздельная история и сохранённый прогресс каждой пары.</p>
+                </article>
+                <article class="feature-item">
+                    <i data-lucide="bot" aria-hidden="true"></i>
+                    <h3>AI-анализ</h3>
+                    <p>Краткое объяснение текущей рыночной картины и выбранных сигналов простым языком.</p>
+                </article>
+            </div>
+        </section>
+
+        <section class="markets-section" id="markets">
+            <div class="markets-inner">
+                <div class="section-heading compact">
+                    <span class="section-label">Рынки</span>
+                    <h2>Один подход — разные площадки</h2>
+                    <p>Переключайтесь между рынками, не меняя привычный рабочий процесс.</p>
+                </div>
+                <div class="market-list">
+                    <div class="market-row">
+                        <span class="market-code">CRYPTO</span>
+                        <strong>Криптовалюты</strong>
+                        <span>Live-цены Binance</span>
+                    </div>
+                    <div class="market-row">
+                        <span class="market-code">RU</span>
+                        <strong>Россия</strong>
+                        <span>Акции Московской биржи</span>
+                    </div>
+                    <div class="market-row">
+                        <span class="market-code">US</span>
+                        <strong>США</strong>
+                        <span>Ликвидные американские акции</span>
+                    </div>
+                    <div class="market-row">
+                        <span class="market-code">BR</span>
+                        <strong>Бразилия</strong>
+                        <span>Акции B3</span>
+                    </div>
+                    <div class="market-row">
+                        <span class="market-code">ID</span>
+                        <strong>Индонезия</strong>
+                        <span>Акции IDX</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="landing-section pricing-section" id="pricing">
+            <div class="section-heading">
+                <span class="section-label">Тарифы</span>
+                <h2>Три дня, чтобы проверить на своих сценариях</h2>
+                <p>Полный доступ к рынкам, сигналам, сканерам и избранному.</p>
+            </div>
+            <div class="pricing-grid">
+                <article class="price-card">
+                    <div>
+                        <span class="price-name">Месяц</span>
+                        <div class="price-value"><strong>990 ₽</strong><span>/ месяц</span></div>
+                        <p>Гибкий вариант без длинного обязательства.</p>
+                    </div>
+                    <ul class="price-features">
+                        <li><i data-lucide="check" aria-hidden="true"></i>Все пять рынков</li>
+                        <li><i data-lucide="check" aria-hidden="true"></i>Сигналы и сканеры</li>
+                        <li><i data-lucide="check" aria-hidden="true"></i>Избранное и история</li>
+                    </ul>
+                    <a class="button button-secondary" href="/app">Попробовать 3 дня бесплатно</a>
+                </article>
+
+                <article class="price-card price-card-featured">
+                    <div class="price-badge">Выгоднее на 3 980 ₽</div>
+                    <div>
+                        <span class="price-name">Год</span>
+                        <div class="price-value"><strong>7 900 ₽</strong><span>/ год</span></div>
+                        <p>Около 658 ₽ в месяц при оплате за год.</p>
+                    </div>
+                    <ul class="price-features">
+                        <li><i data-lucide="check" aria-hidden="true"></i>Все пять рынков</li>
+                        <li><i data-lucide="check" aria-hidden="true"></i>Сигналы и сканеры</li>
+                        <li><i data-lucide="check" aria-hidden="true"></i>Избранное и история</li>
+                    </ul>
+                    <a class="button button-primary" href="/app">Попробовать 3 дня бесплатно</a>
+                </article>
+            </div>
+        </section>
+
+        <section class="final-cta">
+            <div>
+                <span class="section-label">Можно начинать</span>
+                <h2>Откройте рынок с другой стороны</h2>
+            </div>
+            <a class="button button-primary" href="/app">
+                Перейти в CryptoScope
+                <i data-lucide="arrow-right" aria-hidden="true"></i>
+            </a>
+        </section>
+    </main>
+
+    <footer class="landing-footer">
+        <a class="landing-brand" href="/">
+            <span class="landing-brand-mark">C</span>
+            <span>CryptoScope</span>
+        </a>
+        <p>Аналитический сервис. Не является индивидуальной инвестиционной рекомендацией.</p>
+        <span>© 2026</span>
+    </footer>
+</body>
+</html>

@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.api.ai import router as ai_router
+from app.api.auth import router as auth_router
 from app.api.charts import router as charts_router
 from app.api.data_view import router as data_router
 from app.api.favorites import router as favorites_router
@@ -71,6 +72,7 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 app.include_router(health_router)
+app.include_router(auth_router, prefix="/api")
 app.include_router(signals_router, prefix="/api")
 app.include_router(portfolio_router, prefix="/api")
 app.include_router(scanners_router, prefix="/api")
@@ -122,18 +124,10 @@ async def _get_dashboard_context(market: str = "crypto"):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(
-    request: Request,
-    market: str = Query("crypto"),
-):
-    """Main page with pre-rendered signals data."""
-    market = market if market in SUPPORTED_MARKETS else "crypto"
-    dash = await _get_dashboard_context(market)
-    return templates.TemplateResponse(request, "index.html", {
+async def landing(request: Request):
+    """Public product landing page."""
+    return templates.TemplateResponse(request, "landing.html", {
         "request": request,
-        "settings": settings,
-        "market": market,
-        **dash,
     })
 
 

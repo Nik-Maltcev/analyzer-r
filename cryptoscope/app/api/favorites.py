@@ -2,8 +2,9 @@
 
 import math
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.auth import AuthUser, require_current_user
 from app.core.signals import estimate_signal_timing
 from app.db.database import (
     close_favorite,
@@ -79,10 +80,10 @@ async def live_prices_status():
 
 
 @router.get("")
-async def get_favorites(user_id: str = Query("local")):
+async def get_favorites(user: AuthUser = Depends(require_current_user)):
     """Get active favorites with live P&L."""
     async with get_connection() as conn:
-        favs = await fetch_favorites(conn, user_id)
+        favs = await fetch_favorites(conn, user.id)
 
     if favs.empty:
         return {"favorites": [], "total": 0}
@@ -210,10 +211,13 @@ async def get_favorites(user_id: str = Query("local")):
 
 
 @router.get("/history")
-async def get_favorites_history(user_id: str = Query("local"), limit: int = Query(10)):
+async def get_favorites_history(
+    limit: int = Query(10),
+    user: AuthUser = Depends(require_current_user),
+):
     """Get closed favorites history."""
     async with get_connection() as conn:
-        hist = await fetch_favorites_history(conn, user_id, limit)
+        hist = await fetch_favorites_history(conn, user.id, limit)
 
     return {
         "history": hist.to_dict(orient="records") if not hist.empty else [],
@@ -234,12 +238,12 @@ async def toggle_fav(
     halflife: str | None = Query(None),
     corr: str | None = Query(None),
     market: str = Query("crypto"),
-    user_id: str = Query("local"),
+    user: AuthUser = Depends(require_current_user),
 ):
     """Toggle favorite (add/remove)."""
     async with get_connection() as conn:
         result = await toggle_favorite(
-            conn, pair, ticker_a, ticker_b, user_id, market,
+            conn, pair, ticker_a, ticker_b, user.id, market,
             signal=signal, signal_type=signal_type,
             z_at_entry=_query_float(z_at_entry, 0),
             price_a_entry=_query_float(price_a_entry, 0),
@@ -256,14 +260,20 @@ async def close_fav(
     exit_price_a: float = Query(0),
     exit_price_b: float = Query(0),
     exit_pnl_pct: float = Query(0),
+    user: AuthUser = Depends(require_current_user),
 ):
     """Close an active favorite position."""
     async with get_connection() as conn:
         cursor = await conn.execute(
-            "SELECT * FROM favorites WHERE id = ? AND status = 'active'",
-            (fav_id,),
+            """
+            SELECT * FROM favorites
+            WHERE id = ? AND status = 'active' AND user_id = ?
+            """,
+            (fav_id, user.id),
         )
         favorite = await cursor.fetchone()
+        if not favorite:
+            raise HTTPException(status_code=404, detail="Позиция не найдена")
         if favorite:
             market = favorite["market"] or "crypto"
             latest_prices = {}
@@ -299,13 +309,25 @@ async def close_fav(
                     ),
                     4,
                 )
-        result = await close_favorite(conn, fav_id, exit_price_a, exit_price_b, exit_pnl_pct)
+        result = await close_favorite(
+            conn,
+            fav_id,
+            exit_price_a,
+            exit_price_b,
+            exit_pnl_pct,
+            user_id=user.id,
+        )
     return result
 
 
 @router.delete("/{fav_id}")
-async def delete_fav(fav_id: int):
+async def delete_fav(
+    fav_id: int,
+    user: AuthUser = Depends(require_current_user),
+):
     """Delete a favorite from history."""
     async with get_connection() as conn:
-        result = await delete_favorite(conn, fav_id)
+        result = await delete_favorite(conn, fav_id, user_id=user.id)
+    if not result["deleted"]:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
     return result
