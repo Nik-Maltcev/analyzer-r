@@ -4,7 +4,7 @@ import math
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.auth import AuthUser, require_current_user
+from app.auth import AuthUser, require_current_or_legacy_user
 from app.core.signals import estimate_signal_timing
 from app.db.database import (
     close_favorite,
@@ -80,7 +80,9 @@ async def live_prices_status():
 
 
 @router.get("")
-async def get_favorites(user: AuthUser = Depends(require_current_user)):
+async def get_favorites(
+    user: AuthUser = Depends(require_current_or_legacy_user),
+):
     """Get active favorites with live P&L."""
     async with get_connection() as conn:
         favs = await fetch_favorites(conn, user.id)
@@ -213,7 +215,7 @@ async def get_favorites(user: AuthUser = Depends(require_current_user)):
 @router.get("/history")
 async def get_favorites_history(
     limit: int = Query(10),
-    user: AuthUser = Depends(require_current_user),
+    user: AuthUser = Depends(require_current_or_legacy_user),
 ):
     """Get closed favorites history."""
     async with get_connection() as conn:
@@ -238,7 +240,7 @@ async def toggle_fav(
     halflife: str | None = Query(None),
     corr: str | None = Query(None),
     market: str = Query("crypto"),
-    user: AuthUser = Depends(require_current_user),
+    user: AuthUser = Depends(require_current_or_legacy_user),
 ):
     """Toggle favorite (add/remove)."""
     async with get_connection() as conn:
@@ -260,7 +262,7 @@ async def close_fav(
     exit_price_a: float = Query(0),
     exit_price_b: float = Query(0),
     exit_pnl_pct: float = Query(0),
-    user: AuthUser = Depends(require_current_user),
+    user: AuthUser = Depends(require_current_or_legacy_user),
 ):
     """Close an active favorite position."""
     async with get_connection() as conn:
@@ -323,7 +325,7 @@ async def close_fav(
 @router.delete("/{fav_id}")
 async def delete_fav(
     fav_id: int,
-    user: AuthUser = Depends(require_current_user),
+    user: AuthUser = Depends(require_current_or_legacy_user),
 ):
     """Delete a favorite from history."""
     async with get_connection() as conn:

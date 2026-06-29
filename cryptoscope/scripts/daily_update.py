@@ -24,6 +24,7 @@ from app.data.moex import (
     reprice_active_ru_favorites,
     upsert_ru_prices,
 )
+from app.data.us_stocks import fetch_us_stock_prices, upsert_us_stock_prices
 from app.data.tickers import (
     BRAZIL_TICKERS,
     CRYPTO_TICKERS,
@@ -36,6 +37,7 @@ DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
 API_KEY = os.environ.get("TWELVEDATA_API_KEY", "")
 BRAZIL_HISTORY_YEARS = int(os.environ.get("BRAZIL_HISTORY_YEARS", "3"))
 INDONESIA_HISTORY_YEARS = int(os.environ.get("INDONESIA_HISTORY_YEARS", "3"))
+US_HISTORY_YEARS = int(os.environ.get("US_HISTORY_YEARS", "3"))
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
@@ -192,6 +194,19 @@ def update_ru_market(conn: sqlite3.Connection) -> int:
     return rows_written
 
 
+def update_us_market(conn: sqlite3.Connection) -> int:
+    """Refresh a rolling adjusted history for US stocks and ETFs."""
+    return update_adjusted_market(
+        conn,
+        "stocks",
+        "US",
+        STOCK_TICKERS,
+        US_HISTORY_YEARS,
+        fetch_us_stock_prices,
+        upsert_us_stock_prices,
+    )
+
+
 def update_brazil_market(conn: sqlite3.Connection) -> int:
     """Refresh a rolling adjusted history for Brazil B3 equities."""
     return update_adjusted_market(
@@ -224,9 +239,9 @@ def main():
     total = 0
     if API_KEY:
         total += update_market(CRYPTO_TICKERS, "crypto", conn, API_KEY)
-        total += update_market(STOCK_TICKERS, "stocks", conn, API_KEY)
     else:
-        print("TWELVEDATA_API_KEY not set, skipping crypto and stocks")
+        print("TWELVEDATA_API_KEY not set, skipping crypto")
+    total += update_us_market(conn)
     total += update_ru_market(conn)
     total += update_brazil_market(conn)
     total += update_indonesia_market(conn)

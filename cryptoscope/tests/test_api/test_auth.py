@@ -57,6 +57,7 @@ async def test_magic_link_creates_one_time_session(app, monkeypatch):
         me_response = await client.get("/api/auth/me")
         assert me_response.json() == {
             "authenticated": True,
+            "auth_available": True,
             "email": "user@example.com",
         }
 

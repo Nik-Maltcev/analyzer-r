@@ -42,7 +42,7 @@ function setAuthMessage(message, type = '') {
     messageEl.className = `auth-message ${type}`.trim();
 }
 
-function renderAuthBar(email = null) {
+function renderAuthBar(email = null, authAvailable = true) {
     const bar = document.getElementById('auth-bar');
     if (!bar) return;
     bar.replaceChildren();
@@ -60,6 +60,14 @@ function renderAuthBar(email = null) {
         return;
     }
 
+    if (!authAvailable) {
+        const localMode = document.createElement('span');
+        localMode.className = 'auth-email';
+        localMode.textContent = 'Локальный режим';
+        bar.append(localMode);
+        return;
+    }
+
     const loginButton = document.createElement('button');
     loginButton.className = 'btn btn-sm btn-outline';
     loginButton.type = 'button';
@@ -72,7 +80,10 @@ async function refreshAuthStatus() {
     try {
         const response = await fetch('/api/auth/me', {credentials: 'same-origin'});
         const data = await response.json();
-        renderAuthBar(data.authenticated ? data.email : null);
+        renderAuthBar(
+            data.authenticated ? data.email : null,
+            data.auth_available !== false
+        );
     } catch (_) {
         renderAuthBar();
     }

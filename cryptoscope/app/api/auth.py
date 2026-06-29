@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from app.auth import (
     SESSION_COOKIE_NAME,
     AuthUser,
+    auth_is_configured,
     get_current_user,
     hash_auth_token,
     require_current_user,
@@ -288,8 +289,16 @@ async def verify_magic_link(token: str, request: Request):
 @router.get("/me")
 async def auth_me(user: AuthUser | None = Depends(get_current_user)):
     if user is None:
-        return {"authenticated": False, "email": None}
-    return {"authenticated": True, "email": user.email}
+        return {
+            "authenticated": False,
+            "auth_available": auth_is_configured(),
+            "email": None,
+        }
+    return {
+        "authenticated": True,
+        "auth_available": True,
+        "email": user.email,
+    }
 
 
 @router.post("/logout")

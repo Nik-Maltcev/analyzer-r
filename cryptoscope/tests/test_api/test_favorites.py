@@ -8,6 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.auth import SESSION_COOKIE_NAME, hash_auth_token
+from app.config import get_settings
 from app.db.database import (
     fetch_favorites,
     get_connection,
@@ -102,12 +103,44 @@ async def test_ru_favorite_uses_moex_market_prices(app, temp_db):
 
 
 @pytest.mark.asyncio
-async def test_favorites_require_authentication(app):
+async def test_favorites_require_authentication(app, monkeypatch):
+    monkeypatch.setattr(get_settings(), "resend_api_key", "re_test")
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/favorites")
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_legacy_favorites_work_until_resend_is_configured(
+    app,
+    temp_db,
+    monkeypatch,
+):
+    monkeypatch.setattr(get_settings(), "resend_api_key", "")
+    conn = sqlite3.connect(temp_db)
+    conn.execute(
+        """
+        INSERT INTO favorites (
+            pair, market, ticker_a, ticker_b, signal_type,
+            price_a_entry, price_b_entry, entry_time, status, user_id
+        )
+        VALUES (
+            'BTC_ETH', 'crypto', 'BTC/USD', 'ETH/USD', 'long_a',
+            40000, 2000, datetime('now'), 'active', 'local'
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/favorites")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
 
 
 @pytest.mark.asyncio

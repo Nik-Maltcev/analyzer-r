@@ -1,5 +1,9 @@
 <div class="auth-bar" id="auth-bar">
+    {% if settings and not settings.resend_api_key %}
+    <span class="auth-email">Локальный режим</span>
+    {% else %}
     <button class="btn btn-sm btn-outline" onclick="openAuthModal()">
         Войти
     </button>
+    {% endif %}
 </div>

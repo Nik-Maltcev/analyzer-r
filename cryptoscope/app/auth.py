@@ -5,6 +5,7 @@ from hashlib import sha256
 
 from fastapi import HTTPException, Request
 
+from app.config import get_settings
 from app.db.database import get_connection
 
 SESSION_COOKIE_NAME = "cryptoscope_session"
@@ -44,8 +45,31 @@ async def get_current_user(request: Request) -> AuthUser | None:
     return AuthUser(id=str(row["id"]), email=str(row["email"]))
 
 
+def auth_is_configured() -> bool:
+    return bool(get_settings().resend_api_key.strip())
+
+
+async def get_current_or_legacy_user(request: Request) -> AuthUser | None:
+    user = await get_current_user(request)
+    if user is not None:
+        return user
+    if not auth_is_configured():
+        return AuthUser(id="local", email="")
+    return None
+
+
 async def require_current_user(request: Request) -> AuthUser:
     user = await get_current_user(request)
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Войдите по ссылке из письма",
+        )
+    return user
+
+
+async def require_current_or_legacy_user(request: Request) -> AuthUser:
+    user = await get_current_or_legacy_user(request)
     if user is None:
         raise HTTPException(
             status_code=401,

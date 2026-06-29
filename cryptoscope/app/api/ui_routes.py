@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from app.auth import get_current_user
+from app.auth import get_current_or_legacy_user
 from app.core.cointegration import compute_fixed_zscore, compute_zscore, engle_granger
 from app.core.scanners import corr_breakdown_scan, drawdown_scan, momentum_scan
 from app.core.signals import estimate_signal_timing
@@ -255,7 +255,7 @@ async def tab_signals(
         # Wrapped in try/except so favorites query failure doesn't kill signals
         fav_pair_ids = set()
         try:
-            user = await get_current_user(request)
+            user = await get_current_or_legacy_user(request)
             if user:
                 async with get_connection() as conn:
                     cursor = await conn.execute(
@@ -514,7 +514,7 @@ def _forecast_status(z_now, z_entry, signal_type, days_held, hl, pnl_pct):
 @router.get("/favorites", response_class=HTMLResponse)
 async def tab_favorites(request: Request):
     active = []
-    user = await get_current_user(request)
+    user = await get_current_or_legacy_user(request)
     if user is None:
         return templates.TemplateResponse(request, "components/favorites_tab.html", {
             "request": request,
@@ -730,7 +730,7 @@ async def tab_favorites(request: Request):
 
 @router.get("/favorites/history", response_class=HTMLResponse)
 async def tab_favorites_history(request: Request, limit: int = Query(10)):
-    user = await get_current_user(request)
+    user = await get_current_or_legacy_user(request)
     if user is None:
         return templates.TemplateResponse(request, "components/favorites_history.html", {
             "request": request,
