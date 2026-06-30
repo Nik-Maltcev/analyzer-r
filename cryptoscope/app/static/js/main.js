@@ -18,6 +18,16 @@ function switchMarket(market) {
 }
 window.switchMarket = switchMarket;
 
+function filterPolymarket(category, button) {
+    document.querySelectorAll('.poly-filter-btn').forEach(item => {
+        item.classList.toggle('active', item === button);
+    });
+    document.querySelectorAll('[data-poly-category]').forEach(row => {
+        row.hidden = category !== 'all' && row.dataset.polyCategory !== category;
+    });
+}
+window.filterPolymarket = filterPolymarket;
+
 // Passwordless authentication
 function openAuthModal() {
     const modal = document.getElementById('auth-modal');

@@ -1,0 +1,146 @@
+{% if error %}
+<div class="empty-state polymarket-error">
+    <span class="empty-icon">!</span>
+    <p>{{ error }}</p>
+    <button class="btn btn-outline"
+            hx-get="/tab/polymarket/results?refresh=true"
+            hx-target="#polymarket-results"
+            hx-swap="innerHTML">
+        Повторить
+    </button>
+</div>
+{% else %}
+<div class="polymarket-summary">
+    <div class="poly-leader">
+        <span class="summary-label">Максимальное преимущество</span>
+        {% if leader %}
+        <div class="leader-line">
+            <strong>{{ leader.key }}</strong>
+            <span class="direction-pill direction-{{ leader.direction }}">
+                {% if leader.direction == "up" %}Рост{% else %}Падение{% endif %}
+            </span>
+            <span class="leader-probability">{{ '%.1f'|format(leader.direction_probability) }}%</span>
+        </div>
+        {% else %}
+        <strong>Нет доступных расчётов</strong>
+        {% endif %}
+    </div>
+    <div class="summary-stat">
+        <span class="summary-label">Рассчитано</span>
+        <strong>{{ available_count }} / {{ total_count }}</strong>
+    </div>
+    <div class="summary-stat">
+        <span class="summary-label">Обновлено</span>
+        <strong>{{ updated_at|default('—') }}</strong>
+    </div>
+    <button class="btn btn-outline poly-refresh-btn"
+            hx-get="/tab/polymarket/results?refresh=true"
+            hx-target="#polymarket-results"
+            hx-swap="innerHTML"
+            hx-disabled-elt="this">
+        <span aria-hidden="true">↻</span>
+        Обновить
+    </button>
+</div>
+
+<div class="polymarket-toolbar">
+    <div class="poly-filter" role="tablist" aria-label="Категория активов">
+        <button class="poly-filter-btn active"
+                type="button"
+                onclick="filterPolymarket('all', this)">Все</button>
+        <button class="poly-filter-btn"
+                type="button"
+                onclick="filterPolymarket('equities', this)">ETF и акции</button>
+        <button class="poly-filter-btn"
+                type="button"
+                onclick="filterPolymarket('indices', this)">Индексы</button>
+        <button class="poly-filter-btn"
+                type="button"
+                onclick="filterPolymarket('commodities', this)">Сырьё и металлы</button>
+    </div>
+    <span class="poly-model-note">Модельная оценка, не гарантия исхода</span>
+</div>
+
+<div class="poly-table-wrap">
+    <table class="poly-table">
+        <thead>
+            <tr>
+                <th>Инструмент</th>
+                <th>Прогноз</th>
+                <th>Вероятности</th>
+                <th>Последний close</th>
+                <th>1 день</th>
+                <th>5 дней</th>
+                <th>Типичный ход</th>
+                <th>Точность</th>
+                <th>Источник</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in forecasts %}
+            <tr data-poly-category="{{ item.category }}"
+                class="{% if not item.available %}poly-row-unavailable{% endif %}">
+                <td>
+                    <div class="poly-asset">
+                        <span class="poly-symbol">{{ item.key }}</span>
+                        <span>{{ item.label }}</span>
+                        <small>{{ item.category_label }}</small>
+                    </div>
+                </td>
+                {% if item.available %}
+                <td>
+                    <div class="poly-direction">
+                        <span class="direction-pill direction-{{ item.direction }}">
+                            {% if item.direction == "up" %}Рост{% else %}Падение{% endif %}
+                        </span>
+                        <strong>{{ '%.1f'|format(item.direction_probability) }}%</strong>
+                        <small>{{ item.quality }}</small>
+                    </div>
+                </td>
+                <td>
+                    <div class="probability-pair">
+                        <div class="probability-labels">
+                            <span>↑ {{ '%.1f'|format(item.probability_up) }}%</span>
+                            <span>↓ {{ '%.1f'|format(item.probability_down) }}%</span>
+                        </div>
+                        <div class="probability-track">
+                            <span class="probability-up"
+                                  style="width: {{ item.probability_up }}%"></span>
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <div class="poly-price">
+                        <strong>{{ item.price_display }}</strong>
+                        <small>{{ item.price_time|default('—') }}</small>
+                    </div>
+                </td>
+                <td class="{% if item.day_change_pct >= 0 %}positive{% else %}negative{% endif %}">
+                    {{ '%+.2f'|format(item.day_change_pct) }}%
+                </td>
+                <td class="{% if item.momentum_5d_pct >= 0 %}positive{% else %}negative{% endif %}">
+                    {{ '%+.2f'|format(item.momentum_5d_pct) }}%
+                </td>
+                <td>±{{ '%.2f'|format(item.typical_move_pct) }}%</td>
+                <td>
+                    <div class="poly-accuracy">
+                        <strong>{{ '%.1f'|format(item.backtest_accuracy) }}%</strong>
+                        <small>{{ item.backtest_samples }} тестов</small>
+                    </div>
+                </td>
+                <td>
+                    <span class="source-badge source-{{ item.source_kind }}">
+                        {{ item.source }}
+                    </span>
+                </td>
+                {% else %}
+                <td colspan="8">
+                    <span class="poly-unavailable">{{ item.error }}</span>
+                </td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}

@@ -3607,3 +3607,430 @@ h3,
         margin-left: 0;
     }
 }
+
+/* ---------- Polymarket direction terminal ---------- */
+.polymarket-page {
+    width: 100%;
+}
+
+.polymarket-header {
+    align-items: flex-end;
+}
+
+.page-kicker {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--green);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0;
+}
+
+.polymarket-window {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    padding-left: 18px;
+    border-left: 2px solid rgba(16, 185, 129, 0.5);
+}
+
+.window-label,
+.summary-label {
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.polymarket-window strong {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.polymarket-loading {
+    min-height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    border: 1px solid var(--border);
+    background: #0d131b;
+}
+
+.polymarket-loading > div:last-child {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.polymarket-loading strong {
+    color: var(--text-bright);
+}
+
+.polymarket-loading span {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.polymarket-summary {
+    display: grid;
+    grid-template-columns: minmax(260px, 1.6fr) minmax(110px, 0.55fr) minmax(190px, 0.8fr) auto;
+    align-items: stretch;
+    margin-bottom: 14px;
+    border: 1px solid var(--border);
+    background: #0d131b;
+}
+
+.poly-leader,
+.summary-stat {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 7px;
+    padding: 13px 16px;
+    border-right: 1px solid var(--border);
+}
+
+.summary-stat strong {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    letter-spacing: 0;
+}
+
+.leader-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.leader-line > strong {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 18px;
+}
+
+.leader-probability {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.poly-refresh-btn {
+    align-self: center;
+    margin: 0 14px;
+    gap: 7px;
+    white-space: nowrap;
+}
+
+.polymarket-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.poly-filter {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px;
+    border: 1px solid var(--border);
+    background: #0b1017;
+}
+
+.poly-filter-btn {
+    min-height: 30px;
+    padding: 5px 11px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.poly-filter-btn:hover {
+    color: var(--text);
+}
+
+.poly-filter-btn.active {
+    background: #1a2531;
+    color: var(--text-bright);
+    box-shadow: inset 0 -2px 0 var(--green);
+}
+
+.poly-model-note {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.poly-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    background: #0b1017;
+}
+
+.poly-table {
+    width: 100%;
+    min-width: 1180px;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.poly-table th {
+    height: 38px;
+    padding: 8px 11px;
+    border-bottom: 1px solid var(--border);
+    background: #0d141c;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-align: left;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.poly-table td {
+    height: 66px;
+    padding: 9px 11px;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text);
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.poly-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.poly-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.poly-table tr[hidden] {
+    display: none;
+}
+
+.poly-asset,
+.poly-direction,
+.poly-price,
+.poly-accuracy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+}
+
+.poly-asset {
+    min-width: 145px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 8px;
+}
+
+.poly-symbol {
+    grid-row: 1 / span 2;
+    align-self: center;
+    min-width: 48px;
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.poly-asset > span:not(.poly-symbol) {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.poly-asset small,
+.poly-direction small,
+.poly-price small,
+.poly-accuracy small {
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
+.poly-direction {
+    min-width: 82px;
+}
+
+.poly-direction strong,
+.poly-price strong,
+.poly-accuracy strong {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+}
+
+.direction-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 3px 8px;
+    border: 1px solid;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.direction-up {
+    border-color: rgba(16, 185, 129, 0.45);
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--green);
+}
+
+.direction-down {
+    border-color: rgba(239, 68, 68, 0.45);
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--red);
+}
+
+.probability-pair {
+    width: 154px;
+}
+
+.probability-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
+.probability-labels span:first-child {
+    color: var(--green);
+}
+
+.probability-labels span:last-child {
+    color: var(--red);
+}
+
+.probability-track {
+    position: relative;
+    width: 100%;
+    height: 5px;
+    overflow: hidden;
+    background: rgba(239, 68, 68, 0.45);
+}
+
+.probability-track::after {
+    content: "";
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    left: 50%;
+    width: 1px;
+    background: var(--text-bright);
+    opacity: 0.6;
+}
+
+.probability-up {
+    display: block;
+    height: 100%;
+    background: var(--green);
+}
+
+.source-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 3px 7px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.source-pyth {
+    border-color: rgba(34, 211, 238, 0.35);
+    background: rgba(34, 211, 238, 0.08);
+    color: #67e8f9;
+}
+
+.source-proxy {
+    border-color: rgba(245, 158, 11, 0.35);
+    background: rgba(245, 158, 11, 0.08);
+    color: var(--orange);
+}
+
+.poly-row-unavailable {
+    opacity: 0.65;
+}
+
+.poly-unavailable {
+    color: var(--text-muted);
+    white-space: normal;
+}
+
+.polymarket-error {
+    min-height: 220px;
+}
+
+.tab-icon-text {
+    min-width: 18px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
+    text-align: center;
+}
+
+@media (max-width: 980px) {
+    .polymarket-summary {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .poly-leader,
+    .summary-stat {
+        border-bottom: 1px solid var(--border);
+    }
+
+    .poly-refresh-btn {
+        justify-self: start;
+        margin: 12px 14px;
+    }
+}
+
+@media (max-width: 780px) {
+    .polymarket-header {
+        align-items: flex-start;
+    }
+
+    .polymarket-window {
+        align-items: flex-start;
+        padding-left: 12px;
+    }
+
+    .polymarket-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .poly-leader,
+    .summary-stat {
+        border-right: 0;
+    }
+
+    .polymarket-toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .poly-filter {
+        max-width: 100%;
+        overflow-x: auto;
+    }
+}

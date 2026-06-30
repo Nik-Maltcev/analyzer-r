@@ -1,0 +1,26 @@
+<div class="tab-page polymarket-page">
+    <div class="page-header polymarket-header">
+        <div>
+            <span class="page-kicker">DAILY DIRECTION</span>
+            <h2>Polymarket</h2>
+            <p class="page-desc">Вероятность направления к следующему закрытию рынка</p>
+        </div>
+        <div class="polymarket-window">
+            <span class="window-label">Окно прогноза</span>
+            <strong>24ч · Close → следующий Close</strong>
+        </div>
+    </div>
+
+    <div id="polymarket-results"
+         hx-get="/tab/polymarket/results"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+        <div class="polymarket-loading">
+            <div class="loading-spinner"></div>
+            <div>
+                <strong>Считаем вероятности</strong>
+                <span>Сверяем историю Pyth и Yahoo</span>
+            </div>
+        </div>
+    </div>
+</div>

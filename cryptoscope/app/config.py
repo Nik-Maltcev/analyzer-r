@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     auth_legacy_owner_email: str = ""
 
     twelve_data_api_key: str = ""
+    pyth_api_key: str = ""
 
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
