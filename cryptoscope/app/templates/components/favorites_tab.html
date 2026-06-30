@@ -4,23 +4,6 @@
             <h2>⭐ Избранное — Портфель</h2>
             <p class="page-desc">Активные позиции с live P&L и прогнозом</p>
         </div>
-        {% if has_ru_favorites %}
-        <div class="ru-refresh-actions">
-            <button class="btn btn-sm btn-outline ru-refresh-btn"
-                    type="button"
-                    onclick="refreshRuFavorites(this)">
-                <span class="refresh-icon" aria-hidden="true">↻</span>
-                <span>Обновить RU</span>
-            </button>
-            <span class="ru-refresh-time">
-                {% if ru_live_updated_at %}
-                MOEX: {{ ru_live_updated_at }}
-                {% else %}
-                Котировки MOEX с задержкой
-                {% endif %}
-            </span>
-        </div>
-        {% endif %}
     </div>
 
     {% if auth_required %}
@@ -35,7 +18,26 @@
     </div>
     {% else %}
     <div class="section">
-        <h3>Активные позиции ({{ favorites|length }})</h3>
+        <div class="favorites-section-toolbar">
+            <h3>Активные позиции ({{ favorites|length }})</h3>
+            {% if has_ru_favorites %}
+            <div class="ru-refresh-actions">
+                <button class="btn btn-outline ru-refresh-btn"
+                        type="button"
+                        onclick="refreshRuFavorites(this)">
+                    <span class="refresh-icon" aria-hidden="true">↻</span>
+                    <span>Обновить котировки RU</span>
+                </button>
+                <span class="ru-refresh-time">
+                    {% if ru_live_updated_at %}
+                    MOEX: {{ ru_live_updated_at }}
+                    {% else %}
+                    Данные MOEX с задержкой
+                    {% endif %}
+                </span>
+            </div>
+            {% endif %}
+        </div>
         {% if favorites %}
         <div class="positions-grid">
             {% for f in favorites %}
