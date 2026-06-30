@@ -2645,6 +2645,41 @@ button:focus-visible,
     white-space: nowrap;
 }
 
+.favorites-pnl-settings {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(110px, 1fr)) auto;
+    align-items: end;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #0d141b;
+}
+
+.favorite-pnl-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.favorite-pnl-field label {
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.favorite-pnl-field .form-input {
+    min-height: 34px;
+}
+
+.favorites-pnl-note {
+    grid-column: 1 / -1;
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
 .positions-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -2652,11 +2687,20 @@ button:focus-visible,
 }
 
 /* Position P&L display (favorites) */
+.position-pnl-caption {
+    margin-top: 10px;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    text-align: center;
+    text-transform: uppercase;
+}
+
 .position-pnl-display {
     font-size: 32px;
     font-weight: 700;
     font-family: var(--font-mono);
-    margin: 12px 0;
+    margin: 4px 0 12px;
     text-align: center;
 }
 .position-pnl-display.positive {
@@ -2664,6 +2708,58 @@ button:focus-visible,
 }
 .position-pnl-display.negative {
     color: var(--red);
+}
+
+.position-pnl-breakdown {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #0b1117;
+}
+
+.position-pnl-breakdown > div {
+    min-width: 0;
+    padding: 9px;
+    border-right: 1px solid var(--border);
+}
+
+.position-pnl-breakdown > div:last-child {
+    border-right: 0;
+}
+
+.position-pnl-breakdown span,
+.position-pnl-breakdown small,
+.position-pnl-breakdown strong {
+    display: block;
+}
+
+.position-pnl-breakdown span {
+    margin-bottom: 4px;
+    color: var(--text-muted);
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.position-pnl-breakdown strong {
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.position-pnl-breakdown small {
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 9px;
+    line-height: 1.3;
+}
+
+.position-pnl-breakdown .net-pnl-cell {
+    background: rgba(53, 214, 160, 0.04);
 }
 
 /* Spread chart stats */
@@ -3617,6 +3713,14 @@ h3,
     .cards-grid,
     .positions-grid {
         grid-template-columns: 1fr;
+    }
+
+    .favorites-pnl-settings {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .favorites-pnl-settings .btn {
+        grid-column: 1 / -1;
     }
 
     .signals-mode-bar {

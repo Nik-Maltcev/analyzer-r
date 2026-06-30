@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from zoneinfo import ZoneInfo
 
 from app.auth import get_current_or_legacy_user
+from app.core.calculator import calc_pair_performance
 from app.core.cointegration import compute_fixed_zscore, compute_zscore, engle_granger
 from app.core.scanners import corr_breakdown_scan, drawdown_scan, momentum_scan
 from app.core.signals import estimate_signal_timing
@@ -513,8 +514,20 @@ def _forecast_status(z_now, z_entry, signal_type, days_held, hl, pnl_pct):
 
 
 @router.get("/favorites", response_class=HTMLResponse)
-async def tab_favorites(request: Request):
+async def tab_favorites(
+    request: Request,
+    capital: float = Query(1000.0, ge=10),
+    leverage: float = Query(1.0, ge=1, le=20),
+    taker_fee: float = Query(0.02, ge=0, le=1),
+    funding_rate: float = Query(0.01, ge=0, le=1),
+):
     active = []
+    pnl_settings = {
+        "capital": capital,
+        "leverage": leverage,
+        "taker_fee": taker_fee,
+        "funding_rate": funding_rate,
+    }
     user = await get_current_or_legacy_user(request)
     if user is None:
         return templates.TemplateResponse(request, "components/favorites_tab.html", {
@@ -522,6 +535,7 @@ async def tab_favorites(request: Request):
             "favorites": [],
             "auth_required": True,
             "has_ru_favorites": False,
+            "pnl_settings": pnl_settings,
         })
     try:
         async with get_connection() as conn:
@@ -545,6 +559,7 @@ async def tab_favorites(request: Request):
                 "request": request,
                 "favorites": [],
                 "has_ru_favorites": False,
+                "pnl_settings": pnl_settings,
             })
 
         # Fetch latest price per ticker + price history for Z-score recalculation
@@ -623,6 +638,20 @@ async def tab_favorites(request: Request):
             entry_time = row.get("entry_time")
             holding_timing = estimate_signal_timing(entry_time, hl)
             days_held = holding_timing["signal_days_elapsed"]
+            performance = calc_pair_performance(
+                st,
+                entry_a,
+                entry_b,
+                p_a,
+                p_b,
+                capital=capital,
+                leverage=leverage,
+                taker_fee_pct=taker_fee,
+                funding_rate_8h_pct=(
+                    funding_rate if market == "crypto" else 0
+                ),
+                hold_days=days_held,
+            )
 
             # Recalculate current Z-score from price history
             z_now_live = compute_fixed_zscore(
@@ -725,6 +754,7 @@ async def tab_favorites(request: Request):
                 ),
                 "event_risk": _finite_bool(pair_risk.get("event_risk")),
                 "risk_reason": risk_reason,
+                **performance,
                 **holding_timing,
                 **fc,
             })
@@ -734,6 +764,7 @@ async def tab_favorites(request: Request):
             "request": request,
             "favorites": [],
             "has_ru_favorites": False,
+            "pnl_settings": pnl_settings,
             "error": str(e) if str(e) else "DB unavailable",
         })
 
@@ -747,6 +778,7 @@ async def tab_favorites(request: Request):
         "favorites": active,
         "has_ru_favorites": has_ru_favorites,
         "ru_live_updated_at": ru_live_time,
+        "pnl_settings": pnl_settings,
     })
 
 

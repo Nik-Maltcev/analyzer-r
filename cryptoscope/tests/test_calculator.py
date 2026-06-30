@@ -5,7 +5,46 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.core.calculator import calc_signal_pnl, compute_position_details
+from app.core.calculator import (
+    calc_pair_performance,
+    calc_signal_pnl,
+    compute_position_details,
+)
+
+
+class TestPairPerformance:
+    def test_equal_notional_net_pnl_includes_round_trip_fees(self):
+        result = calc_pair_performance(
+            "long_a",
+            entry_a=0.574,
+            entry_b=0.0616,
+            price_a_now=0.568,
+            price_b_now=0.0576,
+            capital=1000,
+            leverage=1,
+            taker_fee_pct=0.02,
+            funding_rate_8h_pct=0.01,
+            hold_days=0,
+        )
+
+        assert result["leg_a_pnl_pct"] == -1.0453
+        assert result["leg_b_pnl_pct"] == 6.4935
+        assert result["pair_move_pct"] == 5.4482
+        assert result["gross_pnl"] == 27.24
+        assert result["commissions"] == 0.4
+        assert result["net_pnl"] == 26.84
+        assert result["net_return_pct"] == 2.6841
+
+    def test_incomplete_prices_do_not_invent_pnl(self):
+        result = calc_pair_performance(
+            "long_a",
+            entry_a=100,
+            entry_b=50,
+            price_a_now=0,
+            price_b_now=48,
+        )
+
+        assert result == {"complete": False}
 
 
 class TestCalcSignalPnl:

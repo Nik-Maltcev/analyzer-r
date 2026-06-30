@@ -37,7 +37,7 @@
             <a href="#" class="nav-tab" data-tab="scanners" hx-get="/tab/scanners" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">
                 <span class="tab-icon">🔍</span> Сканеры
             </a>
-            <a href="#" class="nav-tab" data-tab="favorites" hx-get="/tab/favorites" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">
+            <a href="#" class="nav-tab" data-tab="favorites" hx-get="/tab/favorites" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-vals='js:getFavoritePnlSettings()'>
                 <span class="tab-icon">⭐</span> Избранное
             </a>
             <a href="#" class="nav-tab" data-tab="data" hx-get="/tab/data" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">

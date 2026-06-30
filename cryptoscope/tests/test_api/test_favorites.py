@@ -88,10 +88,18 @@ async def test_ru_favorite_uses_moex_market_prices(app, temp_db):
         assert favorite["price_a_now"] == 110
         assert favorite["price_b_now"] == 190
         assert favorite["pnl_total_pct"] == 15.0
+        assert favorite["pair_move_pct"] == 15.0
+        assert favorite["gross_pnl"] == 75.0
+        assert favorite["commissions"] == 0.4
+        assert favorite["funding_cost"] == 0.0
+        assert favorite["net_pnl"] == 74.6
+        assert favorite["net_return_pct"] == 7.46
 
         tab_response = await client.get("/tab/favorites")
         assert tab_response.status_code == 200
         assert "Обновить котировки RU" in tab_response.text
+        assert "Движение пары" in tab_response.text
+        assert "$+74.60" in tab_response.text
 
         close_response = await client.post("/api/favorites/close/1")
         assert close_response.status_code == 200

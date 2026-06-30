@@ -5,6 +5,7 @@ import math
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import AuthUser, require_current_or_legacy_user
+from app.core.calculator import calc_pair_performance
 from app.core.signals import estimate_signal_timing
 from app.data.moex import get_ru_live_snapshot, refresh_ru_live_prices
 from app.db.database import (
@@ -88,6 +89,10 @@ async def live_prices_status():
 
 @router.get("")
 async def get_favorites(
+    capital: float = Query(1000.0, ge=10),
+    leverage: float = Query(1.0, ge=1, le=20),
+    taker_fee: float = Query(0.02, ge=0, le=1),
+    funding_rate: float = Query(0.01, ge=0, le=1),
     user: AuthUser = Depends(require_current_or_legacy_user),
 ):
     """Get active favorites with live P&L."""
@@ -164,6 +169,20 @@ async def get_favorites(
         days_held = timing["signal_days_elapsed"]
         hl_remaining = timing["signal_days_remaining"]
         is_expired = timing["signal_is_expired"]
+        performance = calc_pair_performance(
+            sig_type,
+            entry_a,
+            entry_b,
+            price_a_now,
+            price_b_now,
+            capital=capital,
+            leverage=leverage,
+            taker_fee_pct=taker_fee,
+            funding_rate_8h_pct=(
+                funding_rate if market == "crypto" else 0
+            ),
+            hold_days=days_held,
+        )
         pair_risk = pair_risks.get(
             (market, row["ticker_a"], row["ticker_b"]),
             {},
@@ -214,6 +233,7 @@ async def get_favorites(
             **timing,
             "corr": row.get("corr"),
             "status": row.get("status", "active"),
+            **performance,
         })
 
     return {"favorites": active_positions, "total": len(active_positions)}
@@ -315,6 +335,11 @@ async def close_fav(
     exit_price_a: float = Query(0),
     exit_price_b: float = Query(0),
     exit_pnl_pct: float = Query(0),
+    use_net: bool = Query(False),
+    capital: float = Query(1000.0, ge=10),
+    leverage: float = Query(1.0, ge=1, le=20),
+    taker_fee: float = Query(0.02, ge=0, le=1),
+    funding_rate: float = Query(0.01, ge=0, le=1),
     user: AuthUser = Depends(require_current_or_legacy_user),
 ):
     """Close an active favorite position."""
@@ -354,16 +379,39 @@ async def close_fav(
                     favorite["ticker_b"], latest_prices, market
                 )
             if exit_pnl_pct == 0:
-                exit_pnl_pct = round(
-                    _pair_pnl(
+                raw_pair_pnl = _pair_pnl(
+                    favorite["signal_type"],
+                    favorite["price_a_entry"],
+                    favorite["price_b_entry"],
+                    exit_price_a,
+                    exit_price_b,
+                )
+                if use_net:
+                    timing = estimate_signal_timing(
+                        favorite["entry_time"],
+                        _query_int(favorite["halflife"]),
+                    )
+                    performance = calc_pair_performance(
                         favorite["signal_type"],
                         favorite["price_a_entry"],
                         favorite["price_b_entry"],
                         exit_price_a,
                         exit_price_b,
-                    ),
-                    4,
-                )
+                        capital=capital,
+                        leverage=leverage,
+                        taker_fee_pct=taker_fee,
+                        funding_rate_8h_pct=(
+                            funding_rate if market == "crypto" else 0
+                        ),
+                        hold_days=timing["signal_days_elapsed"],
+                    )
+                    exit_pnl_pct = performance.get(
+                        "net_return_pct",
+                        raw_pair_pnl,
+                    )
+                else:
+                    exit_pnl_pct = raw_pair_pnl
+                exit_pnl_pct = round(exit_pnl_pct, 4)
         result = await close_favorite(
             conn,
             fav_id,

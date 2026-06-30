@@ -2,7 +2,7 @@
     <div class="page-header">
         <div>
             <h2>⭐ Избранное — Портфель</h2>
-            <p class="page-desc">Активные позиции с live P&L и прогнозом</p>
+            <p class="page-desc">Активные позиции с движением пары, net P&L и прогнозом</p>
         </div>
     </div>
 
@@ -39,6 +39,62 @@
             {% endif %}
         </div>
         {% if favorites %}
+        <form class="favorites-pnl-settings"
+              id="favorites-pnl-settings"
+              hx-get="/tab/favorites"
+              hx-target="#main-content"
+              hx-swap="innerHTML"
+              onchange="storeFavoritePnlSettings(this)"
+              onsubmit="storeFavoritePnlSettings(this)">
+            <div class="favorite-pnl-field">
+                <label for="favorite-capital">Капитал пары</label>
+                <input class="form-input"
+                       id="favorite-capital"
+                       name="capital"
+                       type="number"
+                       min="10"
+                       step="100"
+                       value="{{ pnl_settings.capital }}">
+            </div>
+            <div class="favorite-pnl-field">
+                <label for="favorite-leverage">Плечо</label>
+                <input class="form-input"
+                       id="favorite-leverage"
+                       name="leverage"
+                       type="number"
+                       min="1"
+                       max="20"
+                       step="1"
+                       value="{{ pnl_settings.leverage }}">
+            </div>
+            <div class="favorite-pnl-field">
+                <label for="favorite-taker">Комиссия за сделку, %</label>
+                <input class="form-input"
+                       id="favorite-taker"
+                       name="taker_fee"
+                       type="number"
+                       min="0"
+                       max="1"
+                       step="0.001"
+                       value="{{ pnl_settings.taker_fee }}">
+            </div>
+            <div class="favorite-pnl-field">
+                <label for="favorite-funding">Фандинг, %/8ч</label>
+                <input class="form-input"
+                       id="favorite-funding"
+                       name="funding_rate"
+                       type="number"
+                       min="0"
+                       max="1"
+                       step="0.001"
+                       value="{{ pnl_settings.funding_rate }}">
+            </div>
+            <button class="btn btn-outline" type="submit">Пересчитать</button>
+            <span class="favorites-pnl-note">
+                Капитал делится 50/50 между ногами. Комиссия включает вход и предполагаемый выход.
+                Фандинг применяется только к CRYPTO и является оценкой.
+            </span>
+        </form>
         <div class="positions-grid">
             {% for f in favorites %}
             <div class="position-card signal-{{ f.signal_type }}" id="position-{{ f.pair }}">
@@ -58,10 +114,37 @@
                     </div>
                 </div>
 
-                <!-- P&L -->
-                <div class="position-pnl-display {% if f.pnl_total_pct >= 0 %}positive{% else %}negative{% endif %}">
-                    {{ '%+.2f'|format(f.pnl_total_pct) }}%
+                <!-- Pair movement and account P&L -->
+                {% set pair_move = f.pair_move_pct if f.pair_move_pct is defined else f.pnl_total_pct %}
+                <div class="position-pnl-caption">Движение пары</div>
+                <div class="position-pnl-display {% if pair_move >= 0 %}positive{% else %}negative{% endif %}">
+                    {{ '%+.2f'|format(pair_move) }} п.п.
                 </div>
+                {% if f.complete %}
+                <div class="position-pnl-breakdown">
+                    <div>
+                        <span>Gross P&amp;L</span>
+                        <strong class="{% if f.gross_pnl >= 0 %}positive{% else %}negative{% endif %}">
+                            ${{ '%+.2f'|format(f.gross_pnl) }}
+                        </strong>
+                    </div>
+                    <div>
+                        <span>Расходы</span>
+                        <strong class="negative">−${{ '%.2f'|format(f.total_cost) }}</strong>
+                        <small>
+                            комиссия ${{ '%.2f'|format(f.commissions) }}
+                            {% if f.funding_cost > 0 %}· фандинг ≈ ${{ '%.2f'|format(f.funding_cost) }}{% endif %}
+                        </small>
+                    </div>
+                    <div class="net-pnl-cell">
+                        <span>Net P&amp;L</span>
+                        <strong class="{% if f.net_pnl >= 0 %}positive{% else %}negative{% endif %}">
+                            ${{ '%+.2f'|format(f.net_pnl) }}
+                        </strong>
+                        <small>{{ '%+.2f'|format(f.net_return_pct) }}% капитала</small>
+                    </div>
+                </div>
+                {% endif %}
 
                 {% if f.risk_reason %}
                 <div class="pair-risk-note {% if f.market_regime == 'stress' %}is-stress{% endif %}">
@@ -120,6 +203,20 @@
                         <span class="detail-label">Сигнал</span>
                         <span class="detail-value">{{ f.signal[:30] }}</span>
                     </div>
+                    {% if f.complete %}
+                    <div class="detail-row">
+                        <span class="detail-label">{{ f.leg_a_side }} {{ f.ticker_a }}</span>
+                        <span class="detail-value text-mono {% if f.leg_a_pnl_pct >= 0 %}positive{% else %}negative{% endif %}">
+                            {{ '%+.2f'|format(f.leg_a_pnl_pct) }}%
+                        </span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">{{ f.leg_b_side }} {{ f.ticker_b }}</span>
+                        <span class="detail-value text-mono {% if f.leg_b_pnl_pct >= 0 %}positive{% else %}negative{% endif %}">
+                            {{ '%+.2f'|format(f.leg_b_pnl_pct) }}%
+                        </span>
+                    </div>
+                    {% endif %}
                     <div class="detail-row">
                         <span class="detail-label">Z на входе</span>
                         <span class="detail-value text-mono">{{ f.z_at_entry if f.z_at_entry is not none else '—' }}</span>

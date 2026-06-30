@@ -49,6 +49,57 @@ async function changeLocale(locale) {
 }
 window.changeLocale = changeLocale;
 
+const favoritePnlDefaults = {
+    capital: 1000,
+    leverage: 1,
+    taker_fee: 0.02,
+    funding_rate: 0.01
+};
+
+function favoritePnlNumber(value, fallback, min, max) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(max, Math.max(min, parsed));
+}
+
+function getFavoritePnlSettings() {
+    let stored = {};
+    try {
+        stored = JSON.parse(localStorage.getItem('cryptoscope_favorite_pnl') || '{}');
+    } catch (_) {}
+    return {
+        capital: favoritePnlNumber(stored.capital, favoritePnlDefaults.capital, 10, 100000000),
+        leverage: favoritePnlNumber(stored.leverage, favoritePnlDefaults.leverage, 1, 20),
+        taker_fee: favoritePnlNumber(stored.taker_fee, favoritePnlDefaults.taker_fee, 0, 1),
+        funding_rate: favoritePnlNumber(stored.funding_rate, favoritePnlDefaults.funding_rate, 0, 1)
+    };
+}
+
+function storeFavoritePnlSettings(form) {
+    if (!form) return;
+    const values = Object.fromEntries(new FormData(form).entries());
+    const settings = {
+        capital: favoritePnlNumber(values.capital, favoritePnlDefaults.capital, 10, 100000000),
+        leverage: favoritePnlNumber(values.leverage, favoritePnlDefaults.leverage, 1, 20),
+        taker_fee: favoritePnlNumber(values.taker_fee, favoritePnlDefaults.taker_fee, 0, 1),
+        funding_rate: favoritePnlNumber(values.funding_rate, favoritePnlDefaults.funding_rate, 0, 1)
+    };
+    localStorage.setItem('cryptoscope_favorite_pnl', JSON.stringify(settings));
+}
+
+function favoritePnlUrl(path, extra = {}) {
+    const form = document.getElementById('favorites-pnl-settings');
+    if (form) storeFavoritePnlSettings(form);
+    const params = new URLSearchParams({
+        ...getFavoritePnlSettings(),
+        ...extra
+    });
+    return `${path}?${params.toString()}`;
+}
+
+window.getFavoritePnlSettings = getFavoritePnlSettings;
+window.storeFavoritePnlSettings = storeFavoritePnlSettings;
+
 // Passwordless authentication
 function openAuthModal() {
     const modal = document.getElementById('auth-modal');
@@ -237,7 +288,7 @@ function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, 
             // Refresh favorites tab if it's currently visible
             const activeTab = document.querySelector('#active-positions');
             if (activeTab) {
-                htmx.ajax('GET', '/tab/favorites', {target: '#main-content', swap: 'innerHTML'});
+                htmx.ajax('GET', favoritePnlUrl('/tab/favorites'), {target: '#main-content', swap: 'innerHTML'});
             }
         }
     })
@@ -266,7 +317,7 @@ async function refreshRuFavorites(button) {
                 : `Обновлено инструментов: ${data.updated}`,
             'success'
         );
-        await htmx.ajax('GET', '/tab/favorites', {
+        await htmx.ajax('GET', favoritePnlUrl('/tab/favorites'), {
             target: '#main-content',
             swap: 'innerHTML'
         });
@@ -283,7 +334,11 @@ async function refreshRuFavorites(button) {
 // Close favorite position
 function closeFavorite(favId) {
     if (!confirm(translateUi('Закрыть позицию?'))) return;
-    fetch(`/api/favorites/close/${favId}?exit_price_a=0&exit_price_b=0&exit_pnl_pct=0`, {
+    const closeUrl = favoritePnlUrl(
+        `/api/favorites/close/${favId}`,
+        {use_net: true}
+    );
+    fetch(closeUrl, {
         method: 'POST'
     })
     .then(async r => {
@@ -295,7 +350,7 @@ function closeFavorite(favId) {
     .then(data => {
         if (data.action === 'closed') {
             showToast('Позиция закрыта', 'success');
-            htmx.ajax('GET', '/tab/favorites', {target: '#main-content', swap: 'innerHTML'});
+            htmx.ajax('GET', favoritePnlUrl('/tab/favorites'), {target: '#main-content', swap: 'innerHTML'});
         }
     })
     .catch(e => showToast(e.message || 'Ошибка закрытия', 'error'));
