@@ -5,11 +5,13 @@ import pandas as pd
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from zoneinfo import ZoneInfo
 
 from app.auth import get_current_or_legacy_user
 from app.core.cointegration import compute_fixed_zscore, compute_zscore, engle_granger
 from app.core.scanners import corr_breakdown_scan, drawdown_scan, momentum_scan
 from app.core.signals import estimate_signal_timing
+from app.data.moex import get_ru_live_snapshot
 from app.db.database import (
     db_status,
     ensure_favorite_z_model,
@@ -459,7 +461,7 @@ def _forecast_status(z_now, z_entry, signal_type, days_held, hl, pnl_pct):
         progress_pct = max(0, min(100, progress_pct))
 
     # Status determination
-    if abs_z_now <= 0.5:
+    if z_now is not None and abs_z_now <= 0.5:
         status = "Цель достигнута"
         status_color = "green"
         status_detail = f"Z={z_now:.2f}, цель ±0.5 достигнута"
@@ -520,6 +522,7 @@ async def tab_favorites(request: Request):
             "request": request,
             "favorites": [],
             "auth_required": True,
+            "has_ru_favorites": False,
         })
     try:
         async with get_connection() as conn:
@@ -536,22 +539,27 @@ async def tab_favorites(request: Request):
                     if await ensure_favorite_z_model(conn, favorite):
                         model_backfilled = True
             if model_backfilled:
-                favs = await fetch_favorites(conn)
+                favs = await fetch_favorites(conn, user.id)
 
         if favs.empty:
             return templates.TemplateResponse(request, "components/favorites_tab.html", {
-                "request": request, "favorites": [],
+                "request": request,
+                "favorites": [],
+                "has_ru_favorites": False,
             })
 
         # Fetch latest price per ticker + price history for Z-score recalculation
         ticker_keys = set()
+        has_ru_favorites = False
         for _, favorite in favs.iterrows():
             market = favorite.get("market") or "crypto"
+            has_ru_favorites = has_ru_favorites or market == "ru"
             ticker_keys.add((market, favorite["ticker_a"]))
             ticker_keys.add((market, favorite["ticker_b"]))
         latest_prices = {}
         price_history = {}  # (market, ticker) -> np.array of close prices
         pair_risks = {}
+        ru_live_prices, ru_live_updated_at = get_ru_live_snapshot()
 
         async with get_connection() as conn:
             for market, ticker in ticker_keys:
@@ -580,6 +588,10 @@ async def tab_favorites(request: Request):
                             latest_prices[(market, ticker)] = float(live)
                     except ImportError:
                         pass
+                elif market == "ru":
+                    live = ru_live_prices.get(ticker)
+                    if live is not None and live > 0:
+                        latest_prices[(market, ticker)] = float(live)
             cursor = await conn.execute("SELECT * FROM pairs")
             for pair_row in await cursor.fetchall():
                 pair_data = dict(pair_row)
@@ -720,11 +732,22 @@ async def tab_favorites(request: Request):
 
     except Exception as e:
         return templates.TemplateResponse(request, "components/favorites_tab.html", {
-            "request": request, "favorites": [], "error": str(e) if str(e) else "DB unavailable",
+            "request": request,
+            "favorites": [],
+            "has_ru_favorites": False,
+            "error": str(e) if str(e) else "DB unavailable",
         })
 
+    ru_live_time = None
+    if ru_live_updated_at is not None:
+        ru_live_time = ru_live_updated_at.astimezone(
+            ZoneInfo("Europe/Moscow")
+        ).strftime("%d.%m, %H:%M МСК")
     return templates.TemplateResponse(request, "components/favorites_tab.html", {
-        "request": request, "favorites": active,
+        "request": request,
+        "favorites": active,
+        "has_ru_favorites": has_ru_favorites,
+        "ru_live_updated_at": ru_live_time,
     })
 
 

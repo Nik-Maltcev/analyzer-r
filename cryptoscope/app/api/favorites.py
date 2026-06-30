@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import AuthUser, require_current_or_legacy_user
 from app.core.signals import estimate_signal_timing
+from app.data.moex import get_ru_live_snapshot, refresh_ru_live_prices
 from app.db.database import (
     close_favorite,
     delete_favorite,
@@ -34,7 +35,7 @@ def _query_int(value, default=None):
 
 
 def _get_current_price(ticker: str, db_prices: dict, market: str) -> float:
-    """Get current price: try Binance WS first, fall back to DB."""
+    """Get a live market price when available, then fall back to the database."""
     if market == "crypto":
         try:
             from app.data.binance_ws import get_live_price
@@ -43,6 +44,11 @@ def _get_current_price(ticker: str, db_prices: dict, market: str) -> float:
                 return float(live)
         except ImportError:
             pass
+    elif market == "ru":
+        live_prices, _ = get_ru_live_snapshot()
+        live = live_prices.get(ticker)
+        if live is not None and live > 0:
+            return float(live)
     return float(db_prices.get((market, ticker), 0) or 0)
 
 
@@ -254,6 +260,49 @@ async def toggle_fav(
             corr=_query_float(corr, 0),
         )
     return result
+
+
+@router.post("/refresh-ru")
+async def refresh_ru_favorites(
+    user: AuthUser = Depends(require_current_or_legacy_user),
+):
+    """Refresh delayed MOEX quotes only for the user's active RU favorites."""
+    async with get_connection() as conn:
+        favorites = await fetch_favorites(conn, user.id)
+
+    tickers = set()
+    if not favorites.empty:
+        for _, favorite in favorites.iterrows():
+            if (favorite.get("market") or "crypto") == "ru":
+                tickers.add(favorite["ticker_a"])
+                tickers.add(favorite["ticker_b"])
+    if not tickers:
+        raise HTTPException(
+            status_code=400,
+            detail="В избранном нет активных позиций рынка РФ",
+        )
+
+    try:
+        result = await refresh_ru_live_prices(sorted(tickers))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="MOEX временно не отвечает. Попробуйте немного позже",
+        ) from exc
+
+    if not result["prices"]:
+        raise HTTPException(
+            status_code=502,
+            detail="MOEX не вернул котировки для избранных инструментов",
+        )
+
+    updated_at = result["updated_at"]
+    return {
+        "ok": True,
+        "updated": len(result["prices"]),
+        "cached": result["cached"],
+        "updated_at": updated_at.isoformat() if updated_at else None,
+    }
 
 
 @router.post("/close/{fav_id}")

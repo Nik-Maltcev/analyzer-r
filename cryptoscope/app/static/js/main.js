@@ -213,6 +213,42 @@ function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, 
     .catch(e => showToast(e.message || 'Ошибка избранного', 'error'));
 }
 
+async function refreshRuFavorites(button) {
+    if (!button || button.disabled) return;
+    button.disabled = true;
+    button.classList.add('is-loading');
+
+    try {
+        const response = await fetch('/api/favorites/refresh-ru', {
+            method: 'POST',
+            credentials: 'same-origin'
+        });
+        const data = await response.json().catch(() => ({}));
+        if (response.status === 401) openAuthModal();
+        if (!response.ok) {
+            throw new Error(data.detail || 'Не удалось обновить котировки MOEX');
+        }
+
+        showToast(
+            data.cached
+                ? 'Котировки MOEX уже актуальны'
+                : `Обновлено инструментов: ${data.updated}`,
+            'success'
+        );
+        await htmx.ajax('GET', '/tab/favorites', {
+            target: '#main-content',
+            swap: 'innerHTML'
+        });
+    } catch (error) {
+        showToast(error.message || 'Ошибка обновления MOEX', 'error');
+    } finally {
+        if (button.isConnected) {
+            button.disabled = false;
+            button.classList.remove('is-loading');
+        }
+    }
+}
+
 // Close favorite position
 function closeFavorite(favId) {
     if (!confirm('Закрыть позицию?')) return;

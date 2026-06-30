@@ -2588,6 +2588,40 @@ button:focus-visible,
 }
 
 /* Positions grid (favorites) */
+.ru-refresh-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+}
+
+.ru-refresh-btn {
+    gap: 7px;
+    white-space: nowrap;
+}
+
+.ru-refresh-btn:disabled {
+    cursor: wait;
+    opacity: 0.7;
+}
+
+.ru-refresh-btn.is-loading .refresh-icon {
+    animation: spin 0.8s linear infinite;
+}
+
+.refresh-icon {
+    display: inline-block;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.ru-refresh-time {
+    color: var(--text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
 .positions-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));

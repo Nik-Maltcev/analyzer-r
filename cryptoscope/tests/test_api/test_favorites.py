@@ -3,6 +3,7 @@
 import os
 import sqlite3
 import tempfile
+from datetime import datetime, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -88,6 +89,10 @@ async def test_ru_favorite_uses_moex_market_prices(app, temp_db):
         assert favorite["price_b_now"] == 190
         assert favorite["pnl_total_pct"] == 15.0
 
+        tab_response = await client.get("/tab/favorites")
+        assert tab_response.status_code == 200
+        assert "Обновить RU" in tab_response.text
+
         close_response = await client.post("/api/favorites/close/1")
         assert close_response.status_code == 200
 
@@ -100,6 +105,64 @@ async def test_ru_favorite_uses_moex_market_prices(app, temp_db):
     ).fetchone()
     conn.close()
     assert closed == (110, 190, 15.0, "closed")
+
+
+@pytest.mark.asyncio
+async def test_refresh_ru_favorites_fetches_only_user_tickers(
+    app,
+    temp_db,
+    monkeypatch,
+):
+    conn = sqlite3.connect(temp_db)
+    _add_auth_session(conn)
+    conn.execute(
+        """
+        INSERT INTO favorites (
+            pair, market, ticker_a, ticker_b, signal_type,
+            price_a_entry, price_b_entry, entry_time, status, user_id
+        )
+        VALUES (
+            'SBER_GAZP', 'ru', 'SBER', 'GAZP', 'long_a',
+            300, 125, datetime('now'), 'active', ?
+        )
+        """,
+        (TEST_USER_ID,),
+    )
+    conn.commit()
+    conn.close()
+    captured = []
+
+    async def fake_refresh(tickers):
+        captured.extend(tickers)
+        return {
+            "prices": {"SBER": 301.25, "GAZP": 126.4},
+            "updated_at": datetime(2026, 6, 29, 9, 30, tzinfo=timezone.utc),
+            "cached": False,
+        }
+
+    monkeypatch.setattr(
+        "app.api.favorites.refresh_ru_live_prices",
+        fake_refresh,
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        client.cookies.set(SESSION_COOKIE_NAME, TEST_SESSION)
+        response = await client.post("/api/favorites/refresh-ru")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "updated": 2,
+        "cached": False,
+        "updated_at": "2026-06-29T09:30:00+00:00",
+    }
+    assert captured == ["GAZP", "SBER"]
+    conn = sqlite3.connect(temp_db)
+    ru_price_count = conn.execute(
+        "SELECT COUNT(*) FROM prices WHERE market = 'ru'"
+    ).fetchone()[0]
+    conn.close()
+    assert ru_price_count == 0
 
 
 @pytest.mark.asyncio

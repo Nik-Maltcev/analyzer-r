@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import sqlite3
+import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import aiohttp
 import pandas as pd
@@ -16,11 +18,22 @@ MOEX_CANDLES_URL = (
     "https://iss.moex.com/iss/engines/stock/markets/shares/"
     "boards/TQBR/securities/{ticker}/candles.json"
 )
+MOEX_MARKETDATA_URL = (
+    "https://iss.moex.com/iss/engines/stock/markets/shares/"
+    "boards/TQBR/securities.json"
+)
 DEFAULT_HISTORY_YEARS = 3
 DEFAULT_CONCURRENCY = 6
 PAGE_SIZE = 500
+RU_LIVE_CACHE_SECONDS = 15 * 60
 
 RequestFn = Callable[[str, dict], Awaitable[dict]]
+MarketDataRequestFn = Callable[[dict], Awaitable[dict]]
+
+_ru_live_prices: dict[str, float] = {}
+_ru_live_updated_at: datetime | None = None
+_ru_live_fetched_at = 0.0
+_ru_live_lock = asyncio.Lock()
 
 
 def normalize_moex_candles(payload: dict, ticker: str) -> pd.DataFrame:
@@ -52,6 +65,108 @@ def normalize_moex_candles(payload: dict, ticker: str) -> pd.DataFrame:
         & (prices["close"] > 0)
     ]
     return prices.drop_duplicates(subset=["ticker", "date"], keep="last")
+
+
+def normalize_moex_marketdata(payload: dict) -> dict[str, float]:
+    """Extract the latest usable TQBR price for every security in an ISS response."""
+    marketdata = payload.get("marketdata") or {}
+    columns = marketdata.get("columns") or []
+    rows = marketdata.get("data") or []
+    if not columns or not rows or "SECID" not in columns:
+        return {}
+
+    index = {name: position for position, name in enumerate(columns)}
+    price_columns = [
+        name
+        for name in ("LAST", "MARKETPRICE", "LCLOSE")
+        if name in index
+    ]
+    prices = {}
+    for row in rows:
+        if len(row) <= index["SECID"]:
+            continue
+        ticker = str(row[index["SECID"]] or "").upper()
+        if not ticker:
+            continue
+        for column in price_columns:
+            try:
+                price = float(row[index[column]])
+            except (IndexError, TypeError, ValueError):
+                continue
+            if math.isfinite(price) and price > 0:
+                prices[ticker] = price
+                break
+    return prices
+
+
+def get_ru_live_snapshot() -> tuple[dict[str, float], datetime | None]:
+    """Return the latest in-memory MOEX snapshot without making a network request."""
+    return dict(_ru_live_prices), _ru_live_updated_at
+
+
+async def refresh_ru_live_prices(
+    tickers: Sequence[str],
+    ttl_seconds: int = RU_LIVE_CACHE_SECONDS,
+    request_fn: MarketDataRequestFn | None = None,
+) -> dict:
+    """Fetch delayed MOEX quotes and cache the exchange snapshot in memory."""
+    global _ru_live_prices, _ru_live_updated_at, _ru_live_fetched_at
+
+    selected = {str(ticker).upper() for ticker in tickers if ticker}
+    if not selected:
+        return {
+            "prices": {},
+            "updated_at": _ru_live_updated_at,
+            "cached": True,
+        }
+
+    async with _ru_live_lock:
+        cache_age = time.monotonic() - _ru_live_fetched_at
+        if _ru_live_fetched_at and cache_age < max(0, ttl_seconds):
+            return {
+                "prices": {
+                    ticker: price
+                    for ticker, price in _ru_live_prices.items()
+                    if ticker in selected
+                },
+                "updated_at": _ru_live_updated_at,
+                "cached": True,
+            }
+
+        params = {
+            "iss.meta": "off",
+            "iss.only": "marketdata",
+            "marketdata.columns": "SECID,LAST,MARKETPRICE,LCLOSE",
+        }
+        if request_fn is not None:
+            payload = await request_fn(params)
+        else:
+            timeout = aiohttp.ClientTimeout(total=20)
+            headers = {"User-Agent": "CryptoScope/1.0"}
+            async with aiohttp.ClientSession(
+                timeout=timeout,
+                headers=headers,
+            ) as session:
+                async with session.get(
+                    MOEX_MARKETDATA_URL,
+                    params=params,
+                ) as response:
+                    response.raise_for_status()
+                    payload = await response.json()
+
+        prices = normalize_moex_marketdata(payload)
+        _ru_live_prices = prices
+        _ru_live_updated_at = datetime.now(timezone.utc)
+        _ru_live_fetched_at = time.monotonic()
+        return {
+            "prices": {
+                ticker: price
+                for ticker, price in prices.items()
+                if ticker in selected
+            },
+            "updated_at": _ru_live_updated_at,
+            "cached": False,
+        }
 
 
 async def fetch_ru_prices(

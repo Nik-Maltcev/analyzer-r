@@ -11,7 +11,9 @@ from app.data.moex import (
     latest_ru_start_dates,
     migrate_legacy_ru_ticker,
     normalize_moex_candles,
+    normalize_moex_marketdata,
     reprice_active_ru_favorites,
+    refresh_ru_live_prices,
     upsert_ru_prices,
 )
 
@@ -53,6 +55,55 @@ def test_normalize_moex_candles_maps_daily_prices():
         {"ticker": "SBER", "date": "2026-06-25", "close": 295.16, "volume": 100},
         {"ticker": "SBER", "date": "2026-06-26", "close": 299.18, "volume": 200},
     ]
+
+
+def test_normalize_moex_marketdata_uses_best_available_price():
+    payload = {
+        "marketdata": {
+            "columns": ["SECID", "LAST", "MARKETPRICE", "LCLOSE"],
+            "data": [
+                ["SBER", 301.25, 300.9, 299.0],
+                ["GAZP", None, 126.4, 125.8],
+                ["LKOH", None, None, 6100.0],
+                ["BAD", float("nan"), 0, None],
+            ],
+        }
+    }
+
+    assert normalize_moex_marketdata(payload) == {
+        "SBER": 301.25,
+        "GAZP": 126.4,
+        "LKOH": 6100.0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_refresh_ru_live_prices_reuses_snapshot_for_15_minutes(monkeypatch):
+    monkeypatch.setattr("app.data.moex._ru_live_prices", {})
+    monkeypatch.setattr("app.data.moex._ru_live_updated_at", None)
+    monkeypatch.setattr("app.data.moex._ru_live_fetched_at", 0.0)
+    calls = []
+
+    async def fake_request(params):
+        calls.append(params)
+        return {
+            "marketdata": {
+                "columns": ["SECID", "LAST", "MARKETPRICE", "LCLOSE"],
+                "data": [
+                    ["SBER", 301.25, None, 299.0],
+                    ["GAZP", 126.4, None, 125.8],
+                ],
+            }
+        }
+
+    first = await refresh_ru_live_prices(["SBER"], request_fn=fake_request)
+    second = await refresh_ru_live_prices(["GAZP"], request_fn=fake_request)
+
+    assert len(calls) == 1
+    assert first["prices"] == {"SBER": 301.25}
+    assert first["cached"] is False
+    assert second["prices"] == {"GAZP": 126.4}
+    assert second["cached"] is True
 
 
 @pytest.mark.asyncio
