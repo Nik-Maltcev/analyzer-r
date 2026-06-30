@@ -1,35 +1,53 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="{{ locale }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="CryptoScope — терминал парного трейдинга для поиска рыночных отклонений и контроля открытых сигналов.">
-    <title>CryptoScope — сигналы парного трейдинга</title>
+    <meta name="description" content="{{ product.name }} — терминал парного трейдинга для поиска рыночных отклонений и контроля открытых сигналов.">
+    <title>{{ product.name }} — сигналы парного трейдинга</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/landing.css">
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+    <script>window.CRYPTOSCOPE_TRANSLATIONS = {{ translations|tojson }};</script>
+    {% if product.variant == "global" %}
     <script id="paypal-sdk"
             src="https://www.paypal.com/sdk/js?client-id=BAAcqbJ_FI0s3Uq5-RSJBi-88N-CntiFQQBBQxV-wjqnZe-ELs27-nLOoB4JCYsnXXLblOc96x05RnUACw&components=hosted-buttons&disable-funding=venmo&currency=USD"
             crossorigin="anonymous" async></script>
+    {% endif %}
     <script src="/static/js/landing.js" defer></script>
 </head>
 <body>
     <header class="landing-nav">
-        <a class="landing-brand" href="/" aria-label="CryptoScope">
+        <a class="landing-brand" href="/" aria-label="{{ product.name }}">
             <span class="landing-brand-mark">C</span>
-            <span>CryptoScope</span>
+            <span>{{ product.name }}</span>
         </a>
         <nav class="landing-links" aria-label="Основная навигация">
             <a href="#features">Возможности</a>
             <a href="#markets">Рынки</a>
+            {% if product.variant == "global" %}
             <a href="#pricing">Тарифы</a>
+            {% endif %}
         </nav>
-        <a class="button button-quiet nav-action" href="/app">
-            Открыть сервис
-            <i data-lucide="arrow-up-right" aria-hidden="true"></i>
-        </a>
+        <div class="landing-nav-actions">
+            {% if product.supported_locales|length > 1 %}
+            <div class="locale-switcher" aria-label="Language">
+                {% for locale_id in product.supported_locales %}
+                <button class="locale-btn {% if locale == locale_id %}active{% endif %}"
+                        type="button"
+                        onclick="changeLocale('{{ locale_id }}')">
+                    {{ locale_id|upper }}
+                </button>
+                {% endfor %}
+            </div>
+            {% endif %}
+            <a class="button button-quiet nav-action" href="/app">
+                Открыть сервис
+                <i data-lucide="arrow-up-right" aria-hidden="true"></i>
+            </a>
+        </div>
     </header>
 
     <main>
@@ -38,9 +56,9 @@
             <div class="hero-content">
                 <div class="hero-kicker">
                     <span class="live-pulse"></span>
-                    Аналитика пяти рынков
+                    Аналитика доступных рынков
                 </div>
-                <h1>CryptoScope</h1>
+                <h1>{{ product.name }}</h1>
                 <p class="hero-lead">
                     Терминал парного трейдинга, который находит отклонения,
                     показывает ожидаемый возврат и помогает сопровождать сигнал.
@@ -61,7 +79,7 @@
 
         <section class="proof-strip" aria-label="Ключевые преимущества">
             <div class="proof-item">
-                <strong>5</strong>
+                <strong>{{ enabled_markets|length }}</strong>
                 <span>рынков в одном терминале</span>
             </div>
             <div class="proof-item">
@@ -170,35 +188,46 @@
                     <p>Переключайтесь между рынками, не меняя привычный рабочий процесс.</p>
                 </div>
                 <div class="market-list">
+                    {% if "crypto" in enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">CRYPTO</span>
                         <strong>Криптовалюты</strong>
                         <span>Live-цены Binance</span>
                     </div>
+                    {% endif %}
+                    {% if "ru" in enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">RU</span>
                         <strong>Россия</strong>
                         <span>Акции Московской биржи</span>
                     </div>
+                    {% endif %}
+                    {% if "stocks" in enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">US</span>
                         <strong>США</strong>
                         <span>Ликвидные американские акции</span>
                     </div>
+                    {% endif %}
+                    {% if "br" in enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">BR</span>
                         <strong>Бразилия</strong>
                         <span>Акции B3</span>
                     </div>
+                    {% endif %}
+                    {% if "id" in enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">ID</span>
                         <strong>Индонезия</strong>
                         <span>Акции IDX</span>
                     </div>
+                    {% endif %}
                 </div>
             </div>
         </section>
 
+        {% if product.variant == "global" %}
         <section class="landing-section pricing-section" id="pricing">
             <div class="section-heading">
                 <span class="section-label">Тарифы</span>
@@ -248,6 +277,7 @@
                 </div>
             </div>
         </section>
+        {% endif %}
 
         <section class="final-cta">
             <div>
@@ -255,7 +285,7 @@
                 <h2>Откройте рынок с другой стороны</h2>
             </div>
             <a class="button button-primary" href="/app">
-                Перейти в CryptoScope
+                Перейти в {{ product.name }}
                 <i data-lucide="arrow-right" aria-hidden="true"></i>
             </a>
         </section>
@@ -264,7 +294,7 @@
     <footer class="landing-footer">
         <a class="landing-brand" href="/">
             <span class="landing-brand-mark">C</span>
-            <span>CryptoScope</span>
+            <span>{{ product.name }}</span>
         </a>
         <p>Аналитический сервис. Не является индивидуальной инвестиционной рекомендацией.</p>
         <span>© 2026</span>

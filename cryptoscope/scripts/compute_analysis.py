@@ -29,6 +29,14 @@ from app.core.signals import (
 from app.db.schema import PAIR_COLUMN_MIGRATIONS
 
 DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
+ENABLED_MARKETS = {
+    market.strip()
+    for market in os.environ.get(
+        "ENABLED_MARKETS",
+        "crypto,stocks,ru,br,id",
+    ).split(",")
+    if market.strip()
+}
 
 
 def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
@@ -242,6 +250,9 @@ def main():
     conn = sqlite3.connect(DB_PATH)
 
     for market in ["crypto", "stocks", "ru", "br", "id"]:
+        if market not in ENABLED_MARKETS:
+            print(f"Skipping disabled market: {market}")
+            continue
         try:
             compute_market_pairs(market, conn)
         except Exception as e:

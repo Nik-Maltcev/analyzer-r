@@ -18,10 +18,26 @@ export PYTHONPATH="/app:${PYTHONPATH:-}"
 export CSV_PATH="${CSV_PATH:-/opt/seed/all_markets_3yr.csv}"
 export RU_CSV_PATH="${RU_CSV_PATH:-/opt/seed/tinkoff_ru_2yr.csv}"
 export HOURLY_PATH="${HOURLY_PATH:-/opt/seed/hourly_6coins_2yr.csv}"
+if [ -z "${ENABLED_MARKETS:-}" ]; then
+    case "${APP_VARIANT:-global}" in
+        br) export ENABLED_MARKETS="crypto,stocks,br" ;;
+        id) export ENABLED_MARKETS="crypto,stocks,id" ;;
+        *) export ENABLED_MARKETS="crypto,stocks,ru,br,id" ;;
+    esac
+fi
+
+market_enabled() {
+    case ",$ENABLED_MARKETS," in
+        *",$1,"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
 echo "=== CryptoScope Starting ==="
 echo "DB_PATH=$DB_PATH"
 echo "PORT=$PORT"
+echo "APP_VARIANT=${APP_VARIANT:-global}"
+echo "ENABLED_MARKETS=$ENABLED_MARKETS"
 
 # 1. Rebuild DB if needed
 if [ ! -f "$DB_PATH" ] || [ ! -s "$DB_PATH" ]; then
@@ -50,9 +66,9 @@ python /scripts/load_hourly.py
 python /scripts/load_favorites.py
 
 # 5. Load and refresh Russian stocks
-python /scripts/load_ru.py
-python /scripts/update_ru.py
-if [ $? -eq 0 ]; then
+if market_enabled "ru"; then
+    python /scripts/load_ru.py
+    python /scripts/update_ru.py
     # Recompute if RU data exists but RU pairs are missing.
     RU_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='ru';" 2>/dev/null || echo "0")
     RU_PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs WHERE market='ru';" 2>/dev/null || echo "0")
@@ -62,19 +78,23 @@ if [ $? -eq 0 ]; then
 fi
 
 # 6. Load Brazil B3 stocks
-python /scripts/load_brazil.py
-BR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='br';" 2>/dev/null || echo "0")
-BR_PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs WHERE market='br';" 2>/dev/null || echo "0")
-if [ "$BR_COUNT" -gt 0 ] && [ "$BR_PAIR_COUNT" -lt 1 ]; then
-    python /scripts/compute_analysis.py
+if market_enabled "br"; then
+    python /scripts/load_brazil.py
+    BR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='br';" 2>/dev/null || echo "0")
+    BR_PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs WHERE market='br';" 2>/dev/null || echo "0")
+    if [ "$BR_COUNT" -gt 0 ] && [ "$BR_PAIR_COUNT" -lt 1 ]; then
+        python /scripts/compute_analysis.py
+    fi
 fi
 
 # 7. Load Indonesia IDX stocks
-python /scripts/load_indonesia.py
-ID_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='id';" 2>/dev/null || echo "0")
-ID_PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs WHERE market='id';" 2>/dev/null || echo "0")
-if [ "$ID_COUNT" -gt 0 ] && [ "$ID_PAIR_COUNT" -lt 1 ]; then
-    python /scripts/compute_analysis.py
+if market_enabled "id"; then
+    python /scripts/load_indonesia.py
+    ID_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='id';" 2>/dev/null || echo "0")
+    ID_PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs WHERE market='id';" 2>/dev/null || echo "0")
+    if [ "$ID_COUNT" -gt 0 ] && [ "$ID_PAIR_COUNT" -lt 1 ]; then
+        python /scripts/compute_analysis.py
+    fi
 fi
 
 # 8. Start background update loop (checks every 30s, runs daily_update at 06:00 UTC)

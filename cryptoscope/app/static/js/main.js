@@ -4,6 +4,18 @@
 let currentMarket = window.CRYPTOSCOPE_INITIAL_MARKET || 'crypto';
 window.currentMarket = currentMarket;
 
+const uiTranslations = window.CRYPTOSCOPE_TRANSLATIONS || {};
+const uiTranslationKeys = Object.keys(uiTranslations).sort((a, b) => b.length - a.length);
+
+function translateUi(value) {
+    let translated = String(value ?? '');
+    uiTranslationKeys.forEach(source => {
+        translated = translated.split(source).join(uiTranslations[source]);
+    });
+    return translated;
+}
+window.translateUi = translateUi;
+
 function switchMarket(market) {
     currentMarket = market;
     window.currentMarket = market;
@@ -28,6 +40,15 @@ function filterPolymarket(category, button) {
 }
 window.filterPolymarket = filterPolymarket;
 
+async function changeLocale(locale) {
+    const response = await fetch(`/api/locale?lang=${encodeURIComponent(locale)}`, {
+        method: 'POST',
+        credentials: 'same-origin'
+    });
+    if (response.ok) window.location.reload();
+}
+window.changeLocale = changeLocale;
+
 // Passwordless authentication
 function openAuthModal() {
     const modal = document.getElementById('auth-modal');
@@ -48,7 +69,7 @@ window.closeAuthModal = closeAuthModal;
 function setAuthMessage(message, type = '') {
     const messageEl = document.getElementById('auth-message');
     if (!messageEl) return;
-    messageEl.textContent = message;
+    messageEl.textContent = translateUi(message);
     messageEl.className = `auth-message ${type}`.trim();
 }
 
@@ -64,7 +85,7 @@ function renderAuthBar(email = null, authAvailable = true) {
         const logoutButton = document.createElement('button');
         logoutButton.className = 'btn btn-sm btn-outline';
         logoutButton.type = 'button';
-        logoutButton.textContent = 'Выйти';
+        logoutButton.textContent = translateUi('Выйти');
         logoutButton.addEventListener('click', authLogout);
         bar.append(emailEl, logoutButton);
         return;
@@ -73,7 +94,7 @@ function renderAuthBar(email = null, authAvailable = true) {
     if (!authAvailable) {
         const localMode = document.createElement('span');
         localMode.className = 'auth-email';
-        localMode.textContent = 'Локальный режим';
+        localMode.textContent = translateUi('Локальный режим');
         bar.append(localMode);
         return;
     }
@@ -81,7 +102,7 @@ function renderAuthBar(email = null, authAvailable = true) {
     const loginButton = document.createElement('button');
     loginButton.className = 'btn btn-sm btn-outline';
     loginButton.type = 'button';
-    loginButton.textContent = 'Войти';
+    loginButton.textContent = translateUi('Войти');
     loginButton.addEventListener('click', openAuthModal);
     bar.append(loginButton);
 }
@@ -110,7 +131,7 @@ async function requestMagicLink(event) {
     }
 
     submitButton.disabled = true;
-    submitButton.textContent = 'Отправляем...';
+    submitButton.textContent = translateUi('Отправляем...');
     setAuthMessage('', 'hidden');
     try {
         const response = await fetch('/api/auth/magic-link', {
@@ -123,10 +144,10 @@ async function requestMagicLink(event) {
             throw new Error(data.detail || 'Не удалось отправить письмо');
         }
         setAuthMessage(data.message || 'Ссылка отправлена на почту', 'success');
-        submitButton.textContent = 'Отправить ещё раз';
+        submitButton.textContent = translateUi('Отправить ещё раз');
     } catch (error) {
         setAuthMessage(error.message || 'Не удалось отправить письмо', 'error');
-        submitButton.textContent = 'Получить ссылку';
+        submitButton.textContent = translateUi('Получить ссылку');
     } finally {
         submitButton.disabled = false;
     }
@@ -261,7 +282,7 @@ async function refreshRuFavorites(button) {
 
 // Close favorite position
 function closeFavorite(favId) {
-    if (!confirm('Закрыть позицию?')) return;
+    if (!confirm(translateUi('Закрыть позицию?'))) return;
     fetch(`/api/favorites/close/${favId}?exit_price_a=0&exit_price_b=0&exit_pnl_pct=0`, {
         method: 'POST'
     })
@@ -285,7 +306,7 @@ function showToast(message, type) {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    toast.textContent = message;
+    toast.textContent = translateUi(message);
     container.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
 }

@@ -1,9 +1,11 @@
 """AI Analyst API endpoints."""
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Request
 from app.db.database import get_connection, fetch_pairs
 from app.config import get_settings
 from app.core.ai import build_analysis_prompt, call_deepseek
+from app.i18n import request_locale
+from app.product import get_product_profile
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 settings = get_settings()
@@ -11,6 +13,7 @@ settings = get_settings()
 
 @router.post("/analyze")
 async def analyze_market(
+    request: Request,
     market: str = Query("crypto"),
     api_key: str = Query("", description="DeepSeek API key (uses DEEPSEEK_API_KEY env if empty)"),
 ):
@@ -57,8 +60,9 @@ async def analyze_market(
         "top_pairs": top_pairs,
     }
     
-    prompt = build_analysis_prompt(context)
-    result = await call_deepseek(key, prompt)
+    locale = request_locale(request, get_product_profile())
+    prompt = build_analysis_prompt(context, locale=locale)
+    result = await call_deepseek(key, prompt, locale=locale)
     
     if result["error"]:
         raise HTTPException(status_code=500, detail=result["error"])

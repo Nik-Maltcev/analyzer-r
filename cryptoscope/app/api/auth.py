@@ -1,6 +1,7 @@
 """Passwordless authentication through one-time links sent by Resend."""
 
 from datetime import UTC, datetime, timedelta
+from contextvars import ContextVar
 from email.utils import parseaddr
 from html import escape
 import os
@@ -24,19 +25,71 @@ from app.auth import (
 )
 from app.config import get_settings
 from app.db.database import get_connection
+from app.i18n import request_locale, translate_text
+from app.product import get_product_profile
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+EMAIL_CONTEXT: ContextVar[tuple[str, str] | None] = ContextVar(
+    "email_context",
+    default=None,
+)
+EMAIL_COPY = {
+    "ru": {
+        "subject": "Вход в {product}",
+        "title": "Вход в {product}",
+        "intro": "Нажмите кнопку, чтобы войти. Ссылка действует {ttl} минут и сработает один раз.",
+        "button": "Войти в {product}",
+        "ignore": "Если вы не запрашивали вход, просто проигнорируйте письмо.",
+        "open": "Откройте одноразовую ссылку",
+        "expires": "Ссылка действует {ttl} минут.",
+    },
+    "en": {
+        "subject": "Sign in to {product}",
+        "title": "Sign in to {product}",
+        "intro": "Click the button to sign in. The link is valid for {ttl} minutes and can be used once.",
+        "button": "Sign in to {product}",
+        "ignore": "If you did not request this link, you can ignore this email.",
+        "open": "Open your one-time sign-in link",
+        "expires": "The link is valid for {ttl} minutes.",
+    },
+    "pt-BR": {
+        "subject": "Entrar no {product}",
+        "title": "Entrar no {product}",
+        "intro": "Clique no botão para entrar. O link é válido por {ttl} minutos e funciona uma única vez.",
+        "button": "Entrar no {product}",
+        "ignore": "Se você não solicitou este acesso, ignore este e-mail.",
+        "open": "Abra seu link de acesso de uso único",
+        "expires": "O link é válido por {ttl} minutos.",
+    },
+    "id": {
+        "subject": "Masuk ke {product}",
+        "title": "Masuk ke {product}",
+        "intro": "Klik tombol untuk masuk. Tautan berlaku selama {ttl} menit dan hanya dapat digunakan sekali.",
+        "button": "Masuk ke {product}",
+        "ignore": "Jika Anda tidak meminta akses ini, abaikan email ini.",
+        "open": "Buka tautan masuk sekali pakai",
+        "expires": "Tautan berlaku selama {ttl} menit.",
+    },
+}
 
 
 class MagicLinkPayload(BaseModel):
     email: str
 
 
-def _normalize_email(value: str) -> str:
+def _normalize_email(value: str, locale: str = "ru") -> str:
     email = parseaddr(value.strip())[1].strip().lower()
     if len(email) > 254 or not EMAIL_PATTERN.fullmatch(email):
-        raise HTTPException(status_code=422, detail="Проверьте адрес электронной почты")
+        profile = get_product_profile()
+        raise HTTPException(
+            status_code=422,
+            detail=translate_text(
+                "Проверьте адрес электронной почты",
+                locale,
+                profile,
+            ),
+        )
     return email
 
 
@@ -80,28 +133,37 @@ async def send_magic_link_email(email: str, magic_link: str, request_id: str) ->
         raise RuntimeError("RESEND_API_KEY is not configured")
 
     safe_link = escape(magic_link, quote=True)
+    profile = get_product_profile(settings)
+    locale, product_name = EMAIL_CONTEXT.get() or (
+        profile.locale,
+        profile.name,
+    )
+    copy = EMAIL_COPY.get(locale, EMAIL_COPY["en"])
+    safe_product_name = escape(product_name)
+    ttl = settings.magic_link_ttl_minutes
     payload = {
         "from": settings.resend_from_email,
         "to": [email],
-        "subject": "Вход в CryptoScope",
+        "subject": copy["subject"].format(product=product_name),
         "html": (
             '<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;'
             'padding:32px;color:#172033">'
-            '<h1 style="font-size:22px;margin:0 0 16px">Вход в CryptoScope</h1>'
+            '<h1 style="font-size:22px;margin:0 0 16px">'
+            f'{copy["title"].format(product=safe_product_name)}</h1>'
             '<p style="line-height:1.55;margin:0 0 24px">'
-            "Нажмите кнопку, чтобы войти. Ссылка действует 15 минут и сработает один раз."
+            f'{copy["intro"].format(ttl=ttl)}'
             "</p>"
             f'<a href="{safe_link}" style="display:inline-block;padding:12px 20px;'
             'background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;'
-            'font-weight:600">Войти в CryptoScope</a>'
+            f'font-weight:600">{copy["button"].format(product=safe_product_name)}</a>'
             '<p style="font-size:12px;color:#667085;line-height:1.5;margin:24px 0 0">'
-            "Если вы не запрашивали вход, просто проигнорируйте письмо.</p>"
+            f'{copy["ignore"]}</p>'
             "</div>"
         ),
         "text": (
-            "Вход в CryptoScope\n\n"
-            f"Откройте одноразовую ссылку: {magic_link}\n\n"
-            "Ссылка действует 15 минут."
+            f'{copy["title"].format(product=product_name)}\n\n'
+            f'{copy["open"]}: {magic_link}\n\n'
+            f'{copy["expires"].format(ttl=ttl)}'
         ),
     }
     headers = {
@@ -122,13 +184,19 @@ async def send_magic_link_email(email: str, magic_link: str, request_id: str) ->
 @router.post("/magic-link")
 async def request_magic_link(payload: MagicLinkPayload, request: Request):
     settings = get_settings()
+    profile = get_product_profile(settings)
+    locale = request_locale(request, profile)
     if not settings.resend_api_key:
         raise HTTPException(
             status_code=503,
-            detail="Отправка писем пока не настроена",
+            detail=translate_text(
+                "Отправка писем пока не настроена",
+                locale,
+                profile,
+            ),
         )
 
-    email = _normalize_email(payload.email)
+    email = _normalize_email(payload.email, locale)
     request_ip = _request_ip(request)
     now = datetime.now(UTC)
     token = secrets.token_urlsafe(32)
@@ -152,7 +220,11 @@ async def request_magic_link(payload: MagicLinkPayload, request: Request):
         if email_requests >= 5 or ip_requests >= 20:
             raise HTTPException(
                 status_code=429,
-                detail="Слишком много запросов. Попробуйте через 15 минут",
+                detail=translate_text(
+                    "Слишком много запросов. Попробуйте через 15 минут",
+                    locale,
+                    profile,
+                ),
             )
 
         await conn.execute(
@@ -168,6 +240,7 @@ async def request_magic_link(payload: MagicLinkPayload, request: Request):
 
     magic_link = f"{_base_url(request)}/api/auth/verify?token={quote(token)}"
     request_id = f"magic-link-{token_hash[:32]}"
+    email_context_token = EMAIL_CONTEXT.set((locale, profile.name))
     try:
         await send_magic_link_email(email, magic_link, request_id)
     except (httpx.HTTPError, RuntimeError) as exc:
@@ -179,12 +252,22 @@ async def request_magic_link(payload: MagicLinkPayload, request: Request):
             await conn.commit()
         raise HTTPException(
             status_code=502,
-            detail="Не удалось отправить письмо. Попробуйте ещё раз",
+            detail=translate_text(
+                "Не удалось отправить письмо. Попробуйте ещё раз",
+                locale,
+                profile,
+            ),
         ) from exc
+    finally:
+        EMAIL_CONTEXT.reset(email_context_token)
 
     return {
         "ok": True,
-        "message": "Ссылка для входа отправлена на почту",
+        "message": translate_text(
+            "Ссылка для входа отправлена на почту",
+            locale,
+            profile,
+        ),
         "expires_in_minutes": settings.magic_link_ttl_minutes,
     }
 

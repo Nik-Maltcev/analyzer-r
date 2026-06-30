@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ru" data-bs-theme="dark">
+<html lang="{{ locale }}" data-bs-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CryptoScope — Pairs Trading Terminal</title>
+    <title>{{ product.name }} — Pairs Trading Terminal</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -11,14 +11,17 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org/dist/ext/json-enc.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script>window.CRYPTOSCOPE_INITIAL_MARKET = {{ market|default("crypto")|tojson }};</script>
+    <script>
+        window.CRYPTOSCOPE_INITIAL_MARKET = {{ market|default(product.default_market)|tojson }};
+        window.CRYPTOSCOPE_TRANSLATIONS = {{ translations|tojson }};
+    </script>
     <script src="/static/js/main.js" defer></script>
 </head>
 <body>
     <nav class="navbar">
         <div class="navbar-brand">
             <span class="logo-icon">C</span>
-            <span class="logo-text">CryptoScope</span>
+            <span class="logo-text">{{ product.name }}</span>
             <span class="logo-subtitle">pairs trading terminal</span>
         </div>
         <div class="navbar-tabs" id="nav-tabs">
@@ -45,6 +48,17 @@
             </a>
         </div>
         <div class="navbar-end">
+            {% if product.supported_locales|length > 1 %}
+            <div class="locale-switcher" aria-label="Language">
+                {% for locale_id in product.supported_locales %}
+                <button class="locale-btn {% if locale == locale_id %}active{% endif %}"
+                        type="button"
+                        onclick="changeLocale('{{ locale_id }}')">
+                    {{ locale_id|upper }}
+                </button>
+                {% endfor %}
+            </div>
+            {% endif %}
             <div class="live-status" id="live-status">
                 <span class="status-dot offline" id="ws-dot"></span>
                 <span class="live-text" id="ws-text">Offline</span>

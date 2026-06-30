@@ -15,6 +15,7 @@ from app.db.database import (
     get_connection,
     toggle_favorite,
 )
+from app.product import get_product_profile
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
 
@@ -267,6 +268,9 @@ async def refresh_ru_favorites(
     user: AuthUser = Depends(require_current_or_legacy_user),
 ):
     """Refresh delayed MOEX quotes only for the user's active RU favorites."""
+    if "ru" not in get_product_profile().enabled_markets:
+        raise HTTPException(status_code=404, detail="Market is not available")
+
     async with get_connection() as conn:
         favorites = await fetch_favorites(conn, user.id)
 

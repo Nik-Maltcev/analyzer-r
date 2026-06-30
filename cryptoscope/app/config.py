@@ -11,6 +11,15 @@ class Settings(BaseSettings):
     port: int = 3000
     host: str = "0.0.0.0"
 
+    app_variant: str = "global"
+    app_name: str = ""
+    app_locale: str = ""
+    supported_locales: str = ""
+    enabled_markets: str = ""
+    default_market: str = ""
+    app_timezone: str = ""
+    app_currency: str = ""
+
     deepseek_api_key: str = ""
     deepseek_api_url: str = "https://api.deepseek.com/chat/completions"
 

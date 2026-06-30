@@ -89,8 +89,37 @@ a {
     color: var(--landing-text);
 }
 
-.nav-action {
+.landing-nav-actions {
+    align-items: center;
+    display: flex;
+    gap: 10px;
     justify-self: end;
+}
+
+.locale-switcher {
+    align-items: center;
+    border: 1px solid var(--landing-line);
+    border-radius: 6px;
+    display: flex;
+    padding: 3px;
+}
+
+.locale-btn {
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    color: var(--landing-muted);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    min-height: 30px;
+    padding: 0 9px;
+}
+
+.locale-btn.active {
+    background: var(--landing-surface-2);
+    color: var(--landing-green);
 }
 
 .button {
@@ -658,6 +687,11 @@ a {
     .nav-action {
         min-height: 38px;
         padding: 0 12px;
+    }
+
+    .locale-btn {
+        min-height: 28px;
+        padding: 0 7px;
     }
 
     .nav-action svg {

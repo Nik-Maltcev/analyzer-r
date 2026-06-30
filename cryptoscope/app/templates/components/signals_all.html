@@ -7,7 +7,7 @@
 {% if market_regime == "stress" %}
 <div class="market-risk-banner is-stress">
     <strong>Стрессовый режим рынка</strong>
-    <span>Прогнозы расширены до диапазона, нестабильные RU-пары заблокированы.</span>
+    <span>Прогнозы расширены до диапазона, нестабильные пары заблокированы.</span>
     {% if market_volatility is not none %}
     <span class="market-risk-value">Волатильность: {{ "%.0f"|format(market_volatility) }}%</span>
     {% endif %}

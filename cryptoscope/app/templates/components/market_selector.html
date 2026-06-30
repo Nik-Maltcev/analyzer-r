@@ -1,13 +1,10 @@
 <div class="market-selector-bar">
     <span class="market-label">Рынок:</span>
-    <button class="market-btn {% if market == 'crypto' %}active{% endif %}" data-market="crypto"
-            onclick="switchMarket('crypto')">Crypto</button>
-    <button class="market-btn {% if market == 'stocks' %}active{% endif %}" data-market="stocks"
-            onclick="switchMarket('stocks')">Акции/ETF</button>
-    <button class="market-btn {% if market == 'ru' %}active{% endif %}" data-market="ru"
-            onclick="switchMarket('ru')">RU</button>
-    <button class="market-btn {% if market == 'br' %}active{% endif %}" data-market="br"
-            onclick="switchMarket('br')">BR · B3</button>
-    <button class="market-btn {% if market == 'id' %}active{% endif %}" data-market="id"
-            onclick="switchMarket('id')">ID · IDX</button>
+    {% for market_id in enabled_markets %}
+    <button class="market-btn {% if market == market_id %}active{% endif %}"
+            data-market="{{ market_id }}"
+            onclick="switchMarket('{{ market_id }}')">
+        {{ market_names[market_id] }}
+    </button>
+    {% endfor %}
 </div>

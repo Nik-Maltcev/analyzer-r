@@ -35,6 +35,14 @@ from app.data.tickers import (
 
 DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
 API_KEY = os.environ.get("TWELVEDATA_API_KEY", "")
+ENABLED_MARKETS = {
+    market.strip()
+    for market in os.environ.get(
+        "ENABLED_MARKETS",
+        "crypto,stocks,ru,br,id",
+    ).split(",")
+    if market.strip()
+}
 BRAZIL_HISTORY_YEARS = int(os.environ.get("BRAZIL_HISTORY_YEARS", "3"))
 INDONESIA_HISTORY_YEARS = int(os.environ.get("INDONESIA_HISTORY_YEARS", "3"))
 US_HISTORY_YEARS = int(os.environ.get("US_HISTORY_YEARS", "3"))
@@ -237,14 +245,18 @@ def main():
     conn = sqlite3.connect(DB_PATH)
 
     total = 0
-    if API_KEY:
+    if "crypto" in ENABLED_MARKETS and API_KEY:
         total += update_market(CRYPTO_TICKERS, "crypto", conn, API_KEY)
-    else:
+    elif "crypto" in ENABLED_MARKETS:
         print("TWELVEDATA_API_KEY not set, skipping crypto")
-    total += update_us_market(conn)
-    total += update_ru_market(conn)
-    total += update_brazil_market(conn)
-    total += update_indonesia_market(conn)
+    if "stocks" in ENABLED_MARKETS:
+        total += update_us_market(conn)
+    if "ru" in ENABLED_MARKETS:
+        total += update_ru_market(conn)
+    if "br" in ENABLED_MARKETS:
+        total += update_brazil_market(conn)
+    if "id" in ENABLED_MARKETS:
+        total += update_indonesia_market(conn)
 
     conn.close()
 

@@ -2948,6 +2948,32 @@ h3,
     gap: 10px;
 }
 
+.locale-switcher {
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    display: flex;
+    padding: 3px;
+}
+
+.locale-btn {
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    min-height: 26px;
+    padding: 0 8px;
+}
+
+.locale-btn.active {
+    background: var(--surface-2);
+    color: var(--teal-bright);
+}
+
 .live-status,
 .auth-bar,
 #auth-status .auth-bar {
@@ -3545,7 +3571,7 @@ h3,
     }
 
     .market-selector-bar {
-        grid-template-columns: auto repeat(5, minmax(80px, 1fr));
+        grid-template-columns: auto repeat(auto-fit, minmax(80px, 1fr));
         align-items: center;
     }
 

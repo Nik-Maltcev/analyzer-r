@@ -14,6 +14,14 @@ CSV_PATH = os.environ.get("CSV_PATH", "/opt/seed/all_markets_3yr.csv")
 RU_CSV_PATH = os.environ.get("RU_CSV_PATH", "/opt/seed/tinkoff_ru_2yr.csv")
 HOURLY_PATH = os.environ.get("HOURLY_PATH", "/opt/seed/hourly_6coins_2yr.csv")
 DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
+ENABLED_MARKETS = {
+    market.strip()
+    for market in os.environ.get(
+        "ENABLED_MARKETS",
+        "crypto,stocks,ru,br,id",
+    ).split(",")
+    if market.strip()
+}
 
 
 def main():
@@ -106,6 +114,7 @@ def main():
         df = pd.read_csv(CSV_PATH)
         if "market" not in df.columns:
             df["market"] = "unknown"
+        df = df[df["market"].isin(ENABLED_MARKETS)]
         df = df.drop_duplicates(subset=["ticker", "date"])
         df.to_sql("prices", conn, if_exists="append", index=False)
         print(f"  Inserted {len(df)} rows")
@@ -113,7 +122,7 @@ def main():
         print(f"CSV not found: {CSV_PATH}")
 
     # Load RU CSV
-    if os.path.exists(RU_CSV_PATH):
+    if "ru" in ENABLED_MARKETS and os.path.exists(RU_CSV_PATH):
         print(f"Loading {RU_CSV_PATH}...")
         df = pd.read_csv(RU_CSV_PATH)
         if "market" not in df.columns:

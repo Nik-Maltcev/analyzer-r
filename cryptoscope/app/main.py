@@ -7,9 +7,8 @@ import time
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
@@ -17,6 +16,7 @@ from app.api.charts import router as charts_router
 from app.api.data_view import router as data_router
 from app.api.favorites import router as favorites_router
 from app.api.health import router as health_router
+from app.api.locale import router as locale_router
 from app.api.portfolio import router as portfolio_router
 from app.api.polymarket import api_router as polymarket_api_router
 from app.api.polymarket import ui_router as polymarket_ui_router
@@ -25,6 +25,8 @@ from app.api.signals import router as signals_router
 from app.api.ui_routes import router as ui_router
 from app.config import get_settings
 from app.db.database import db_status, fetch_pairs, get_connection, init_db, set_db_path
+from app.product import get_product_profile, normalize_market
+from app.ui.templates import templates
 
 # Ensure cryptoscope is on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -32,10 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 settings = get_settings()
 set_db_path(settings.db_path)
 
-templates = Jinja2Templates(directory="app/templates")
-
 START_TIME = time.time()
-SUPPORTED_MARKETS = {"crypto", "stocks", "ru", "br", "id"}
 
 
 @asynccontextmanager
@@ -70,6 +69,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.middleware("http")
+async def enforce_product_markets(request: Request, call_next):
+    market = request.query_params.get("market")
+    if (
+        market
+        and request.url.path.startswith(("/api/", "/tab/"))
+        and market not in get_product_profile().enabled_markets
+    ):
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Market is not available"},
+        )
+    return await call_next(request)
+
+
 # Static files
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -82,6 +97,7 @@ app.include_router(favorites_router, prefix="/api")
 app.include_router(data_router, prefix="/api")
 app.include_router(ai_router, prefix="/api")
 app.include_router(charts_router, prefix="/api")
+app.include_router(locale_router, prefix="/api")
 app.include_router(ui_router)
 app.include_router(polymarket_api_router)
 app.include_router(polymarket_ui_router)
@@ -138,10 +154,10 @@ async def landing(request: Request):
 @app.get("/app", response_class=HTMLResponse)
 async def app_page(
     request: Request,
-    market: str = Query("crypto"),
+    market: str | None = Query(None),
 ):
     """Full app page."""
-    market = market if market in SUPPORTED_MARKETS else "crypto"
+    market = normalize_market(market)
     dash = await _get_dashboard_context(market)
     return templates.TemplateResponse(request, "index.html", {
         "request": request,

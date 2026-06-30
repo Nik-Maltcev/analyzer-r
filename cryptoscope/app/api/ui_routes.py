@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from zoneinfo import ZoneInfo
 
 from app.auth import get_current_or_legacy_user
@@ -21,9 +20,9 @@ from app.db.database import (
     fetch_prices,
     get_connection,
 )
+from app.ui.templates import templates
 
 router = APIRouter(prefix="/tab", tags=["ui"])
-templates = Jinja2Templates(directory="app/templates")
 
 
 def _finite_float(value, default=None):

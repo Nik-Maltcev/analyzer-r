@@ -6,13 +6,12 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
 from app.data.polymarket import get_polymarket_forecasts
+from app.ui.templates import templates
 
 api_router = APIRouter(prefix="/api/polymarket", tags=["polymarket"])
 ui_router = APIRouter(prefix="/tab/polymarket", tags=["polymarket-ui"])
-templates = Jinja2Templates(directory="app/templates")
 MSK = timezone(timedelta(hours=3))
 
 
