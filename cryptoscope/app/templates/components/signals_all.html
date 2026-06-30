@@ -474,7 +474,7 @@
         const wsStatusEl = document.getElementById('ws-status');
         function updateWsStatus() {
             if (!dot || !wsStatusEl) return;
-            fetch('/api/health/ws').then(r => r.json()).then(d => {
+            fetch('/api/favorites/live-status').then(r => r.json()).then(d => {
                 const ok = d && (d.connected === true || d.status === 'ok' || d.status === 'connected');
                 dot.classList.toggle('live', ok);
                 wsStatusEl.textContent = ok ? 'Binance WS подключен' : 'Binance WS отключен';

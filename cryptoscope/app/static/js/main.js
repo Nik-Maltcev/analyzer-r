@@ -100,6 +100,16 @@ function favoritePnlUrl(path, extra = {}) {
 window.getFavoritePnlSettings = getFavoritePnlSettings;
 window.storeFavoritePnlSettings = storeFavoritePnlSettings;
 
+document.body.addEventListener('htmx:configRequest', event => {
+    if (event.detail.elt?.dataset?.tab !== 'favorites') return;
+    const settings = getFavoritePnlSettings();
+    Object.entries(settings).forEach(([key, value]) => {
+        if (event.detail.parameters[key] === undefined) {
+            event.detail.parameters[key] = value;
+        }
+    });
+});
+
 // Passwordless authentication
 function openAuthModal() {
     const modal = document.getElementById('auth-modal');
