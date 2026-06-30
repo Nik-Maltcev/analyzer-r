@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import bisect
 import math
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from urllib.parse import quote
 
 import aiohttp
@@ -18,6 +19,9 @@ PYTH_HISTORY_URL = "https://pyth.dourolabs.app/v1/fixed_rate@200ms/history"
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 FORECAST_CACHE_SECONDS = 30 * 60
 FORCE_REFRESH_FLOOR_SECONDS = 60
+MOSCOW_TIMEZONE = timezone(timedelta(hours=3))
+MOSCOW_BOUNDARY_HOUR = 23
+MAX_BOUNDARY_STALENESS_SECONDS = 4 * 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -100,6 +104,60 @@ def parse_yahoo_history(payload: dict) -> tuple[list[int], list[float]]:
     return normalize_history(result.get("timestamp"), prices)
 
 
+def sample_moscow_23_boundaries(
+    timestamps,
+    prices,
+    now: datetime | None = None,
+) -> tuple[list[int], list[float]]:
+    """Sample the latest completed hourly candle at each 23:00 Moscow boundary."""
+    clean_timestamps, clean_prices = normalize_history(timestamps, prices)
+    if not clean_timestamps:
+        return [], []
+
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current_moscow = current.astimezone(MOSCOW_TIMEZONE)
+    last_date = current_moscow.date()
+    if current_moscow.hour < MOSCOW_BOUNDARY_HOUR:
+        last_date -= timedelta(days=1)
+
+    first_moscow_date = datetime.fromtimestamp(
+        clean_timestamps[0],
+        timezone.utc,
+    ).astimezone(MOSCOW_TIMEZONE).date()
+    sampled_timestamps = []
+    sampled_prices = []
+    completed_timestamps = [
+        timestamp + 60 * 60
+        for timestamp in clean_timestamps
+    ]
+    boundary_date: date = first_moscow_date
+
+    while boundary_date <= last_date:
+        boundary = datetime.combine(
+            boundary_date,
+            datetime_time(
+                MOSCOW_BOUNDARY_HOUR,
+                tzinfo=MOSCOW_TIMEZONE,
+            ),
+        )
+        boundary_timestamp = int(boundary.timestamp())
+        point_index = bisect.bisect_right(
+            completed_timestamps,
+            boundary_timestamp,
+        ) - 1
+        if point_index >= 0:
+            completed_timestamp = completed_timestamps[point_index]
+            staleness = boundary_timestamp - completed_timestamp
+            if 0 <= staleness <= MAX_BOUNDARY_STALENESS_SECONDS:
+                sampled_timestamps.append(boundary_timestamp)
+                sampled_prices.append(clean_prices[point_index])
+        boundary_date += timedelta(days=1)
+
+    return sampled_timestamps, sampled_prices
+
+
 async def _fetch_pyth_history(
     session: aiohttp.ClientSession,
     asset: PolymarketAsset,
@@ -114,7 +172,7 @@ async def _fetch_pyth_history(
         "symbol": asset.pyth_symbol,
         "from": start,
         "to": end,
-        "resolution": "D",
+        "resolution": "60",
     }
     async with session.get(
         PYTH_HISTORY_URL,
@@ -135,7 +193,7 @@ async def _fetch_yahoo_history(
     params = {
         "period1": start,
         "period2": end,
-        "interval": "1d",
+        "interval": "1h",
         "events": "history",
         "includeAdjustedClose": "true",
     }
@@ -175,8 +233,12 @@ async def _build_asset_forecast(
                     start,
                     end,
                 )
+                timestamps, prices = sample_moscow_23_boundaries(
+                    timestamps,
+                    prices,
+                )
                 if len(prices) >= MIN_PRICE_POINTS:
-                    source = "Pyth"
+                    source = "Pyth · 23:00"
                     source_kind = "pyth"
             except Exception as exc:
                 pyth_error = exc
@@ -188,7 +250,11 @@ async def _build_asset_forecast(
                 start,
                 end,
             )
-            source = "Yahoo proxy"
+            timestamps, prices = sample_moscow_23_boundaries(
+                timestamps,
+                prices,
+            )
+            source = "Yahoo proxy · ≤23:00"
             source_kind = "proxy"
 
         if len(prices) < MIN_PRICE_POINTS:
@@ -205,6 +271,7 @@ async def _build_asset_forecast(
             "source_kind": source_kind,
             "pyth_symbol": asset.pyth_symbol,
             "quality": _forecast_quality(forecast),
+            "window": "23:00 МСК → 23:00 МСК",
             "available": True,
         })
         return forecast
@@ -226,7 +293,7 @@ async def get_polymarket_forecasts(force: bool = False) -> dict:
 
         now = datetime.now(timezone.utc)
         end = int((now + timedelta(days=1)).timestamp())
-        start = int((now - timedelta(days=3 * 366)).timestamp())
+        start = int((now - timedelta(days=600)).timestamp())
         timeout = aiohttp.ClientTimeout(
             total=15,
             connect=5,

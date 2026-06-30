@@ -9,6 +9,7 @@ from app.data.polymarket import (
     POLYMARKET_ASSETS,
     parse_pyth_history,
     parse_yahoo_history,
+    sample_moscow_23_boundaries,
 )
 from app.db.database import set_db_path
 
@@ -39,6 +40,31 @@ def test_parse_yahoo_history_uses_adjusted_close():
 
     assert timestamps == [100, 200]
     assert prices == [10.5, 11.25]
+
+
+def test_history_is_sampled_at_completed_23_moscow_boundaries():
+    def timestamp(day, hour):
+        return int(datetime(
+            2026,
+            1,
+            day,
+            hour,
+            tzinfo=timezone.utc,
+        ).timestamp())
+
+    sampled_timestamps, sampled_prices = sample_moscow_23_boundaries(
+        [
+            timestamp(1, 19),
+            timestamp(1, 20),
+            timestamp(2, 19),
+            timestamp(2, 20),
+        ],
+        [100, 999, 101, 999],
+        now=datetime(2026, 1, 3, 18, tzinfo=timezone.utc),
+    )
+
+    assert sampled_timestamps == [timestamp(1, 20), timestamp(2, 20)]
+    assert sampled_prices == [100, 101]
 
 
 def test_polymarket_catalog_contains_requested_assets():

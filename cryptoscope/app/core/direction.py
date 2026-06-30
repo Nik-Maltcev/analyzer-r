@@ -74,6 +74,13 @@ def _build_dataset(
     features = []
     targets = []
     for index in range(FEATURE_WINDOW, len(prices) - 1):
+        if math.isclose(
+            float(prices[index + 1]),
+            float(prices[index]),
+            rel_tol=1e-10,
+            abs_tol=1e-12,
+        ):
+            continue
         features.append(_feature_at(prices, returns, index))
         targets.append(1.0 if prices[index + 1] > prices[index] else 0.0)
     current = np.asarray(
