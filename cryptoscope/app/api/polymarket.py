@@ -52,6 +52,7 @@ def _template_context(result: dict) -> dict:
         "forecasts": forecasts,
         "leader": leader,
         "available_count": result.get("available_count", 0),
+        "validated_count": result.get("validated_count", 0),
         "total_count": result.get("total_count", len(forecasts)),
         "cached": result.get("cached", False),
         "updated_at": (
@@ -93,6 +94,7 @@ async def polymarket_results(
                 "forecasts": [],
                 "leader": None,
                 "available_count": 0,
+                "validated_count": 0,
                 "total_count": 0,
                 "error": str(exc) or "Не удалось рассчитать прогнозы",
             },

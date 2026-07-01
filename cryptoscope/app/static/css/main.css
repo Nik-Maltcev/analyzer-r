@@ -3994,6 +3994,22 @@ h3,
     font-size: 10px;
 }
 
+.poly-accuracy {
+    min-width: 164px;
+    white-space: normal;
+}
+
+.poly-accuracy-unvalidated > strong {
+    color: var(--text-muted);
+}
+
+.poly-edge-warning {
+    color: var(--orange);
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
 .poly-direction {
     min-width: 82px;
 }

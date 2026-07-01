@@ -24,6 +24,8 @@ def test_direction_forecast_is_bounded_and_backtested():
     assert result["probability_up"] + result["probability_down"] == pytest.approx(100)
     assert 0 <= result["backtest_accuracy"] <= 100
     assert result["backtest_samples"] >= 20
+    assert -100 <= result["backtest_advantage_pp"] <= 100
+    assert isinstance(result["validated_edge"], bool)
     assert result["latest_timestamp"] == timestamps[-1]
     assert result["typical_move_pct"] > 0
 

@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.data.polymarket import (
     POLYMARKET_ASSETS,
+    _forecast_quality,
     parse_pyth_history,
     parse_yahoo_history,
     sample_moscow_23_boundaries,
@@ -96,6 +97,13 @@ def test_polymarket_catalog_contains_requested_assets():
     }
 
 
+def test_unvalidated_forecast_is_not_presented_as_model_strength():
+    assert _forecast_quality({
+        "validated_edge": False,
+        "edge_pp": 9.0,
+    }) == "Не подтверждён"
+
+
 @pytest.fixture
 def app(temp_db):
     set_db_path(temp_db)
@@ -127,6 +135,8 @@ def _forecast_result():
         "volatility_20d_pct": 1.04,
         "backtest_accuracy": 56.8,
         "baseline_accuracy": 52.1,
+        "backtest_advantage_pp": 4.7,
+        "validated_edge": True,
         "backtest_samples": 44,
         "observations": 171,
         "brier_score": 0.244,
@@ -136,6 +146,7 @@ def _forecast_result():
         "forecasts": [forecast],
         "leader": forecast,
         "available_count": 1,
+        "validated_count": 1,
         "total_count": 1,
         "updated_at": datetime(2026, 6, 30, 10, 0, tzinfo=timezone.utc),
         "cached": False,
@@ -163,6 +174,8 @@ async def test_polymarket_tab_and_results_render(app, monkeypatch):
     assert results.status_code == 200
     assert "S&amp;P 500 ETF" in results.text
     assert "58.4%" in results.text
+    assert "Историческая точность" in results.text
+    assert "44 тестов · база 52.1%" in results.text
     assert api_response.status_code == 200
     assert api_response.json()["leader"]["key"] == "SPY"
     assert 'data-tab="polymarket"' in app_page.text

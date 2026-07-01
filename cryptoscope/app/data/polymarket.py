@@ -203,10 +203,11 @@ async def _fetch_yahoo_history(
 
 
 def _forecast_quality(forecast: dict) -> str:
-    advantage = forecast["backtest_accuracy"] - forecast["baseline_accuracy"]
-    if forecast["edge_pp"] >= 7 and advantage >= 2:
+    if not forecast.get("validated_edge", False):
+        return "Не подтверждён"
+    if forecast["edge_pp"] >= 7:
         return "Сильный"
-    if forecast["edge_pp"] >= 4 and advantage >= 0:
+    if forecast["edge_pp"] >= 4:
         return "Умеренный"
     return "Слабый"
 
@@ -340,16 +341,21 @@ async def get_polymarket_forecasts(force: bool = False) -> dict:
         forecasts.sort(
             key=lambda item: (
                 not item.get("available", False),
+                not item.get("validated_edge", False),
                 -float(item.get("edge_pp", -1)),
                 item["key"],
             )
         )
         available = [item for item in forecasts if item.get("available")]
-        leader = available[0] if available else None
+        validated = [
+            item for item in available if item.get("validated_edge", False)
+        ]
+        leader = validated[0] if validated else None
         _forecast_cache = {
             "forecasts": forecasts,
             "leader": leader,
             "available_count": len(available),
+            "validated_count": len(validated),
             "total_count": len(forecasts),
             "updated_at": now,
             "cached": False,

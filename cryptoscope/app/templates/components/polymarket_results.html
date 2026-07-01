@@ -12,7 +12,7 @@
 {% else %}
 <div class="polymarket-summary">
     <div class="poly-leader">
-        <span class="summary-label">Максимальное преимущество</span>
+        <span class="summary-label">Лучший подтверждённый прогноз</span>
         {% if leader %}
         <div class="leader-line">
             <strong>{{ leader.key }}</strong>
@@ -22,12 +22,12 @@
             <span class="leader-probability">{{ '%.1f'|format(leader.direction_probability) }}%</span>
         </div>
         {% else %}
-        <strong>Нет доступных расчётов</strong>
+        <strong>Нет подтверждённого преимущества</strong>
         {% endif %}
     </div>
     <div class="summary-stat">
-        <span class="summary-label">Рассчитано</span>
-        <strong>{{ available_count }} / {{ total_count }}</strong>
+        <span class="summary-label">Подтверждено</span>
+        <strong>{{ validated_count }} / {{ available_count }}</strong>
     </div>
     <div class="summary-stat">
         <span class="summary-label">Обновлено</span>
@@ -66,13 +66,13 @@
         <thead>
             <tr>
                 <th>Инструмент</th>
-                <th>Прогноз</th>
-                <th>Вероятности</th>
+                <th>Оценка следующего close</th>
+                <th>Оценка модели</th>
                 <th>Последний close</th>
                 <th>1 день</th>
                 <th>5 дней</th>
                 <th>Типичный ход</th>
-                <th>Точность</th>
+                <th>Историческая точность</th>
                 <th>Источник</th>
             </tr>
         </thead>
@@ -123,9 +123,12 @@
                 </td>
                 <td>±{{ '%.2f'|format(item.typical_move_pct) }}%</td>
                 <td>
-                    <div class="poly-accuracy">
+                    <div class="poly-accuracy {% if not item.validated_edge %}poly-accuracy-unvalidated{% endif %}">
                         <strong>{{ '%.1f'|format(item.backtest_accuracy) }}%</strong>
-                        <small>{{ item.backtest_samples }} тестов</small>
+                        <small>{{ item.backtest_samples }} тестов · база {{ '%.1f'|format(item.baseline_accuracy) }}%</small>
+                        {% if not item.validated_edge %}
+                        <span class="poly-edge-warning">Нет подтверждённого преимущества</span>
+                        {% endif %}
                     </div>
                 </td>
                 <td>

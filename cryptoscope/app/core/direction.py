@@ -9,6 +9,8 @@ import numpy as np
 
 MIN_PRICE_POINTS = 80
 FEATURE_WINDOW = 20
+MIN_VALIDATION_SAMPLES = 30
+MIN_BASELINE_ADVANTAGE = 0.02
 
 
 def _sigmoid(values: np.ndarray) -> np.ndarray:
@@ -125,6 +127,11 @@ def forecast_next_close(
     accuracy = float(np.mean(holdout_predictions == holdout_targets))
     positive_rate = float(np.mean(holdout_targets))
     baseline_accuracy = max(positive_rate, 1.0 - positive_rate)
+    backtest_advantage = accuracy - baseline_accuracy
+    validated_edge = (
+        len(holdout_targets) >= MIN_VALIDATION_SAMPLES
+        and backtest_advantage >= MIN_BASELINE_ADVANTAGE
+    )
     brier_score = float(
         np.mean((holdout_probabilities - holdout_targets) ** 2)
     )
@@ -172,6 +179,8 @@ def forecast_next_close(
         ),
         "backtest_accuracy": round(accuracy * 100, 1),
         "baseline_accuracy": round(baseline_accuracy * 100, 1),
+        "backtest_advantage_pp": round(backtest_advantage * 100, 1),
+        "validated_edge": validated_edge,
         "brier_score": round(brier_score, 4),
         "observations": int(len(targets)),
         "backtest_samples": int(len(holdout_targets)),
