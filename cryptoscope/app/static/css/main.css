@@ -1655,27 +1655,6 @@ body.modal-open {
     opacity: 0.5;
 }
 
-/* AI result */
-.ai-result {
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent),
-        var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 22px;
-    margin-top: 16px;
-    min-height: 200px;
-}
-
-.ai-result pre {
-    white-space: pre-wrap;
-    font-family: var(--font-mono);
-    font-size: 13px;
-    line-height: 1.65;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-}
-
 /* ---------- 21. Favorites / Position Cards ---------- */
 .position-card {
     background:

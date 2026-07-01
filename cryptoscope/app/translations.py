@@ -93,11 +93,6 @@ MESSAGES = {
         "Análise em tempo real de centenas de pares",
         "Analisis real-time untuk ratusan pasangan",
     ),
-    "AI-рекомендации от DeepSeek v4 Pro": (
-        "AI insights from DeepSeek v4 Pro",
-        "Insights de IA do DeepSeek v4 Pro",
-        "Insight AI dari DeepSeek v4 Pro",
-    ),
     "AR(1) модель предсказывает куда пойдёт Z-score": (
         "The AR(1) model forecasts the next Z-score move",
         "O modelo AR(1) projeta o próximo movimento do Z-score",
@@ -166,8 +161,6 @@ MESSAGES = {
         "Posições ativas com movimento do par, P&L líquido e previsões",
         "Posisi aktif dengan pergerakan pasangan, P&L net, dan prediksi",
     ),
-    "AI-аналитик": ("AI analyst", "Analista de IA", "Analis AI"),
-    "анализ рынка и рекомендации": ("market analysis and recommendations", "análise de mercado e recomendações", "analisis pasar dan rekomendasi"),
     "Полный доступ к рынкам, сигналам, сканерам и избранному.": (
         "Full access to markets, signals, scanners and watchlists.",
         "Acesso completo a mercados, sinais, scanners e favoritos.",
@@ -323,8 +316,6 @@ MESSAGES = {
         "Kami akan mengirim tautan sekali pakai. Tanpa kata sandi.",
     ),
     "Получить ссылку": ("Send link", "Enviar link", "Kirim tautan"),
-    "Спросить AI": ("Ask AI", "Perguntar à IA", "Tanya AI"),
-    "анализирует данные...": ("is analyzing data...", "está analisando os dados...", "sedang menganalisis data..."),
     "Рекомендации": ("Recommendations", "Recomendações", "Rekomendasi"),
     "Данные и настройки": ("Data and settings", "Dados e configurações", "Data dan pengaturan"),
     "Состояние хранилища, расписание обновлений и параметры калькулятора": (

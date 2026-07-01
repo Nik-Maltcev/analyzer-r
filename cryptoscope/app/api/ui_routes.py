@@ -819,11 +819,3 @@ async def tab_data(request: Request):
     return templates.TemplateResponse(request, "components/data_tab.html", {
         "request": request, "status": status,
     })
-
-
-@router.get("/ai", response_class=HTMLResponse)
-async def tab_ai(request: Request, market: str = Query("crypto")):
-    return templates.TemplateResponse(request, "components/ai_tab.html", {
-        "request": request,
-        "market": market,
-    })

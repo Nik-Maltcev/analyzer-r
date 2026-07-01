@@ -20,9 +20,6 @@ class Settings(BaseSettings):
     app_timezone: str = ""
     app_currency: str = ""
 
-    deepseek_api_key: str = ""
-    deepseek_api_url: str = "https://api.deepseek.com/chat/completions"
-
     supabase_url: str = ""
     supabase_anon_key: str = ""
 

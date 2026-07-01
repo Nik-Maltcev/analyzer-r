@@ -109,6 +109,7 @@ async def test_landing_page(app):
         assert response.text.count('href="/app"') >= 4
         assert "paypal.com/sdk/js" not in response.text
         assert 'id="paypal-container-DNWAM39RY9XML"' not in response.text
+        assert "AI-анализ" not in response.text
 
 
 @pytest.mark.asyncio
@@ -120,6 +121,7 @@ async def test_app_page(app):
         assert 'data-market="br"' not in response.text
         assert 'data-market="id"' not in response.text
         assert 'data-market="ru"' in response.text
+        assert 'data-tab="ai"' not in response.text
         assert response.text.index("</nav>") < response.text.index('id="auth-modal"')
 
 
@@ -140,3 +142,15 @@ async def test_onboarding_page(app):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/onboarding")
         assert response.status_code == 200
+        assert "DeepSeek" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_ai_routes_are_removed(app):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        tab_response = await client.get("/tab/ai")
+        api_response = await client.get("/api/ai/check")
+
+    assert tab_response.status_code == 404
+    assert api_response.status_code == 404
