@@ -33,6 +33,11 @@ def set_variant(monkeypatch, variant):
 
 
 def test_product_profile_defaults(monkeypatch):
+    set_variant(monkeypatch, "global")
+    russia = get_product_profile()
+    assert russia.locale == "ru"
+    assert russia.enabled_markets == ("crypto", "stocks", "ru")
+
     set_variant(monkeypatch, "br")
     brazil = get_product_profile()
     assert brazil.name == "MEANX"
@@ -44,6 +49,21 @@ def test_product_profile_defaults(monkeypatch):
     assert indonesia.name == "MEANX"
     assert indonesia.supported_locales == ("id", "en")
     assert indonesia.enabled_markets == ("crypto", "stocks", "id")
+
+
+def test_region_cannot_enable_another_regions_market(monkeypatch):
+    set_variant(monkeypatch, "global")
+    monkeypatch.setattr(
+        get_settings(),
+        "enabled_markets",
+        "crypto,stocks,ru,br,id",
+    )
+
+    assert get_product_profile().enabled_markets == (
+        "crypto",
+        "stocks",
+        "ru",
+    )
 
 
 def test_legacy_product_name_is_migrated(monkeypatch):
@@ -74,7 +94,8 @@ async def test_brazil_edition_limits_markets_and_localizes(
     assert "MEANX" in landing.text
     assert "Recursos" in landing.text
     assert "Rússia" not in landing.text
-    assert "paypal.com/sdk/js" not in landing.text
+    assert "paypal.com/sdk/js" in landing.text
+    assert 'id="paypal-container-DNWAM39RY9XML"' in landing.text
 
     assert terminal.status_code == 200
     assert 'window.CRYPTOSCOPE_INITIAL_MARKET = "br"' in terminal.text
@@ -107,6 +128,7 @@ async def test_indonesia_edition_switches_between_id_and_english(
     assert '<html lang="id">' in default_page.text
     assert "Buka aplikasi" in default_page.text
     assert "Harga Binance live" in default_page.text
+    assert "paypal.com/sdk/js" in default_page.text
 
     assert locale_response.status_code == 200
     assert "cryptoscope_locale=en" in locale_response.headers["set-cookie"]

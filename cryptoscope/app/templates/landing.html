@@ -16,7 +16,7 @@
     <link rel="stylesheet" href="/static/css/landing.css">
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
     <script>window.CRYPTOSCOPE_TRANSLATIONS = {{ translations|tojson }};</script>
-    {% if product.variant == "global" %}
+    {% if product.variant in ("br", "id") %}
     <script id="paypal-sdk"
             src="https://www.paypal.com/sdk/js?client-id=BAAcqbJ_FI0s3Uq5-RSJBi-88N-CntiFQQBBQxV-wjqnZe-ELs27-nLOoB4JCYsnXXLblOc96x05RnUACw&components=hosted-buttons&disable-funding=venmo&currency=USD"
             crossorigin="anonymous" async></script>
@@ -32,9 +32,7 @@
         <nav class="landing-links" aria-label="Основная навигация">
             <a href="#features">Возможности</a>
             <a href="#markets">Рынки</a>
-            {% if product.variant == "global" %}
             <a href="#pricing">Тарифы</a>
-            {% endif %}
         </nav>
         <div class="landing-nav-actions">
             {% if product.supported_locales|length > 1 %}
@@ -247,7 +245,7 @@
                         <p>Гибкий вариант без длинного обязательства.</p>
                     </div>
                     <ul class="price-features">
-                        <li><i data-lucide="check" aria-hidden="true"></i>Все пять рынков</li>
+                        <li><i data-lucide="check" aria-hidden="true"></i>Все доступные рынки</li>
                         <li><i data-lucide="check" aria-hidden="true"></i>Сигналы и сканеры</li>
                         <li><i data-lucide="check" aria-hidden="true"></i>Избранное и история</li>
                     </ul>
@@ -262,17 +260,25 @@
                         <p>Около 658 ₽ в месяц при оплате за год.</p>
                     </div>
                     <ul class="price-features">
-                        <li><i data-lucide="check" aria-hidden="true"></i>Все пять рынков</li>
+                        <li><i data-lucide="check" aria-hidden="true"></i>Все доступные рынки</li>
                         <li><i data-lucide="check" aria-hidden="true"></i>Сигналы и сканеры</li>
                         <li><i data-lucide="check" aria-hidden="true"></i>Избранное и история</li>
                     </ul>
                     <a class="button button-primary" href="/app">Попробовать 3 дня бесплатно</a>
                 </article>
             </div>
-            <div class="paypal-checkout">
+        </section>
+        {% else %}
+        <section class="landing-section pricing-section" id="pricing">
+            <div class="section-heading">
+                <span class="section-label">Тарифы</span>
+                <h2>Три дня, чтобы проверить на своих сценариях</h2>
+                <p>Полный доступ к рынкам, сигналам, сканерам и избранному.</p>
+            </div>
+            <div class="paypal-checkout regional-paypal-checkout">
                 <div class="paypal-checkout-copy">
                     <span class="section-label">Оплата</span>
-                    <h3>PayPal</h3>
+                    <h3>Подписка через PayPal</h3>
                     <p>Оплата обрабатывается на стороне PayPal, итоговая сумма отображается в USD.</p>
                 </div>
                 <div class="paypal-checkout-action">

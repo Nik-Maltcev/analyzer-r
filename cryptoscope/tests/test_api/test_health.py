@@ -107,8 +107,8 @@ async def test_landing_page(app):
         assert "990 ₽" in response.text
         assert "7 900 ₽" in response.text
         assert response.text.count('href="/app"') >= 4
-        assert "paypal.com/sdk/js" in response.text
-        assert 'id="paypal-container-DNWAM39RY9XML"' in response.text
+        assert "paypal.com/sdk/js" not in response.text
+        assert 'id="paypal-container-DNWAM39RY9XML"' not in response.text
 
 
 @pytest.mark.asyncio
@@ -117,8 +117,9 @@ async def test_app_page(app):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/app")
         assert response.status_code == 200
-        assert 'data-market="br"' in response.text
-        assert 'data-market="id"' in response.text
+        assert 'data-market="br"' not in response.text
+        assert 'data-market="id"' not in response.text
+        assert 'data-market="ru"' in response.text
         assert response.text.index("</nav>") < response.text.index('id="auth-modal"')
 
 

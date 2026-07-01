@@ -37,7 +37,7 @@ PROFILE_DEFAULTS = {
         name=BASE_PRODUCT_NAME,
         locale="ru",
         supported_locales=("ru",),
-        enabled_markets=ALL_MARKETS,
+        enabled_markets=("crypto", "stocks", "ru"),
         default_market="crypto",
         timezone="Europe/Moscow",
         currency="RUB",
@@ -80,7 +80,8 @@ def get_product_profile(settings: Settings | None = None) -> ProductProfile:
         else default.enabled_markets
     )
     enabled_markets = tuple(
-        market for market in enabled_markets if market in ALL_MARKETS
+        market for market in enabled_markets
+        if market in default.enabled_markets
     )
     if not enabled_markets:
         enabled_markets = default.enabled_markets

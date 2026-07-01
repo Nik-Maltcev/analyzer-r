@@ -178,6 +178,22 @@ MESSAGES = {
         "Três dias para testar seus próprios cenários",
         "Tiga hari untuk menguji kebutuhan Anda",
     ),
+    "Оплата": ("Payment", "Pagamento", "Pembayaran"),
+    "Подписка через PayPal": (
+        "Subscribe with PayPal",
+        "Assinatura pelo PayPal",
+        "Berlangganan melalui PayPal",
+    ),
+    "Оплата обрабатывается на стороне PayPal, итоговая сумма отображается в USD.": (
+        "Payment is processed by PayPal and the final amount is shown in USD.",
+        "O pagamento é processado pelo PayPal e o valor final é exibido em USD.",
+        "Pembayaran diproses oleh PayPal dan jumlah akhir ditampilkan dalam USD.",
+    ),
+    "Оплата через PayPal": (
+        "Pay with PayPal",
+        "Pagar com PayPal",
+        "Bayar dengan PayPal",
+    ),
     "Аналитический сервис. Не является индивидуальной инвестиционной рекомендацией.": (
         "Analytics service. Not personalized investment advice.",
         "Serviço de análise. Não constitui recomendação individual de investimento.",
