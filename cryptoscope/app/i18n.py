@@ -8,11 +8,17 @@ import re
 
 from fastapi import Request
 
-from app.product import ProductProfile, get_product_profile
+from app.product import BASE_PRODUCT_NAME, ProductProfile, get_product_profile
 from app.translations import TRANSLATIONS
 
 LOCALE_COOKIE_NAME = "cryptoscope_locale"
-TRANSLATABLE_ATTRIBUTES = {"title", "placeholder", "aria-label", "alt"}
+TRANSLATABLE_ATTRIBUTES = {
+    "title",
+    "placeholder",
+    "aria-label",
+    "alt",
+    "content",
+}
 TRANSLATION_PATTERNS = {
     locale: re.compile(
         "|".join(
@@ -52,11 +58,11 @@ def translate_text(text: str, locale: str, profile: ProductProfile) -> str:
         else text
     )
     if (
-        profile.name != "CryptoScope"
-        and "CryptoScope" in translated
+        profile.name != BASE_PRODUCT_NAME
+        and BASE_PRODUCT_NAME in translated
         and profile.name not in translated
     ):
-        translated = translated.replace("CryptoScope", profile.name)
+        translated = translated.replace(BASE_PRODUCT_NAME, profile.name)
     return translated
 
 
@@ -131,7 +137,7 @@ def localize_html(
     locale: str,
     profile: ProductProfile,
 ) -> str:
-    if locale == "ru" and profile.name == "CryptoScope":
+    if locale == "ru" and profile.name == BASE_PRODUCT_NAME:
         return html
     parser = _LocalizedHTMLParser(locale, profile)
     parser.feed(html)

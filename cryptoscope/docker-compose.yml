@@ -14,7 +14,7 @@ services:
       - US_HISTORY_YEARS=${US_HISTORY_YEARS:-3}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - RESEND_API_KEY=${RESEND_API_KEY:-}
-      - RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL:-CryptoScope <onboarding@resend.dev>}
+      - RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL:-MEANX <onboarding@resend.dev>}
       - APP_BASE_URL=${APP_BASE_URL:-}
       - AUTH_LEGACY_OWNER_EMAIL=${AUTH_LEGACY_OWNER_EMAIL:-}
       - SUPABASE_URL=${SUPABASE_URL:-}

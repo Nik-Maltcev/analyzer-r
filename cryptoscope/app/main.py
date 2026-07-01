@@ -1,4 +1,4 @@
-"""CryptoScope — FastAPI application entry point."""
+"""MEANX FastAPI application entry point."""
 
 import asyncio
 import os
@@ -25,7 +25,7 @@ from app.api.signals import router as signals_router
 from app.api.ui_routes import router as ui_router
 from app.config import get_settings
 from app.db.database import db_status, fetch_pairs, get_connection, init_db, set_db_path
-from app.product import get_product_profile, normalize_market
+from app.product import BASE_PRODUCT_NAME, get_product_profile, normalize_market
 from app.ui.templates import templates
 
 # Ensure cryptoscope is on path
@@ -41,7 +41,7 @@ START_TIME = time.time()
 async def lifespan(app: FastAPI):
     # Startup
     await init_db(settings.db_path)
-    print(f"CryptoScope starting on {settings.host}:{settings.port}")
+    print(f"{get_product_profile(settings).name} starting on {settings.host}:{settings.port}")
     print(f"DB path: {settings.db_path}")
 
     # Start Binance WebSocket for live prices
@@ -55,7 +55,7 @@ async def lifespan(app: FastAPI):
 
     yield
     # Shutdown
-    print("CryptoScope shutting down")
+    print(f"{get_product_profile(settings).name} shutting down")
     if ws_task:
         ws_task.cancel()
         with suppress(asyncio.CancelledError):
@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="CryptoScope",
+    title=BASE_PRODUCT_NAME,
     description="Crypto/stock/forex pairs trading analysis terminal",
     version="1.0.0",
     lifespan=lifespan,

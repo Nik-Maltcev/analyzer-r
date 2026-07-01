@@ -1,5 +1,5 @@
 #!/bin/bash
-# CryptoScope startup script
+# MEANX startup script
 # 1. Rebuild DB if needed
 # 2. Auto-compute pairs if empty
 # 3. Load hourly candles
@@ -33,7 +33,7 @@ market_enabled() {
     esac
 }
 
-echo "=== CryptoScope Starting ==="
+echo "=== MEANX Starting ==="
 echo "DB_PATH=$DB_PATH"
 echo "PORT=$PORT"
 echo "APP_VARIANT=${APP_VARIANT:-global}"
@@ -112,5 +112,5 @@ fi
 ) &
 
 # 9. Launch FastAPI app
-echo "Starting CryptoScope on port $PORT..."
+echo "Starting MEANX on port $PORT..."
 exec python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT"

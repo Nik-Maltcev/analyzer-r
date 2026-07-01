@@ -142,7 +142,7 @@ async def refresh_ru_live_prices(
             payload = await request_fn(params)
         else:
             timeout = aiohttp.ClientTimeout(total=20)
-            headers = {"User-Agent": "CryptoScope/1.0"}
+            headers = {"User-Agent": "MEANX/1.0"}
             async with aiohttp.ClientSession(
                 timeout=timeout,
                 headers=headers,
@@ -238,7 +238,7 @@ async def fetch_ru_prices(
         frames = await fetch_all(request_fn)
     else:
         timeout = aiohttp.ClientTimeout(total=60)
-        headers = {"User-Agent": "CryptoScope/1.0"}
+        headers = {"User-Agent": "MEANX/1.0"}
         async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
             async def request(ticker: str, params: dict) -> dict:
                 url = MOEX_CANDLES_URL.format(ticker=ticker)

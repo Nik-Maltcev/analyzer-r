@@ -103,7 +103,7 @@ async def test_landing_page(app):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/")
         assert response.status_code == 200
-        assert "CryptoScope" in response.text
+        assert "MEANX" in response.text
         assert "990 ₽" in response.text
         assert "7 900 ₽" in response.text
         assert response.text.count('href="/app"') >= 4

@@ -300,7 +300,7 @@ async def get_polymarket_forecasts(force: bool = False) -> dict:
             sock_read=12,
         )
         connector = aiohttp.TCPConnector(limit=8)
-        headers = {"User-Agent": "CryptoScope/1.0"}
+        headers = {"User-Agent": "MEANX/1.0"}
         semaphore = asyncio.Semaphore(8)
 
         async with aiohttp.ClientSession(

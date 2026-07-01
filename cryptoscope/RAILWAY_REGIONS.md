@@ -2,7 +2,7 @@
 
 Create three Railway services from the same repository and branch. Each
 service should use the root `Dockerfile`, its own domain, and its own volume
-mounted at `/data`.
+mounted at `/data`. All editions use the `MEANX` brand.
 
 ## Global
 
@@ -46,6 +46,10 @@ RESEND_FROM_EMAIL=...
 DEEPSEEK_API_KEY=...
 TWELVEDATA_API_KEY=...
 ```
+
+Use a verified sender such as `MEANX <login@your-domain.example>`. Legacy
+`APP_NAME=CryptoScope...` values are migrated to `MEANX` automatically, but
+removing them from Railway keeps the configuration clear.
 
 `ENABLED_MARKETS` is derived automatically from `APP_VARIANT`. Set it only
 when a service needs a custom market list. Do not attach one Railway volume to

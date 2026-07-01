@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""
 
     resend_api_key: str = ""
-    resend_from_email: str = "CryptoScope <onboarding@resend.dev>"
+    resend_from_email: str = "MEANX <onboarding@resend.dev>"
     app_base_url: str = ""
     magic_link_ttl_minutes: int = 15
     auth_session_days: int = 30

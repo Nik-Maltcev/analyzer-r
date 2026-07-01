@@ -141,8 +141,9 @@ async def send_magic_link_email(email: str, magic_link: str, request_id: str) ->
     copy = EMAIL_COPY.get(locale, EMAIL_COPY["en"])
     safe_product_name = escape(product_name)
     ttl = settings.magic_link_ttl_minutes
+    sender = settings.resend_from_email.replace("CryptoScope", product_name)
     payload = {
-        "from": settings.resend_from_email,
+        "from": sender,
         "to": [email],
         "subject": copy["subject"].format(product=product_name),
         "html": (
@@ -170,7 +171,7 @@ async def send_magic_link_email(email: str, magic_link: str, request_id: str) ->
         "Authorization": f"Bearer {settings.resend_api_key}",
         "Content-Type": "application/json",
         "Idempotency-Key": request_id,
-        "User-Agent": "CryptoScope/1.0",
+        "User-Agent": "MEANX/1.0",
     }
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.post(

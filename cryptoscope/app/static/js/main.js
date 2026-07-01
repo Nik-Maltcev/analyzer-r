@@ -1,4 +1,4 @@
-// CryptoScope — Main JavaScript
+// MEANX — Main JavaScript
 
 // Global market state
 let currentMarket = window.CRYPTOSCOPE_INITIAL_MARKET || 'crypto';

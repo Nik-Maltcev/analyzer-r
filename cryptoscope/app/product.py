@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from app.config import Settings, get_settings
 
+BASE_PRODUCT_NAME = "MEANX"
 ALL_MARKETS = ("crypto", "stocks", "ru", "br", "id")
 MARKET_NAMES = {
     "crypto": "Crypto",
@@ -33,7 +34,7 @@ class ProductProfile:
 PROFILE_DEFAULTS = {
     "global": ProductProfile(
         variant="global",
-        name="CryptoScope",
+        name=BASE_PRODUCT_NAME,
         locale="ru",
         supported_locales=("ru",),
         enabled_markets=ALL_MARKETS,
@@ -43,7 +44,7 @@ PROFILE_DEFAULTS = {
     ),
     "br": ProductProfile(
         variant="br",
-        name="CryptoScope Brasil",
+        name=BASE_PRODUCT_NAME,
         locale="pt-BR",
         supported_locales=("pt-BR",),
         enabled_markets=("crypto", "stocks", "br"),
@@ -53,7 +54,7 @@ PROFILE_DEFAULTS = {
     ),
     "id": ProductProfile(
         variant="id",
-        name="CryptoScope Indonesia",
+        name=BASE_PRODUCT_NAME,
         locale="id",
         supported_locales=("id", "en"),
         enabled_markets=("crypto", "stocks", "id"),
@@ -97,9 +98,13 @@ def get_product_profile(settings: Settings | None = None) -> ProductProfile:
     if default_market not in enabled_markets:
         default_market = enabled_markets[0]
 
+    configured_name = settings.app_name.strip()
+    if configured_name.lower().startswith("cryptoscope"):
+        configured_name = BASE_PRODUCT_NAME
+
     return ProductProfile(
         variant=variant if variant in PROFILE_DEFAULTS else "global",
-        name=settings.app_name or default.name,
+        name=configured_name or default.name,
         locale=locale,
         supported_locales=supported_locales,
         enabled_markets=enabled_markets,

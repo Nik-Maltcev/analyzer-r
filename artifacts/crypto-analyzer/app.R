@@ -448,7 +448,7 @@ ui <- page_navbar(
         font-size:1.15rem;font-weight:800;letter-spacing:-0.02em;
         background:linear-gradient(135deg, #e6edf3 0%, #a78bfa 100%);
         -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-        background-clip:text;", "CryptoScope"),
+        background-clip:text;", "MEANX"),
       tags$span(style = "font-size:0.62rem;color:#555;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;",
         "pairs trading terminal")
     )
@@ -466,7 +466,7 @@ ui <- page_navbar(
   fillable = FALSE,
   header = tags$head(tags$style(HTML("
     /* ════════════════════════════════════════════════════════════════════
-       CryptoScope — Modern Fintech Design System
+       MEANX — Modern Fintech Design System
        Glassmorphism + neon accents + smooth animations
        ════════════════════════════════════════════════════════════════════ */
 

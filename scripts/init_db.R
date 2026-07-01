@@ -161,7 +161,7 @@ load_market <- function(tickers, market_name, con, api_key) {
 }
 
 # ── Run initial load ─────────────────────────────────────────────────────────
-cat("=== CryptoScope Initial Data Load ===\n")
+cat("=== MEANX Initial Data Load ===\n")
 cat(sprintf("Date range: %s to %s\n", format(Sys.Date() - 365*3, "%Y-%m-%d"), format(Sys.Date(), "%Y-%m-%d")))
 cat(sprintf("Total tickers: %d (Crypto: %d, Stocks: %d, Forex: %d)\n",
             length(CRYPTO_TICKERS) + length(STOCK_TICKERS) + length(FOREX_TICKERS),

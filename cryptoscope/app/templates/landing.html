@@ -3,8 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#070c0f">
     <meta name="description" content="{{ product.name }} — терминал парного трейдинга для поиска рыночных отклонений и контроля открытых сигналов.">
+    <meta property="og:title" content="{{ product.name }} — аналитика рыночных расхождений">
+    <meta property="og:description" content="Сигналы, сканеры и сопровождение парных позиций в одном терминале.">
+    <meta property="og:type" content="website">
     <title>{{ product.name }} — сигналы парного трейдинга</title>
+    <link rel="icon" href="/static/img/meanx-mark.svg" type="image/svg+xml">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
@@ -21,7 +26,7 @@
 <body>
     <header class="landing-nav">
         <a class="landing-brand" href="/" aria-label="{{ product.name }}">
-            <span class="landing-brand-mark">C</span>
+            <span class="landing-brand-mark">M</span>
             <span>{{ product.name }}</span>
         </a>
         <nav class="landing-links" aria-label="Основная навигация">
@@ -293,7 +298,7 @@
 
     <footer class="landing-footer">
         <a class="landing-brand" href="/">
-            <span class="landing-brand-mark">C</span>
+            <span class="landing-brand-mark">M</span>
             <span>{{ product.name }}</span>
         </a>
         <p>Аналитический сервис. Не является индивидуальной инвестиционной рекомендацией.</p>

@@ -6,7 +6,7 @@ MESSAGES = {
     "Рынки": ("Markets", "Mercados", "Pasar"),
     "Тарифы": ("Pricing", "Planos", "Harga"),
     "Открыть сервис": ("Open app", "Abrir plataforma", "Buka aplikasi"),
-    "Перейти в CryptoScope": ("Open CryptoScope", "Acessar CryptoScope", "Buka CryptoScope"),
+    "Перейти в MEANX": ("Open MEANX", "Acessar MEANX", "Buka MEANX"),
     "Аналитика пяти рынков": ("Multi-market analytics", "Análise de múltiplos mercados", "Analisis multi-pasar"),
     "Терминал парного трейдинга, который находит отклонения,": (
         "A pairs trading terminal that finds market dislocations,",
@@ -51,10 +51,10 @@ MESSAGES = {
         "buka posisi untuk mean reversion",
     ),
     "Как это работает": ("How it works", "Como funciona", "Cara kerja"),
-    "Добро пожаловать в CryptoScope": (
-        "Welcome to CryptoScope",
-        "Boas-vindas ao CryptoScope",
-        "Selamat datang di CryptoScope",
+    "Добро пожаловать в MEANX": (
+        "Welcome to MEANX",
+        "Boas-vindas ao MEANX",
+        "Selamat datang di MEANX",
     ),
     "Как читать сигналы": (
         "How to read signals",
@@ -298,7 +298,7 @@ MESSAGES = {
     "Обновить котировки RU": ("Refresh RU quotes", "Atualizar cotações RU", "Perbarui harga RU"),
     "Войдите, чтобы сохранять сигналы": ("Sign in to save signals", "Entre para salvar sinais", "Masuk untuk menyimpan sinyal"),
     "Получить ссылку для входа": ("Get sign-in link", "Receber link de acesso", "Dapatkan tautan masuk"),
-    "Вход в CryptoScope": ("Sign in to CryptoScope", "Entrar no CryptoScope", "Masuk ke CryptoScope"),
+    "Вход в MEANX": ("Sign in to MEANX", "Entrar no MEANX", "Masuk ke MEANX"),
     "Отправим одноразовую ссылку. Пароль не нужен.": (
         "We will send a one-time link. No password needed.",
         "Enviaremos um link de uso único. Sem senha.",
@@ -378,6 +378,16 @@ MESSAGES = {
         "pairs trading signals",
         "sinais de pairs trading",
         "sinyal pairs trading",
+    ),
+    "аналитика рыночных расхождений": (
+        "market dislocation analytics",
+        "análise de distorções de mercado",
+        "analisis penyimpangan pasar",
+    ),
+    "Сигналы, сканеры и сопровождение парных позиций в одном терминале.": (
+        "Signals, scanners, and pairs position tracking in one terminal.",
+        "Sinais, scanners e acompanhamento de posições em pares em um só terminal.",
+        "Sinyal, scanner, dan pelacakan posisi pasangan dalam satu terminal.",
     ),
     "Рабочий процесс": ("Workflow", "Fluxo de trabalho", "Alur kerja"),
     "От сигнала до закрытия позиции": (

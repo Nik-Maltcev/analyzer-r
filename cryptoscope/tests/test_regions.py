@@ -35,15 +35,22 @@ def set_variant(monkeypatch, variant):
 def test_product_profile_defaults(monkeypatch):
     set_variant(monkeypatch, "br")
     brazil = get_product_profile()
-    assert brazil.name == "CryptoScope Brasil"
+    assert brazil.name == "MEANX"
     assert brazil.locale == "pt-BR"
     assert brazil.enabled_markets == ("crypto", "stocks", "br")
 
     set_variant(monkeypatch, "id")
     indonesia = get_product_profile()
-    assert indonesia.name == "CryptoScope Indonesia"
+    assert indonesia.name == "MEANX"
     assert indonesia.supported_locales == ("id", "en")
     assert indonesia.enabled_markets == ("crypto", "stocks", "id")
+
+
+def test_legacy_product_name_is_migrated(monkeypatch):
+    set_variant(monkeypatch, "br")
+    monkeypatch.setattr(get_settings(), "app_name", "CryptoScope Brasil")
+
+    assert get_product_profile().name == "MEANX"
 
 
 @pytest.mark.asyncio
@@ -64,7 +71,7 @@ async def test_brazil_edition_limits_markets_and_localizes(
 
     assert landing.status_code == 200
     assert '<html lang="pt-BR">' in landing.text
-    assert "CryptoScope Brasil" in landing.text
+    assert "MEANX" in landing.text
     assert "Recursos" in landing.text
     assert "Rússia" not in landing.text
     assert "paypal.com/sdk/js" not in landing.text

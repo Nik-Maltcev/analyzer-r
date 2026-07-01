@@ -76,14 +76,14 @@ async def send_telegram_alert(message: str = ""):
         return {"status": "skipped", "reason": "Telegram not configured"}
     
     if not message:
-        message = "CryptoScope health check alert"
+        message = "MEANX health check alert"
     
     try:
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(url, json={
                 "chat_id": chat_id,
-                "text": f"[CryptoScope] {message}",
+                "text": f"[MEANX] {message}",
                 "parse_mode": "HTML",
             })
             resp.raise_for_status()
