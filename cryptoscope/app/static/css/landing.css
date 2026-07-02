@@ -524,6 +524,37 @@ a {
     display: none !important;
 }
 
+.payment-result-page {
+    align-items: center;
+    display: flex;
+    min-height: 100vh;
+    padding: 24px;
+}
+
+.payment-result {
+    margin: 0 auto;
+    max-width: 620px;
+    text-align: center;
+}
+
+.payment-result .landing-brand-mark {
+    display: inline-flex;
+    margin-bottom: 24px;
+}
+
+.payment-result h1 {
+    font-size: 42px;
+    letter-spacing: 0;
+    margin: 12px 0 18px;
+}
+
+.payment-result p:not(.section-label) {
+    color: var(--landing-muted);
+    line-height: 1.7;
+    margin: 0 auto 30px;
+    max-width: 520px;
+}
+
 .price-card {
     background: var(--landing-surface);
     border: 1px solid var(--landing-line);

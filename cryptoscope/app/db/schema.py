@@ -179,6 +179,22 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 )
 """
 
+CREATE_PAYMENT_NOTIFICATIONS = """
+CREATE TABLE IF NOT EXISTS payment_notifications (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider       TEXT NOT NULL DEFAULT 'payanyway',
+    transaction_id TEXT NOT NULL,
+    operation_id   TEXT NOT NULL,
+    account_id     TEXT NOT NULL,
+    amount         TEXT NOT NULL,
+    currency       TEXT NOT NULL,
+    subscriber_id  TEXT,
+    test_mode      INTEGER NOT NULL DEFAULT 0,
+    received_at    TEXT DEFAULT (datetime('now')),
+    UNIQUE(provider, operation_id)
+)
+"""
+
 CREATE_AUTH_INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_auth_magic_email ON auth_magic_links(email, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_auth_magic_expiry ON auth_magic_links(expires_at)",
@@ -196,6 +212,7 @@ ALL_TABLES_SQL = [
     CREATE_AUTH_USERS,
     CREATE_AUTH_MAGIC_LINKS,
     CREATE_AUTH_SESSIONS,
+    CREATE_PAYMENT_NOTIFICATIONS,
 ]
 
 ALL_INDICES_SQL = (

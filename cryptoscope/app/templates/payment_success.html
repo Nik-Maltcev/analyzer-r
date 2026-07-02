@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
+    <title>Оплата принята · {{ product.name }}</title>
+    <link rel="stylesheet" href="/static/css/landing.css">
+</head>
+<body>
+    <main class="payment-result-page">
+        <section class="payment-result">
+            <span class="landing-brand-mark" aria-hidden="true">M</span>
+            <p class="section-label">Оплата</p>
+            <h1>Спасибо! Платёж обрабатывается</h1>
+            <p>
+                Доступ будет подтверждён серверным уведомлением PayAnyWay.
+                Обычно это занимает несколько секунд.
+            </p>
+            <a class="button button-primary" href="/app">Открыть {{ product.name }}</a>
+        </section>
+    </main>
+</body>
+</html>

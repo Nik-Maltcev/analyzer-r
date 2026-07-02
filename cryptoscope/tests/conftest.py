@@ -123,6 +123,22 @@ def temp_db():
     """)
 
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS payment_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL DEFAULT 'payanyway',
+            transaction_id TEXT NOT NULL,
+            operation_id TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            amount TEXT NOT NULL,
+            currency TEXT NOT NULL,
+            subscriber_id TEXT,
+            test_mode INTEGER NOT NULL DEFAULT 0,
+            received_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(provider, operation_id)
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS update_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT DEFAULT (datetime('now')),

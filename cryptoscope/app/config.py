@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     auth_session_days: int = 30
     auth_legacy_owner_email: str = ""
 
+    payanyway_account_id: str = ""
+    payanyway_integrity_code: str = ""
+
     twelve_data_api_key: str = ""
     pyth_api_key: str = ""
 

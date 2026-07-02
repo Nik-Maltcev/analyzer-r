@@ -16,6 +16,7 @@ from app.api.data_view import router as data_router
 from app.api.favorites import router as favorites_router
 from app.api.health import router as health_router
 from app.api.locale import router as locale_router
+from app.api.payments import router as payments_router
 from app.api.portfolio import router as portfolio_router
 from app.api.polymarket import api_router as polymarket_api_router
 from app.api.polymarket import ui_router as polymarket_ui_router
@@ -96,6 +97,7 @@ app.include_router(favorites_router, prefix="/api")
 app.include_router(data_router, prefix="/api")
 app.include_router(charts_router, prefix="/api")
 app.include_router(locale_router, prefix="/api")
+app.include_router(payments_router)
 app.include_router(ui_router)
 app.include_router(polymarket_api_router)
 app.include_router(polymarket_ui_router)
