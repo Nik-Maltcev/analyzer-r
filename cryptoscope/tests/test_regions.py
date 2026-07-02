@@ -96,6 +96,7 @@ async def test_brazil_edition_limits_markets_and_localizes(
     assert "Rússia" not in landing.text
     assert "paypal.com/sdk/js" in landing.text
     assert 'id="paypal-container-DNWAM39RY9XML"' in landing.text
+    assert "self.payanyway.ru" not in landing.text
 
     assert terminal.status_code == 200
     assert 'window.CRYPTOSCOPE_INITIAL_MARKET = "br"' in terminal.text
@@ -129,6 +130,7 @@ async def test_indonesia_edition_switches_between_id_and_english(
     assert "Buka aplikasi" in default_page.text
     assert "Harga Binance live" in default_page.text
     assert "paypal.com/sdk/js" in default_page.text
+    assert "self.payanyway.ru" not in default_page.text
 
     assert locale_response.status_code == 200
     assert "cryptoscope_locale=en" in locale_response.headers["set-cookie"]

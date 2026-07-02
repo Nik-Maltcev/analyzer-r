@@ -106,7 +106,9 @@ async def test_landing_page(app):
         assert "MEANX" in response.text
         assert "990 ₽" in response.text
         assert "7 900 ₽" in response.text
-        assert response.text.count('href="/app"') >= 4
+        assert response.text.count('href="/app"') >= 3
+        assert "https://self.payanyway.ru/17830101172855" in response.text
+        assert "https://self.payanyway.ru/17830121748889" in response.text
         assert "paypal.com/sdk/js" not in response.text
         assert 'id="paypal-container-DNWAM39RY9XML"' not in response.text
         assert "AI-анализ" not in response.text
