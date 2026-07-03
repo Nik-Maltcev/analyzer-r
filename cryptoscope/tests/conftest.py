@@ -98,7 +98,9 @@ def temp_db():
             id TEXT PRIMARY KEY,
             email TEXT NOT NULL UNIQUE,
             created_at TEXT DEFAULT (datetime('now')),
-            last_login_at TEXT
+            last_login_at TEXT,
+            trial_started_at TEXT,
+            trial_ends_at TEXT
         )
     """)
 
@@ -109,6 +111,7 @@ def temp_db():
             expires_at TEXT NOT NULL,
             used_at TEXT,
             request_ip TEXT,
+            redirect_path TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         )
     """)
@@ -135,6 +138,34 @@ def temp_db():
             test_mode INTEGER NOT NULL DEFAULT 0,
             received_at TEXT DEFAULT (datetime('now')),
             UNIQUE(provider, operation_id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS payment_orders (
+            transaction_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            plan TEXT NOT NULL,
+            amount TEXT NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'RUB',
+            status TEXT NOT NULL DEFAULT 'pending',
+            provider_operation_id TEXT,
+            test_mode INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            paid_at TEXT,
+            UNIQUE(provider_operation_id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_subscriptions (
+            user_id TEXT PRIMARY KEY,
+            plan TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            access_until TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            last_transaction_id TEXT NOT NULL,
+            updated_at TEXT DEFAULT (datetime('now'))
         )
     """)
 

@@ -29,9 +29,11 @@ class Settings(BaseSettings):
     magic_link_ttl_minutes: int = 15
     auth_session_days: int = 30
     auth_legacy_owner_email: str = ""
+    trial_days: int = 3
 
     payanyway_account_id: str = ""
     payanyway_integrity_code: str = ""
+    payanyway_test_mode: bool = False
 
     twelve_data_api_key: str = ""
     pyth_api_key: str = ""

@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.config import get_settings
 from app.db.database import set_db_path
+from app.api.auth import _safe_redirect_path
 
 
 @pytest.fixture
@@ -15,6 +16,14 @@ def app(temp_db):
 
     set_db_path(temp_db)
     return app
+
+
+def test_magic_link_redirect_rejects_external_urls():
+    assert _safe_redirect_path("https://evil.example/path") == "/"
+    assert _safe_redirect_path("//evil.example/path") == "/"
+    assert _safe_redirect_path("/app?checkout=month") == (
+        "/app?checkout=month"
+    )
 
 
 @pytest.mark.asyncio
@@ -42,7 +51,10 @@ async def test_magic_link_creates_one_time_session(app, monkeypatch):
     ) as client:
         request_response = await client.post(
             "/api/auth/magic-link",
-            json={"email": "User@Example.com"},
+            json={
+                "email": "User@Example.com",
+                "next_path": "/app?checkout=year",
+            },
         )
         assert request_response.status_code == 200
         assert captured["email"] == "user@example.com"
@@ -52,14 +64,17 @@ async def test_magic_link_creates_one_time_session(app, monkeypatch):
             f"{magic_url.path}?{magic_url.query}",
         )
         assert verify_response.status_code == 303
-        assert verify_response.headers["location"] == "/?auth=success"
+        assert verify_response.headers["location"] == (
+            "/app?checkout=year&auth=success"
+        )
 
         me_response = await client.get("/api/auth/me")
-        assert me_response.json() == {
-            "authenticated": True,
-            "auth_available": True,
-            "email": "user@example.com",
-        }
+        me = me_response.json()
+        assert me["authenticated"] is True
+        assert me["auth_available"] is True
+        assert me["email"] == "user@example.com"
+        assert me["access"]["status"] == "trial"
+        assert me["access"]["remaining_days"] == 3
 
         reused_response = await client.get(
             f"{magic_url.path}?{magic_url.query}",

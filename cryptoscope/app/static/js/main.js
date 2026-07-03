@@ -134,7 +134,7 @@ function setAuthMessage(message, type = '') {
     messageEl.className = `auth-message ${type}`.trim();
 }
 
-function renderAuthBar(email = null, authAvailable = true) {
+function renderAuthBar(email = null, authAvailable = true, access = null) {
     const bar = document.getElementById('auth-bar');
     if (!bar) return;
     bar.replaceChildren();
@@ -143,12 +143,28 @@ function renderAuthBar(email = null, authAvailable = true) {
         const emailEl = document.createElement('span');
         emailEl.className = 'auth-email';
         emailEl.textContent = email;
+        let accessEl = null;
+        if (access && access.status !== 'unrestricted') {
+            accessEl = document.createElement('span');
+            accessEl.className = `auth-access auth-access-${access.status}`;
+            if (access.status === 'trial') {
+                accessEl.textContent = `Пробный · ${access.remaining_days} дн.`;
+            } else if (access.status === 'subscription') {
+                accessEl.textContent = `Доступ · ${access.remaining_days} дн.`;
+            } else if (access.status === 'admin') {
+                accessEl.textContent = 'Администратор';
+            } else {
+                accessEl.textContent = 'Доступ завершён';
+            }
+        }
         const logoutButton = document.createElement('button');
         logoutButton.className = 'btn btn-sm btn-outline';
         logoutButton.type = 'button';
         logoutButton.textContent = translateUi('Выйти');
         logoutButton.addEventListener('click', authLogout);
-        bar.append(emailEl, logoutButton);
+        bar.append(emailEl);
+        if (accessEl) bar.append(accessEl);
+        bar.append(logoutButton);
         return;
     }
 
@@ -174,8 +190,10 @@ async function refreshAuthStatus() {
         const data = await response.json();
         renderAuthBar(
             data.authenticated ? data.email : null,
-            data.auth_available !== false
+            data.auth_available !== false,
+            data.access
         );
+        window.MEANX_ACCESS_STATE = data.access || window.MEANX_ACCESS_STATE;
     } catch (_) {
         renderAuthBar();
     }
@@ -198,7 +216,10 @@ async function requestMagicLink(event) {
         const response = await fetch('/api/auth/magic-link', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({email})
+            body: JSON.stringify({
+                email,
+                next_path: `${window.location.pathname}${window.location.search}`
+            })
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
@@ -235,11 +256,28 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshAuthStatus();
     const url = new URL(window.location.href);
     const authResult = url.searchParams.get('auth');
+    const checkoutPlan = url.searchParams.get('checkout');
+    const accessStatus = window.MEANX_ACCESS_STATE?.status;
     if (authResult === 'success') {
         showToast('Вход выполнен', 'success');
     } else if (authResult === 'invalid') {
         openAuthModal();
         setAuthMessage('Ссылка недействительна или уже использована', 'error');
+    }
+    if (accessStatus === 'unauthenticated') {
+        openAuthModal();
+    } else if (
+        (checkoutPlan === 'month' || checkoutPlan === 'year')
+        && accessStatus !== 'unauthenticated'
+    ) {
+        window.location.replace(
+            `/api/payments/payanyway/checkout?plan=${encodeURIComponent(checkoutPlan)}`
+        );
+        return;
+    }
+    if (url.searchParams.get('payment') === 'failed') {
+        showToast('Оплата не завершена', 'error');
+        url.searchParams.delete('payment');
     }
     if (authResult) {
         url.searchParams.delete('auth');

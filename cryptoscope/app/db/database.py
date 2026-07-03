@@ -7,6 +7,7 @@ import aiosqlite
 import numpy as np
 import pandas as pd
 
+from app.config import get_settings
 from app.core.cointegration import fit_fixed_zscore_model
 from app.db.schema import (
     ALL_INDICES_SQL,
@@ -104,6 +105,34 @@ async def init_db(db_path: str | None = None):
             ), market, 'crypto')
             """
         )
+        cursor = await conn.execute("PRAGMA table_info(auth_users)")
+        auth_user_columns = {row["name"] for row in await cursor.fetchall()}
+        if "trial_started_at" not in auth_user_columns:
+            await conn.execute(
+                "ALTER TABLE auth_users ADD COLUMN trial_started_at TEXT"
+            )
+        if "trial_ends_at" not in auth_user_columns:
+            await conn.execute(
+                "ALTER TABLE auth_users ADD COLUMN trial_ends_at TEXT"
+            )
+        await conn.execute(
+            """
+            UPDATE auth_users
+            SET trial_started_at = COALESCE(trial_started_at, datetime('now')),
+                trial_ends_at = COALESCE(
+                    trial_ends_at,
+                    datetime('now', '+' || ? || ' days')
+                )
+            WHERE trial_started_at IS NULL OR trial_ends_at IS NULL
+            """,
+            (max(1, int(get_settings().trial_days)),),
+        )
+        cursor = await conn.execute("PRAGMA table_info(auth_magic_links)")
+        magic_link_columns = {row["name"] for row in await cursor.fetchall()}
+        if "redirect_path" not in magic_link_columns:
+            await conn.execute(
+                "ALTER TABLE auth_magic_links ADD COLUMN redirect_path TEXT"
+            )
         for sql in ALL_INDICES_SQL:
             await conn.execute(sql)
         await conn.commit()

@@ -10,6 +10,7 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.access import get_access_state
 from app.api.auth import router as auth_router
 from app.api.charts import router as charts_router
 from app.api.data_view import router as data_router
@@ -23,6 +24,7 @@ from app.api.polymarket import ui_router as polymarket_ui_router
 from app.api.scanners import router as scanners_router
 from app.api.signals import router as signals_router
 from app.api.ui_routes import router as ui_router
+from app.auth import get_current_user
 from app.config import get_settings
 from app.db.database import db_status, fetch_pairs, get_connection, init_db, set_db_path
 from app.product import BASE_PRODUCT_NAME, get_product_profile, normalize_market
@@ -68,6 +70,52 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def enforce_subscription_access(request: Request, call_next):
+    path = request.url.path
+    protected = (
+        path.startswith("/tab/")
+        or (
+            path.startswith("/api/")
+            and not path.startswith((
+                "/api/auth/",
+                "/api/locale",
+                "/api/payments/",
+            ))
+        )
+    )
+    if not protected:
+        return await call_next(request)
+
+    user = await get_current_user(request)
+    access = await get_access_state(user)
+    if access.has_access:
+        return await call_next(request)
+
+    if path.startswith("/tab/"):
+        return templates.TemplateResponse(
+            request,
+            "components/access_gate.html",
+            {
+                "request": request,
+                "access": access.as_dict(),
+            },
+        )
+
+    status_code = 401 if access.status == "unauthenticated" else 402
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "detail": (
+                "Authentication required"
+                if status_code == 401
+                else "Subscription required"
+            ),
+            "access": access.as_dict(),
+        },
+    )
 
 
 @app.middleware("http")
@@ -158,11 +206,24 @@ async def app_page(
 ):
     """Full app page."""
     market = normalize_market(market)
-    dash = await _get_dashboard_context(market)
+    user = await get_current_user(request)
+    access = await get_access_state(user)
+    dash = (
+        await _get_dashboard_context(market)
+        if access.has_access
+        else {
+            "n_active": 0,
+            "n_total": 0,
+            "best_signal": None,
+            "volatility": "—",
+            "last_analysis": None,
+        }
+    )
     return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "settings": settings,
         "market": market,
+        "access": access.as_dict(),
         **dash,
     })
 
@@ -170,9 +231,11 @@ async def app_page(
 @app.get("/onboarding", response_class=HTMLResponse)
 async def onboarding(request: Request):
     """Onboarding wizard page."""
+    user = await get_current_user(request)
     return templates.TemplateResponse(request, "onboarding.html", {
         "request": request,
         "settings": settings,
+        "access": (await get_access_state(user)).as_dict(),
     })
 
 

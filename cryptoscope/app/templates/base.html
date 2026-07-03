@@ -9,15 +9,16 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/main.css?v=20260630-pnl2">
+    <link rel="stylesheet" href="/static/css/main.css?v=20260702-access1">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org/dist/ext/json-enc.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
         window.CRYPTOSCOPE_INITIAL_MARKET = {{ market|default(product.default_market)|tojson }};
         window.CRYPTOSCOPE_TRANSLATIONS = {{ translations|tojson }};
+        window.MEANX_ACCESS_STATE = {{ access|default({"status": "unrestricted", "has_access": true})|tojson }};
     </script>
-    <script src="/static/js/main.js?v=20260630-pnl2" defer></script>
+    <script src="/static/js/main.js?v=20260702-access1" defer></script>
 </head>
 <body>
     <nav class="navbar">

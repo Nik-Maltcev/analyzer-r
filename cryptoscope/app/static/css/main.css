@@ -1655,6 +1655,85 @@ body.modal-open {
     opacity: 0.5;
 }
 
+.access-gate {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: min(620px, calc(100vh - 140px));
+    padding: 48px 24px;
+    text-align: center;
+}
+
+.access-gate-mark {
+    align-items: center;
+    background: var(--green);
+    border-radius: 6px;
+    color: #041a13;
+    display: flex;
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 700;
+    height: 42px;
+    justify-content: center;
+    margin-bottom: 24px;
+    width: 42px;
+}
+
+.access-gate-label {
+    color: var(--green);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.access-gate h2 {
+    font-size: 28px;
+    letter-spacing: 0;
+    margin: 12px 0;
+}
+
+.access-gate p {
+    color: var(--text-muted);
+    line-height: 1.65;
+    margin: 0 0 26px;
+    max-width: 540px;
+}
+
+.access-plan-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.auth-access {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    padding: 4px 6px;
+    white-space: nowrap;
+}
+
+.auth-access-trial,
+.auth-access-subscription,
+.auth-access-admin {
+    border-color: rgba(46, 211, 154, 0.35);
+    color: var(--green);
+}
+
+.auth-access-expired {
+    border-color: rgba(255, 99, 111, 0.35);
+    color: var(--red);
+}
+
+@media (max-width: 560px) {
+    .access-plan-actions {
+        flex-direction: column;
+        width: min(100%, 320px);
+    }
+}
+
 /* ---------- 21. Favorites / Position Cards ---------- */
 .position-card {
     background:

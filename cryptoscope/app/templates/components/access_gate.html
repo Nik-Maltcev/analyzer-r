@@ -1,0 +1,25 @@
+<section class="access-gate">
+    <div class="access-gate-mark" aria-hidden="true">M</div>
+    {% if access.status == "unauthenticated" %}
+    <span class="access-gate-label">Личный доступ</span>
+    <h2>Войдите, чтобы начать бесплатные 3 дня</h2>
+    <p>Мы отправим одноразовую ссылку на почту. Пароль и банковская карта не нужны.</p>
+    <button class="btn btn-primary" type="button" onclick="openAuthModal()">
+        Войти по magic link
+    </button>
+    {% else %}
+    <span class="access-gate-label">Пробный период завершён</span>
+    <h2>Продлите доступ к аналитике</h2>
+    <p>Сигналы, сканеры и избранное снова откроются сразу после подтверждения платежа.</p>
+    <div class="access-plan-actions">
+        <a class="btn btn-outline"
+           href="/api/payments/payanyway/checkout?plan=month">
+            Месяц · 990 ₽
+        </a>
+        <a class="btn btn-primary"
+           href="/api/payments/payanyway/checkout?plan=year">
+            Год · 7 900 ₽
+        </a>
+    </div>
+    {% endif %}
+</section>

@@ -152,10 +152,12 @@ CREATE TABLE IF NOT EXISTS favorites (
 
 CREATE_AUTH_USERS = """
 CREATE TABLE IF NOT EXISTS auth_users (
-    id            TEXT PRIMARY KEY,
-    email         TEXT NOT NULL UNIQUE,
-    created_at    TEXT DEFAULT (datetime('now')),
-    last_login_at TEXT
+    id               TEXT PRIMARY KEY,
+    email            TEXT NOT NULL UNIQUE,
+    created_at       TEXT DEFAULT (datetime('now')),
+    last_login_at    TEXT,
+    trial_started_at TEXT,
+    trial_ends_at    TEXT
 )
 """
 
@@ -166,6 +168,7 @@ CREATE TABLE IF NOT EXISTS auth_magic_links (
     expires_at TEXT NOT NULL,
     used_at    TEXT,
     request_ip TEXT,
+    redirect_path TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 )
 """
@@ -195,11 +198,42 @@ CREATE TABLE IF NOT EXISTS payment_notifications (
 )
 """
 
+CREATE_PAYMENT_ORDERS = """
+CREATE TABLE IF NOT EXISTS payment_orders (
+    transaction_id       TEXT PRIMARY KEY,
+    user_id              TEXT NOT NULL,
+    plan                 TEXT NOT NULL,
+    amount               TEXT NOT NULL,
+    currency             TEXT NOT NULL DEFAULT 'RUB',
+    status               TEXT NOT NULL DEFAULT 'pending',
+    provider_operation_id TEXT,
+    test_mode            INTEGER NOT NULL DEFAULT 0,
+    created_at           TEXT DEFAULT (datetime('now')),
+    paid_at              TEXT,
+    UNIQUE(provider_operation_id)
+)
+"""
+
+CREATE_USER_SUBSCRIPTIONS = """
+CREATE TABLE IF NOT EXISTS user_subscriptions (
+    user_id             TEXT PRIMARY KEY,
+    plan                TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'active',
+    access_until        TEXT NOT NULL,
+    provider            TEXT NOT NULL,
+    last_transaction_id TEXT NOT NULL,
+    updated_at          TEXT DEFAULT (datetime('now'))
+)
+"""
+
 CREATE_AUTH_INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_auth_magic_email ON auth_magic_links(email, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_auth_magic_expiry ON auth_magic_links(expires_at)",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at)",
+    "CREATE INDEX IF NOT EXISTS idx_payment_orders_user ON payment_orders(user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_payment_orders_status ON payment_orders(status, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_subscriptions_expiry ON user_subscriptions(status, access_until)",
 ]
 
 ALL_TABLES_SQL = [
@@ -213,6 +247,8 @@ ALL_TABLES_SQL = [
     CREATE_AUTH_MAGIC_LINKS,
     CREATE_AUTH_SESSIONS,
     CREATE_PAYMENT_NOTIFICATIONS,
+    CREATE_PAYMENT_ORDERS,
+    CREATE_USER_SUBSCRIPTIONS,
 ]
 
 ALL_INDICES_SQL = (

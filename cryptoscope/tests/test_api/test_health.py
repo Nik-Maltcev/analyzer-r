@@ -13,8 +13,11 @@ from app.db.database import set_db_path
 
 
 @pytest.fixture
-def app(temp_db):
+def app(temp_db, monkeypatch):
     """Create test FastAPI app with temp database."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "app_variant", "global")
+    monkeypatch.setattr(settings, "resend_api_key", "")
     set_db_path(temp_db)
 
     from app.main import app
@@ -107,8 +110,8 @@ async def test_landing_page(app):
         assert "990 ₽" in response.text
         assert "7 900 ₽" in response.text
         assert response.text.count('href="/app"') >= 3
-        assert "https://self.payanyway.ru/17830101172855" in response.text
-        assert "https://self.payanyway.ru/17830121748889" in response.text
+        assert 'href="/app?checkout=month"' in response.text
+        assert 'href="/app?checkout=year"' in response.text
         assert "paypal.com/sdk/js" not in response.text
         assert 'id="paypal-container-DNWAM39RY9XML"' not in response.text
         assert "AI-анализ" not in response.text

@@ -7,7 +7,7 @@ from html import escape
 import os
 import re
 import secrets
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 import httpx
@@ -76,6 +76,7 @@ EMAIL_COPY = {
 
 class MagicLinkPayload(BaseModel):
     email: str
+    next_path: str | None = None
 
 
 def _normalize_email(value: str, locale: str = "ru") -> str:
@@ -102,6 +103,33 @@ def _request_ip(request: Request) -> str:
     if forwarded:
         return forwarded.split(",", 1)[0].strip()[:128]
     return (request.client.host if request.client else "unknown")[:128]
+
+
+def _safe_redirect_path(value: str | None) -> str:
+    if not value or not value.startswith("/") or value.startswith("//"):
+        return "/"
+    parsed = urlsplit(value)
+    if parsed.scheme or parsed.netloc:
+        return "/"
+    query = urlencode([
+        (key, item)
+        for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+        if key != "auth"
+    ])
+    return urlunsplit(("", "", parsed.path or "/", query, parsed.fragment))
+
+
+def _with_auth_result(path: str, result: str) -> str:
+    parsed = urlsplit(path)
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    query.append(("auth", result))
+    return urlunsplit((
+        "",
+        "",
+        parsed.path or "/",
+        urlencode(query),
+        parsed.fragment,
+    ))
 
 
 def _base_url(request: Request) -> str:
@@ -203,6 +231,7 @@ async def request_magic_link(payload: MagicLinkPayload, request: Request):
     token = secrets.token_urlsafe(32)
     token_hash = hash_auth_token(token)
     expires_at = now + timedelta(minutes=settings.magic_link_ttl_minutes)
+    redirect_path = _safe_redirect_path(payload.next_path)
 
     async with get_connection() as conn:
         cursor = await conn.execute(
@@ -231,11 +260,17 @@ async def request_magic_link(payload: MagicLinkPayload, request: Request):
         await conn.execute(
             """
             INSERT INTO auth_magic_links (
-                token_hash, email, expires_at, request_ip
+                token_hash, email, expires_at, request_ip, redirect_path
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (token_hash, email, _utc_sql(expires_at), request_ip),
+            (
+                token_hash,
+                email,
+                _utc_sql(expires_at),
+                request_ip,
+                redirect_path,
+            ),
         )
         await conn.commit()
 
@@ -282,7 +317,7 @@ async def verify_magic_link(token: str, request: Request):
     async with get_connection() as conn:
         cursor = await conn.execute(
             """
-            SELECT email
+            SELECT email, redirect_path
             FROM auth_magic_links
             WHERE token_hash = ?
               AND used_at IS NULL
@@ -308,6 +343,7 @@ async def verify_magic_link(token: str, request: Request):
             return RedirectResponse(url="/?auth=invalid", status_code=303)
 
         email = str(magic_row["email"])
+        redirect_path = _safe_redirect_path(magic_row["redirect_path"])
         cursor = await conn.execute(
             "SELECT id FROM auth_users WHERE email = ? LIMIT 1",
             (email,),
@@ -322,10 +358,15 @@ async def verify_magic_link(token: str, request: Request):
         else:
             await conn.execute(
                 """
-                INSERT INTO auth_users (id, email, last_login_at)
-                VALUES (?, ?, datetime('now'))
+                INSERT INTO auth_users (
+                    id, email, last_login_at, trial_started_at, trial_ends_at
+                )
+                VALUES (
+                    ?, ?, datetime('now'), datetime('now'),
+                    datetime('now', '+' || ? || ' days')
+                )
                 """,
-                (user_id, email),
+                (user_id, email, max(1, int(settings.trial_days))),
             )
 
         legacy_owner = settings.auth_legacy_owner_email.strip().lower()
@@ -357,7 +398,10 @@ async def verify_magic_link(token: str, request: Request):
         )
         await conn.commit()
 
-    response = RedirectResponse(url="/?auth=success", status_code=303)
+    response = RedirectResponse(
+        url=_with_auth_result(redirect_path, "success"),
+        status_code=303,
+    )
     response.set_cookie(
         SESSION_COOKIE_NAME,
         session_token,
@@ -372,16 +416,21 @@ async def verify_magic_link(token: str, request: Request):
 
 @router.get("/me")
 async def auth_me(user: AuthUser | None = Depends(get_current_user)):
+    from app.access import get_access_state
+
+    access = await get_access_state(user)
     if user is None:
         return {
             "authenticated": False,
             "auth_available": auth_is_configured(),
             "email": None,
+            "access": access.as_dict(),
         }
     return {
         "authenticated": True,
         "auth_available": True,
         "email": user.email,
+        "access": access.as_dict(),
     }
 
 

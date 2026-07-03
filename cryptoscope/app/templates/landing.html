@@ -13,7 +13,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/landing.css">
+    <link rel="stylesheet" href="/static/css/landing.css?v=20260702-access1">
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
     <script>window.CRYPTOSCOPE_TRANSLATIONS = {{ translations|tojson }};</script>
     {% if product.variant in ("br", "id") %}
@@ -245,7 +245,7 @@
                         <li><i data-lucide="check" aria-hidden="true"></i>Избранное и история</li>
                     </ul>
                     <a class="button button-secondary"
-                       href="https://self.payanyway.ru/17830101172855">
+                       href="/app?checkout=month">
                         Оформить на месяц
                     </a>
                 </article>
@@ -263,7 +263,7 @@
                         <li><i data-lucide="check" aria-hidden="true"></i>Избранное и история</li>
                     </ul>
                     <a class="button button-primary"
-                       href="https://self.payanyway.ru/17830121748889">
+                       href="/app?checkout=year">
                         Оформить на год
                     </a>
                 </article>
