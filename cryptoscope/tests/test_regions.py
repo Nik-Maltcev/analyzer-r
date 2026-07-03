@@ -96,6 +96,12 @@ async def test_brazil_edition_limits_markets_and_localizes(
     assert "Rússia" not in landing.text
     assert "paypal.com/sdk/js" in landing.text
     assert 'id="paypal-container-DNWAM39RY9XML"' in landing.text
+    assert (
+        'action="https://www.paypal.com/ncp/payment/HUGDPR8DKNB52"'
+        in landing.text
+    )
+    assert "Plano mensal" in landing.text
+    assert "Plano anual" in landing.text
     assert 'href="/app?checkout=' not in landing.text
 
     assert terminal.status_code == 200
@@ -130,6 +136,12 @@ async def test_indonesia_edition_switches_between_id_and_english(
     assert "Buka aplikasi" in default_page.text
     assert "Harga Binance live" in default_page.text
     assert "paypal.com/sdk/js" in default_page.text
+    assert (
+        'action="https://www.paypal.com/ncp/payment/HUGDPR8DKNB52"'
+        in default_page.text
+    )
+    assert "Paket bulanan" in default_page.text
+    assert "Paket tahunan" in default_page.text
     assert 'href="/app?checkout=' not in default_page.text
 
     assert locale_response.status_code == 200

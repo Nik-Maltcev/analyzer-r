@@ -13,7 +13,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/landing.css?v=20260702-access1">
+    <link rel="stylesheet" href="/static/css/landing.css?v=20260703-paypal1">
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
     <script>window.CRYPTOSCOPE_TRANSLATIONS = {{ translations|tojson }};</script>
     {% if product.variant in ("br", "id") %}
@@ -283,8 +283,33 @@
                     <p>Оплата обрабатывается на стороне PayPal, итоговая сумма отображается в USD.</p>
                 </div>
                 <div class="paypal-checkout-action">
-                    <div id="paypal-container-DNWAM39RY9XML"
-                         aria-label="Оплата через PayPal"></div>
+                    <div class="paypal-plan-grid">
+                        <div class="paypal-plan">
+                            <span class="price-name">Месячный тариф</span>
+                            <div id="paypal-container-DNWAM39RY9XML"
+                                 aria-label="Оплата месячного тарифа через PayPal"></div>
+                        </div>
+                        <div class="paypal-plan paypal-plan-featured">
+                            <span class="price-name">Годовой тариф</span>
+                            <form class="paypal-ncp-form"
+                                  action="https://www.paypal.com/ncp/payment/HUGDPR8DKNB52"
+                                  method="post"
+                                  target="_blank">
+                                <input class="paypal-ncp-button"
+                                       type="submit"
+                                       value="Buy Now"
+                                       aria-label="Оплата годового тарифа через PayPal">
+                                <img class="paypal-payment-methods"
+                                     src="https://www.paypalobjects.com/images/Debit_Credit_APM.svg"
+                                     alt="Банковские карты">
+                                <span class="paypal-powered">
+                                    Powered by
+                                    <img src="https://www.paypalobjects.com/paypal-ui/logos/svg/paypal-wordmark-color.svg"
+                                         alt="PayPal">
+                                </span>
+                            </form>
+                        </div>
+                    </div>
                     <p class="paypal-status hidden" id="paypal-status" role="status"></p>
                 </div>
             </div>

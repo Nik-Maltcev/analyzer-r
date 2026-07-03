@@ -187,6 +187,31 @@ MESSAGES = {
         "Pagar com PayPal",
         "Bayar dengan PayPal",
     ),
+    "Месячный тариф": (
+        "Monthly plan",
+        "Plano mensal",
+        "Paket bulanan",
+    ),
+    "Годовой тариф": (
+        "Annual plan",
+        "Plano anual",
+        "Paket tahunan",
+    ),
+    "Оплата месячного тарифа через PayPal": (
+        "Pay for the monthly plan with PayPal",
+        "Pagar o plano mensal com PayPal",
+        "Bayar paket bulanan dengan PayPal",
+    ),
+    "Оплата годового тарифа через PayPal": (
+        "Pay for the annual plan with PayPal",
+        "Pagar o plano anual com PayPal",
+        "Bayar paket tahunan dengan PayPal",
+    ),
+    "Банковские карты": (
+        "Debit and credit cards",
+        "Cartões de débito e crédito",
+        "Kartu debit dan kredit",
+    ),
     "Аналитический сервис. Не является индивидуальной инвестиционной рекомендацией.": (
         "Analytics service. Not personalized investment advice.",
         "Serviço de análise. Não constitui recomendação individual de investimento.",

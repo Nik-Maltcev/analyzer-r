@@ -514,6 +514,74 @@ a {
     min-height: 160px;
 }
 
+.paypal-plan-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.paypal-plan {
+    border: 1px solid var(--landing-line);
+    min-width: 0;
+    padding: 16px;
+}
+
+.paypal-plan-featured {
+    border-color: rgba(52, 211, 153, 0.45);
+}
+
+.paypal-plan .price-name {
+    display: block;
+    margin-bottom: 14px;
+}
+
+.paypal-ncp-form {
+    align-content: start;
+    display: grid;
+    gap: 8px;
+    justify-items: center;
+}
+
+.paypal-ncp-button {
+    background: #ffd140;
+    border: 0;
+    border-radius: 4px;
+    color: #000;
+    cursor: pointer;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    height: 42px;
+    line-height: 20px;
+    min-width: 100%;
+    padding: 0 20px;
+}
+
+.paypal-ncp-button:hover {
+    background: #f2c438;
+}
+
+.paypal-ncp-button:focus-visible {
+    outline: 2px solid var(--landing-mint);
+    outline-offset: 3px;
+}
+
+.paypal-payment-methods {
+    height: auto;
+    max-width: 100%;
+}
+
+.paypal-powered {
+    color: var(--landing-muted);
+    font-size: 12px;
+}
+
+.paypal-powered img {
+    height: 14px;
+    margin-left: 3px;
+    vertical-align: middle;
+}
+
 .paypal-status {
     color: var(--landing-coral);
     margin-top: 10px;
@@ -833,6 +901,10 @@ a {
         gap: 26px;
         grid-template-columns: 1fr;
         margin-top: 40px;
+    }
+
+    .paypal-plan-grid {
+        grid-template-columns: 1fr;
     }
 
     .price-value strong {
