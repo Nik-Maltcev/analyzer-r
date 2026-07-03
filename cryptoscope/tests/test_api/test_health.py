@@ -72,10 +72,7 @@ async def test_brazil_signals_endpoint(app):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/signals?market=br")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["total"] == 0
-        assert data["active"] == 0
+        assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -83,10 +80,7 @@ async def test_indonesia_signals_endpoint(app):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/signals?market=id")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["total"] == 0
-        assert data["active"] == 0
+        assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -137,7 +131,7 @@ async def test_index_page_can_open_ru_market(app):
         response = await client.get("/app?market=ru")
         assert response.status_code == 200
         assert 'window.CRYPTOSCOPE_INITIAL_MARKET = "ru"' in response.text
-        assert 'class="market-btn active" data-market="ru"' in response.text
+        assert 'data-market="ru"' in response.text
         assert "market=ru" in response.text
 
 

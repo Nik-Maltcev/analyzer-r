@@ -1,6 +1,7 @@
 """PayAnyWay notification verification tests."""
 
-from datetime import datetime
+from contextlib import closing
+from datetime import UTC, datetime
 from hashlib import md5
 from urllib.parse import parse_qs, urlsplit
 
@@ -55,7 +56,7 @@ def _notification(signature="valid", **overrides):
 
 
 def _seed_order(temp_db, plan="month", amount="990.00"):
-    with get_sync_connection(temp_db) as conn:
+    with closing(get_sync_connection(temp_db)) as conn:
         conn.execute(
             """
             INSERT INTO auth_users (
@@ -130,7 +131,7 @@ async def test_checkout_redirects_anonymous_user_to_login(app):
 @pytest.mark.asyncio
 async def test_checkout_creates_user_bound_signed_order(app, temp_db):
     session_token = "test-session"
-    with get_sync_connection(temp_db) as conn:
+    with closing(get_sync_connection(temp_db)) as conn:
         conn.execute(
             """
             INSERT INTO auth_users (
@@ -180,7 +181,7 @@ async def test_checkout_creates_user_bound_signed_order(app, temp_db):
         "test-secret",
     )
 
-    with get_sync_connection(temp_db) as conn:
+    with closing(get_sync_connection(temp_db)) as conn:
         order = conn.execute(
             """
             SELECT user_id, plan, amount, status
@@ -213,7 +214,7 @@ async def test_payanyway_notification_is_verified_and_idempotent(
     assert first.text == "SUCCESS"
     assert second.status_code == 200
 
-    with get_sync_connection(temp_db) as conn:
+    with closing(get_sync_connection(temp_db)) as conn:
         count = conn.execute(
             "SELECT COUNT(*) FROM payment_notifications"
         ).fetchone()[0]
@@ -237,8 +238,8 @@ async def test_payanyway_notification_is_verified_and_idempotent(
     assert subscription["status"] == "active"
     assert subscription["last_transaction_id"] == "order-1"
     remaining = (
-        datetime.fromisoformat(subscription["access_until"])
-        - datetime.utcnow()
+        datetime.fromisoformat(subscription["access_until"]).replace(tzinfo=UTC)
+        - datetime.now(UTC)
     ).days
     assert 32 <= remaining <= 33
 
@@ -270,7 +271,7 @@ async def test_payanyway_rejects_amount_that_does_not_match_order(
         )
 
     assert response.status_code == 400
-    with get_sync_connection(temp_db) as conn:
+    with closing(get_sync_connection(temp_db)) as conn:
         assert conn.execute(
             "SELECT COUNT(*) FROM user_subscriptions"
         ).fetchone()[0] == 0

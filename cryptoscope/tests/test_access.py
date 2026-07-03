@@ -1,5 +1,7 @@
 """Server-side trial and subscription access tests."""
 
+from contextlib import closing
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -23,7 +25,7 @@ def app(temp_db, monkeypatch):
 
 def _add_user(temp_db, trial_modifier):
     token = f"session-{trial_modifier}"
-    with get_sync_connection(temp_db) as conn:
+    with closing(get_sync_connection(temp_db)) as conn:
         conn.execute(
             """
             INSERT INTO auth_users (
