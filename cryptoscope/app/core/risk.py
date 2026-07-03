@@ -238,17 +238,17 @@ def guard_signal(
     event_gap: dict,
     market_regime: str,
 ) -> dict:
-    """Block unreliable Russian signals while preserving ordinary markets."""
+    """Block signals without a validated mean-reversion relationship."""
     guarded = {
         **signal,
         "strength": strength,
         "signal_eligible": signal.get("signal_type") != "wait",
         "risk_reason": None,
     }
-    if market != "ru" or signal.get("signal_type") == "wait":
+    if signal.get("signal_type") == "wait":
         return guarded
 
-    if event_gap["event_risk"]:
+    if market == "ru" and event_gap["event_risk"]:
         return {
             **guarded,
             "signal": "Пауза: ценовой гэп",
@@ -267,6 +267,9 @@ def guard_signal(
             "signal_eligible": False,
             "risk_reason": stability["coint_stability_reason"],
         }
+
+    if market != "ru":
+        return guarded
 
     if market_regime == "stress":
         guarded["strength"] = "Высокий риск"

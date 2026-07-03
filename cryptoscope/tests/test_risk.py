@@ -104,6 +104,27 @@ def test_ru_signal_guard_blocks_unstable_pair():
     assert result["strength"] == "Наблюдение"
 
 
+def test_signal_guard_blocks_unvalidated_crypto_pair():
+    result = guard_signal(
+        "crypto",
+        {
+            "signal": "Long AAA / Short BBB",
+            "signal_type": "long_a",
+        },
+        "Forecast",
+        {
+            "is_coint_stable": False,
+            "coint_stability_reason": "Cointegration is not confirmed",
+        },
+        {"event_risk": False, "event_risk_reason": None},
+        "normal",
+    )
+
+    assert result["signal_type"] == "wait"
+    assert result["signal_eligible"] is False
+    assert result["risk_reason"] == "Cointegration is not confirmed"
+
+
 def test_stress_forecast_range_is_wider():
     normal = forecast_scenario(2.0, 0.4, "normal")
     stress = forecast_scenario(2.0, 0.4, "stress")

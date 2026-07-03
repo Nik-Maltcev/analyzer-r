@@ -5,6 +5,11 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 
 
+def is_actionable_signal(signal_type: str | None, is_coint_stable: bool) -> bool:
+    """Return whether a pair has both a direction and validated mean reversion."""
+    return signal_type not in (None, "wait") and bool(is_coint_stable)
+
+
 def resolve_signal_started_at(
     current_signal_type: str,
     previous_signal_type: str | None,

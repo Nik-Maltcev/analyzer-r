@@ -232,7 +232,7 @@
             {% for s in signals %}
             <tr>
                 <td>
-                    {% if market == "ru" and not s.signal_eligible %}
+                    {% if not s.signal_eligible %}
                     <button class="fav-btn fav-btn-inline" disabled
                             title="{{ s.risk_reason|default('Сигнал не прошёл контроль риска', true) }}">☆</button>
                     {% else %}

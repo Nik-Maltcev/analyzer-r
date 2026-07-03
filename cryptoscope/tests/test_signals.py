@@ -12,6 +12,7 @@ from app.core.signals import (
     determine_signal,
     determine_strength,
     estimate_signal_timing,
+    is_actionable_signal,
     resolve_signal_started_at,
 )
 import numpy as np
@@ -68,6 +69,15 @@ class TestDetermineStrength:
     def test_none_input_handled(self):
         strength = determine_strength(is_coint=False, z_now=None, z_forecast=None)
         assert strength == "Нет"
+
+
+class TestActionableSignal:
+    def test_requires_validated_cointegration(self):
+        assert is_actionable_signal("long_a", True) is True
+        assert is_actionable_signal("long_a", False) is False
+
+    def test_wait_is_never_actionable(self):
+        assert is_actionable_signal("wait", True) is False
 
 
 class TestPairScore:

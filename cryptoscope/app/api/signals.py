@@ -4,7 +4,7 @@ import numpy as np
 from fastapi import APIRouter, Query
 
 from app.core.calculator import calc_signal_pnl
-from app.core.signals import estimate_signal_timing
+from app.core.signals import estimate_signal_timing, is_actionable_signal
 from app.db.database import fetch_pairs, fetch_prices, get_connection
 
 router = APIRouter(prefix="/signals", tags=["signals"])
@@ -28,6 +28,13 @@ def _finite_int(value, default=None):
 def _finite_bool(value) -> bool:
     f = _finite_float(value)
     return bool(f) if f is not None else False
+
+
+def _is_validated_pair(row) -> bool:
+    stability = _finite_float(row.get("is_coint_stable"))
+    if stability is None:
+        return _finite_bool(row.get("is_coint"))
+    return bool(stability)
 
 
 def _project_tomorrow_move(z_now, halflife):
@@ -88,7 +95,17 @@ async def get_signals(
         zf_high = _finite_float(row.get("z_forecast_high"))
         hl = _finite_int(row.get("halflife"))
         tomorrow_move = _project_tomorrow_move(z_now, hl)
+        is_coint_stable = _is_validated_pair(row)
         signal_type = row.get("signal_type", "wait")
+        signal = row.get("signal", "Ждать")
+        strength = row.get("strength", "Нет")
+        risk_reason = row.get("risk_reason")
+        signal_eligible = is_actionable_signal(signal_type, is_coint_stable)
+        if signal_type != "wait" and not signal_eligible:
+            signal_type = "wait"
+            signal = "Наблюдение: коинтеграция не подтверждена"
+            strength = "Наблюдение"
+            risk_reason = risk_reason or "Коинтеграция пары не подтверждена"
         timing = estimate_signal_timing(
             row.get("signal_started_at"),
             hl,
@@ -107,22 +124,22 @@ async def get_signals(
             "z_forecast": round(zf, 4) if zf is not None else None,
             "z_forecast_low": round(zf_low, 4) if zf_low is not None else None,
             "z_forecast_high": round(zf_high, 4) if zf_high is not None else None,
-            "signal_eligible": _finite_bool(row.get("signal_eligible")),
-            "is_coint_stable": _finite_bool(row.get("is_coint_stable")),
+            "signal_eligible": signal_eligible,
+            "is_coint_stable": is_coint_stable,
             "coint_stability": _finite_float(row.get("coint_stability")),
             "coint_windows": row.get("coint_windows"),
             "market_regime": row.get("market_regime") or "normal",
             "market_volatility": _finite_float(row.get("market_volatility")),
             "event_risk": _finite_bool(row.get("event_risk")),
-            "risk_reason": row.get("risk_reason"),
+            "risk_reason": risk_reason,
             **tomorrow_move,
             **timing,
-            "signal": row["signal"],
+            "signal": signal,
             "signal_type": signal_type,
-            "strength": row["strength"],
+            "strength": strength,
         })
 
-    active = [s for s in signals if s["signal_type"] != "wait"]
+    active = [s for s in signals if s["signal_eligible"]]
 
     return {
         "signals": signals,
@@ -153,6 +170,11 @@ async def get_forecast_trades(
 
     trades = []
     for _, row in active.iterrows():
+        if not is_actionable_signal(
+            row.get("signal_type"),
+            _is_validated_pair(row),
+        ):
+            continue
         z_now = _finite_float(row.get("z_now"), 0.0)
         hl = _finite_int(row.get("halflife"), 30)
         avg_hold = min(hl, max_days)
@@ -234,7 +256,13 @@ async def get_dashboard(
     if pairs.empty:
         return {"n_active": 0, "n_total": 0, "best_signal": None}
 
-    active = pairs[pairs["signal_type"] != "wait"]
+    coint_column = (
+        "is_coint_stable" if "is_coint_stable" in pairs.columns else "is_coint"
+    )
+    active = pairs[
+        (pairs["signal_type"] != "wait")
+        & (pairs[coint_column].fillna(0) == 1)
+    ]
 
     # Market volatility (7-day)
     volatility_str = "Низкая"
