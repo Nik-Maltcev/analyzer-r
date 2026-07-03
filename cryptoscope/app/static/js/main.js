@@ -101,6 +101,12 @@ window.getFavoritePnlSettings = getFavoritePnlSettings;
 window.storeFavoritePnlSettings = storeFavoritePnlSettings;
 
 document.body.addEventListener('htmx:configRequest', event => {
+    if (event.detail.target?.id === 'signals-content') {
+        const activeMode = document.querySelector('.mode-btn.active');
+        event.detail.parameters.market = window.currentMarket || 'crypto';
+        event.detail.parameters.mode = activeMode?.dataset.mode || 'all';
+    }
+
     if (event.detail.elt?.dataset?.tab !== 'favorites') return;
     const settings = getFavoritePnlSettings();
     Object.entries(settings).forEach(([key, value]) => {

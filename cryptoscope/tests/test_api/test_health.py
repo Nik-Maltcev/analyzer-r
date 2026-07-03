@@ -133,6 +133,9 @@ async def test_index_page_can_open_ru_market(app):
         assert 'window.CRYPTOSCOPE_INITIAL_MARKET = "ru"' in response.text
         assert 'data-market="ru"' in response.text
         assert "market=ru" in response.text
+        assert response.text.count(
+            "hx-vals='js:{market: window.currentMarket}'"
+        ) == 3
 
 
 @pytest.mark.asyncio
