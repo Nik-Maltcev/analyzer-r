@@ -200,8 +200,10 @@ async function refreshAuthStatus() {
             data.access
         );
         window.MEANX_ACCESS_STATE = data.access || window.MEANX_ACCESS_STATE;
+        return data;
     } catch (_) {
         renderAuthBar();
+        return null;
     }
 }
 
@@ -258,34 +260,47 @@ document.addEventListener('keydown', (event) => {
     }
 });
 
-document.addEventListener('DOMContentLoaded', () => {
-    refreshAuthStatus();
+document.addEventListener('DOMContentLoaded', async () => {
+    const authState = await refreshAuthStatus();
     const url = new URL(window.location.href);
     const authResult = url.searchParams.get('auth');
     const checkoutPlan = url.searchParams.get('checkout');
-    const accessStatus = window.MEANX_ACCESS_STATE?.status;
+    const paymentResult = url.searchParams.get('payment');
+    const authenticated = authState?.authenticated === true;
+    const authAvailable = authState?.auth_available !== false;
+    const accessStatus = authState?.access?.status
+        || window.MEANX_ACCESS_STATE?.status;
     if (authResult === 'success') {
         showToast('Вход выполнен', 'success');
     } else if (authResult === 'invalid') {
         openAuthModal();
         setAuthMessage('Ссылка недействительна или уже использована', 'error');
     }
-    if (accessStatus === 'unauthenticated') {
+    if (checkoutPlan === 'month' || checkoutPlan === 'year') {
+        if (!authenticated) {
+            openAuthModal();
+            setAuthMessage(
+                authAvailable
+                    ? 'Для оплаты сначала войдите по ссылке из письма'
+                    : 'Вход временно недоступен. Попробуйте немного позже.',
+                authAvailable ? '' : 'error'
+            );
+        } else {
+            window.location.replace(
+                `/api/payments/payanyway/checkout?plan=${encodeURIComponent(checkoutPlan)}`
+            );
+            return;
+        }
+    } else if (accessStatus === 'unauthenticated') {
         openAuthModal();
-    } else if (
-        (checkoutPlan === 'month' || checkoutPlan === 'year')
-        && accessStatus !== 'unauthenticated'
-    ) {
-        window.location.replace(
-            `/api/payments/payanyway/checkout?plan=${encodeURIComponent(checkoutPlan)}`
-        );
-        return;
     }
-    if (url.searchParams.get('payment') === 'failed') {
+    if (paymentResult === 'failed') {
         showToast('Оплата не завершена', 'error');
+    }
+    if (paymentResult) {
         url.searchParams.delete('payment');
     }
-    if (authResult) {
+    if (authResult || paymentResult) {
         url.searchParams.delete('auth');
         window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
     }

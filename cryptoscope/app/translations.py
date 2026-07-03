@@ -187,6 +187,16 @@ MESSAGES = {
         "Pagar com PayPal",
         "Bayar dengan PayPal",
     ),
+    "Для оплаты сначала войдите по ссылке из письма": (
+        "Sign in with the email link before paying",
+        "Entre pelo link enviado por e-mail antes de pagar",
+        "Masuk melalui tautan email sebelum membayar",
+    ),
+    "Вход временно недоступен. Попробуйте немного позже.": (
+        "Sign-in is temporarily unavailable. Please try again shortly.",
+        "O acesso está temporariamente indisponível. Tente novamente em instantes.",
+        "Login sementara tidak tersedia. Silakan coba lagi sebentar.",
+    ),
     "Месячный тариф": (
         "Monthly plan",
         "Plano mensal",
