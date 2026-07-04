@@ -174,6 +174,113 @@ async def test_refresh_ru_favorites_fetches_only_user_tickers(
 
 
 @pytest.mark.asyncio
+async def test_scanner_single_position_tracks_pnl_and_recommendation(
+    app,
+    temp_db,
+):
+    conn = sqlite3.connect(temp_db)
+    _add_auth_session(conn)
+    prices = [
+        (
+            "TEST",
+            f"2026-01-{index + 1:02d}",
+            100 + index,
+            1,
+            "stocks",
+        )
+        for index in range(28)
+    ]
+    conn.executemany(
+        """
+        INSERT INTO prices (ticker, date, close, volume, market)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        prices,
+    )
+    conn.commit()
+    conn.close()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        client.cookies.set(SESSION_COOKIE_NAME, TEST_SESSION)
+        added = await client.post(
+            "/api/favorites/toggle",
+            params={
+                "pair": "TEST",
+                "ticker_a": "TEST",
+                "ticker_b": "",
+                "signal": "Рассмотреть лонг",
+                "signal_type": "long_a",
+                "market": "stocks",
+                "position_kind": "single",
+                "source": "scanner_momentum",
+            },
+        )
+        assert added.status_code == 200
+        assert added.json()["action"] == "added"
+
+        conn = sqlite3.connect(temp_db)
+        conn.execute(
+            """
+            INSERT INTO prices (ticker, date, close, volume, market)
+            VALUES ('TEST', '2026-02-01', 140, 1, 'stocks')
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        response = await client.get(
+            "/api/favorites",
+            params={"capital": 1000, "taker_fee": 0.02},
+        )
+        tab = await client.get("/tab/favorites")
+        scanner = await client.get("/tab/scanner/momentum?market=stocks")
+        favorite_id = response.json()["favorites"][0]["id"]
+        closed = await client.post(
+            f"/api/favorites/close/{favorite_id}",
+            params={
+                "use_net": "true",
+                "capital": 1000,
+                "taker_fee": 0.02,
+            },
+        )
+
+    assert response.status_code == 200
+    favorite = response.json()["favorites"][0]
+    assert favorite["position_kind"] == "single"
+    assert favorite["source"] == "scanner_momentum"
+    assert favorite["ticker_b"] == ""
+    assert favorite["price_a_entry"] == 127
+    assert favorite["price_a_now"] == 140
+    assert favorite["pair_move_pct"] == pytest.approx(10.2362)
+    assert favorite["commissions"] == 0.4
+
+    assert tab.status_code == 200
+    assert "Движение позиции" in tab.text
+    assert "Momentum" in tab.text
+    assert "Держать" in tab.text
+    assert "TEST /" not in tab.text
+    assert scanner.status_code == 200
+    assert 'data-pair="TEST"' in scanner.text
+    assert "fav-btn fav-btn-inline favorited" in scanner.text
+    assert closed.status_code == 200
+
+    conn = sqlite3.connect(temp_db)
+    closed_row = conn.execute(
+        """
+        SELECT status, exit_price_a, exit_price_b, exit_pnl_pct
+        FROM favorites WHERE id = ?
+        """,
+        (favorite_id,),
+    ).fetchone()
+    conn.close()
+    assert closed_row[0] == "closed"
+    assert closed_row[1] == 140
+    assert closed_row[2] == 0
+    assert closed_row[3] == pytest.approx(10.1962)
+
+
+@pytest.mark.asyncio
 async def test_favorites_require_authentication(app, monkeypatch):
     monkeypatch.setattr(get_settings(), "resend_api_key", "re_test")
     transport = ASGITransport(app=app)
@@ -350,6 +457,8 @@ async def test_existing_favorite_market_is_inferred_from_pair():
             "hedge_ratio_entry",
             "spread_mean_entry",
             "spread_sd_entry",
+            "position_kind",
+            "source",
         }.issubset(columns)
     finally:
         os.unlink(path)

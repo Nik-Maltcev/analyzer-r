@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.calculator import (
     calc_pair_performance,
+    calc_single_performance,
     calc_signal_pnl,
     compute_position_details,
 )
@@ -45,6 +46,36 @@ class TestPairPerformance:
         )
 
         assert result == {"complete": False}
+
+
+class TestSinglePerformance:
+    def test_long_net_pnl_uses_one_position_and_round_trip_fees(self):
+        result = calc_single_performance(
+            "long_a",
+            entry_price=100,
+            price_now=110,
+            capital=1000,
+            leverage=1,
+            taker_fee_pct=0.02,
+            funding_rate_8h_pct=0,
+        )
+
+        assert result["pair_move_pct"] == 10
+        assert result["gross_pnl"] == 100
+        assert result["commissions"] == 0.4
+        assert result["net_pnl"] == 99.6
+
+    def test_short_profits_when_price_falls(self):
+        result = calc_single_performance(
+            "short_a",
+            entry_price=100,
+            price_now=90,
+            taker_fee_pct=0,
+            funding_rate_8h_pct=0,
+        )
+
+        assert result["pair_move_pct"] == 10
+        assert result["leg_a_side"] == "Шорт"
 
 
 class TestCalcSignalPnl:

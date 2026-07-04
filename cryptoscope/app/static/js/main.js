@@ -307,7 +307,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // Toggle favorite
-function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, priceA, priceB, halflife, corr) {
+function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, priceA, priceB, halflife, corr, options = {}) {
     const btns = document.querySelectorAll(`.fav-btn[data-pair="${pairId}"]`);
     const params = new URLSearchParams();
     const appendNumber = (name, value) => {
@@ -323,6 +323,8 @@ function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, 
     params.set('signal', signal || '');
     params.set('signal_type', signalType || 'wait');
     params.set('market', currentMarket || 'crypto');
+    params.set('position_kind', options.positionKind || 'pair');
+    params.set('source', options.source || 'signal');
     appendNumber('z_at_entry', zAtEntry);
     appendNumber('price_a_entry', priceA);
     appendNumber('price_b_entry', priceB);
@@ -363,6 +365,27 @@ function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, 
     })
     .catch(e => showToast(e.message || 'Ошибка избранного', 'error'));
 }
+
+function toggleScannerFavorite(ticker, scanner, recommendationClass, recommendation) {
+    const signalType = recommendationClass === 'short' ? 'short_a' : 'long_a';
+    toggleFavorite(
+        ticker,
+        ticker,
+        '',
+        recommendation,
+        signalType,
+        '',
+        0,
+        0,
+        '',
+        '',
+        {
+            positionKind: 'single',
+            source: `scanner_${scanner}`
+        }
+    );
+}
+window.toggleScannerFavorite = toggleScannerFavorite;
 
 async function refreshRuFavorites(button) {
     if (!button || button.disabled) return;

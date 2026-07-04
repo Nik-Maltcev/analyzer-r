@@ -26,7 +26,19 @@
             <tbody>
                 {% for r in results %}
                 <tr>
-                    <td><strong>{{ r.ticker }}</strong></td>
+                    <td>
+                        {% if r.recommendation_class != "wait" %}
+                        <button class="fav-btn fav-btn-inline {% if r.is_favorite %}favorited{% endif %}"
+                                type="button"
+                                data-pair="{{ r.favorite_pair }}"
+                                title="Отслеживать позицию в избранном"
+                                aria-label="Отслеживать {{ r.ticker }} в избранном"
+                                onclick="toggleScannerFavorite('{{ r.ticker }}','momentum','{{ r.recommendation_class }}','{{ r.recommendation }}')">
+                            {% if r.is_favorite %}★{% else %}☆{% endif %}
+                        </button>
+                        {% endif %}
+                        <strong>{{ r.ticker }}</strong>
+                    </td>
                     <td class="text-mono {% if r.pct_3d >= 0 %}positive{% else %}negative{% endif %}">{{ "%+.2f"|format(r.pct_3d) }}%</td>
                     <td class="text-mono {% if r.pct_7d >= 0 %}positive{% else %}negative{% endif %}">{{ "%+.2f"|format(r.pct_7d) }}%</td>
                     <td class="text-mono {% if r.pct_14d >= 0 %}positive{% else %}negative{% endif %}">{{ "%+.2f"|format(r.pct_14d) }}%</td>

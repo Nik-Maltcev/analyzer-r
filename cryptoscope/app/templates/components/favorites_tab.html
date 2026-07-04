@@ -47,7 +47,7 @@
               onchange="storeFavoritePnlSettings(this)"
               onsubmit="storeFavoritePnlSettings(this)">
             <div class="favorite-pnl-field">
-                <label for="favorite-capital">Капитал пары</label>
+                <label for="favorite-capital">Капитал позиции</label>
                 <input class="form-input"
                        id="favorite-capital"
                        name="capital"
@@ -91,7 +91,7 @@
             </div>
             <button class="btn btn-outline" type="submit">Пересчитать</button>
             <span class="favorites-pnl-note">
-                Капитал делится 50/50 между ногами. Комиссия включает вход и предполагаемый выход.
+                Для пар капитал делится 50/50 между ногами. Комиссия включает вход и предполагаемый выход.
                 Фандинг применяется только к CRYPTO и является оценкой.
             </span>
         </form>
@@ -101,7 +101,9 @@
                 <div class="position-header">
                     <div class="position-pair">
                         <span class="ticker-logo" data-ticker="{{ f.ticker_a }}"></span>
-                        <strong>{{ f.ticker_a }} / {{ f.ticker_b }}</strong>
+                        <strong>
+                            {{ f.ticker_a }}{% if not f.is_single %} / {{ f.ticker_b }}{% endif %}
+                        </strong>
                     </div>
                     <div class="position-badges">
                         <span class="badge badge-gray">{{ f.market|upper }}</span>
@@ -109,14 +111,18 @@
                         <span class="badge badge-red" title="Сигнал держится дольше полупериода">⚠ Просрочен</span>
                         {% endif %}
                         <span class="badge {% if f.signal_type == 'short_a' %}badge-orange{% elif f.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
-                            {% if f.signal_type == 'short_a' %}Шорт A{% elif f.signal_type == 'long_a' %}Лонг A{% else %}Ждать{% endif %}
+                            {% if f.signal_type == 'short_a' %}Шорт{% if not f.is_single %} A{% endif %}
+                            {% elif f.signal_type == 'long_a' %}Лонг{% if not f.is_single %} A{% endif %}
+                            {% else %}Ждать{% endif %}
                         </span>
                     </div>
                 </div>
 
                 <!-- Pair movement and account P&L -->
                 {% set pair_move = f.pair_move_pct if f.pair_move_pct is defined else f.pnl_total_pct %}
-                <div class="position-pnl-caption">Движение пары</div>
+                <div class="position-pnl-caption">
+                    {% if f.is_single %}Движение позиции{% else %}Движение пары{% endif %}
+                </div>
                 <div class="position-pnl-display {% if pair_move >= 0 %}positive{% else %}negative{% endif %}">
                     {{ '%+.2f'|format(pair_move) }} п.п.
                 </div>
@@ -153,6 +159,26 @@
                 </div>
                 {% endif %}
 
+                {% if f.is_single %}
+                <div class="signal-timing">
+                    <div class="signal-timing-item">
+                        <span>Добавлено</span>
+                        <strong>{{ f.signal_started_date|default("—", true) }}</strong>
+                    </div>
+                    <div class="signal-timing-item">
+                        <span>Источник</span>
+                        <strong>
+                            {% if f.source == "scanner_momentum" %}Momentum
+                            {% elif f.source == "scanner_drawdown" %}Drawdown
+                            {% else %}Scanner{% endif %}
+                        </strong>
+                    </div>
+                    <div class="signal-timing-item signal-timing-remaining">
+                        <span>В позиции</span>
+                        <strong>{{ f.days_held }} дн.</strong>
+                    </div>
+                </div>
+                {% else %}
                 <div class="signal-timing {% if f.signal_is_expired %}is-overdue{% endif %}"
                      title="Ориентировочный срок рассчитан от даты добавления по полупериоду пары">
                     <div class="signal-timing-item">
@@ -172,6 +198,7 @@
                         </strong>
                     </div>
                 </div>
+                {% endif %}
 
                 <!-- Forecast status banner -->
                 <div class="forecast-status forecast-{{ f.status_color }}">
@@ -190,7 +217,7 @@
                 </div>
 
                 <!-- Progress bar -->
-                {% if f.progress_pct is defined and f.progress_str %}
+                {% if not f.is_single and f.progress_pct is defined and f.progress_str %}
                 <div class="progress-bar-container">
                     <div class="progress-bar-fill" style="width: {{ f.progress_pct }}%"></div>
                     <span class="progress-bar-label">{{ f.progress_str }}</span>
@@ -210,6 +237,7 @@
                             {{ '%+.2f'|format(f.leg_a_pnl_pct) }}%
                         </span>
                     </div>
+                    {% if not f.is_single %}
                     <div class="detail-row">
                         <span class="detail-label">{{ f.leg_b_side }} {{ f.ticker_b }}</span>
                         <span class="detail-value text-mono {% if f.leg_b_pnl_pct >= 0 %}positive{% else %}negative{% endif %}">
@@ -217,6 +245,17 @@
                         </span>
                     </div>
                     {% endif %}
+                    {% endif %}
+                    {% if f.is_single %}
+                    <div class="detail-row">
+                        <span class="detail-label">Источник сигнала</span>
+                        <span class="detail-value">
+                            {% if f.source == "scanner_momentum" %}Momentum
+                            {% elif f.source == "scanner_drawdown" %}Drawdown
+                            {% else %}Scanner{% endif %}
+                        </span>
+                    </div>
+                    {% else %}
                     <div class="detail-row">
                         <span class="detail-label">Z на входе</span>
                         <span class="detail-value text-mono">{{ f.z_at_entry if f.z_at_entry is not none else '—' }}</span>
@@ -227,12 +266,14 @@
                         <span class="detail-value text-mono {% if f.z_now_live >= 2 %}text-orange{% elif f.z_now_live <= -2 %}text-green{% endif %}">{{ f.z_now_live }}</span>
                     </div>
                     {% endif %}
+                    {% endif %}
                     {% if f.price_a_entry is not none and f.price_a_now is not none %}
                     <div class="detail-row">
                         <span class="detail-label">{{ f.ticker_a }}: вход → сейчас</span>
                         <span class="detail-value text-mono">{{ f.price_a_entry }} → {{ f.price_a_now }}</span>
                     </div>
                     {% endif %}
+                    {% if not f.is_single %}
                     {% if f.price_b_entry is not none and f.price_b_now is not none %}
                     <div class="detail-row">
                         <span class="detail-label">{{ f.ticker_b }}: вход → сейчас</span>
@@ -247,6 +288,7 @@
                         <span class="detail-label">Полупериод (HL)</span>
                         <span class="detail-value">{{ f.halflife|default('—') }} дн.</span>
                     </div>
+                    {% endif %}
                 </div>
 
                 <div class="position-actions">
@@ -265,7 +307,7 @@
         <div class="empty-state">
             <span class="empty-icon">⭐</span>
             <p>Нет активных позиций</p>
-            <p class="text-dim">Добавьте сигналы в избранное на вкладке Сигналы (нажмите ☆ на карточке)</p>
+            <p class="text-dim">Добавьте позицию из раздела Сигналы или Сканеры</p>
         </div>
         {% endif %}
     </div>

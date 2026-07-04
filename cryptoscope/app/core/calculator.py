@@ -4,6 +4,82 @@ import math
 from typing import Dict, Any, Optional
 
 
+def calc_single_performance(
+    signal_type: str,
+    entry_price: float,
+    price_now: float,
+    capital: float = 1000.0,
+    leverage: float = 1.0,
+    taker_fee_pct: float = 0.02,
+    funding_rate_8h_pct: float = 0.01,
+    hold_days: float = 0.0,
+) -> Dict[str, Any]:
+    """Calculate net performance for one long or short instrument."""
+    values = (entry_price, price_now)
+    complete = all(
+        isinstance(value, (int, float))
+        and math.isfinite(float(value))
+        and float(value) > 0
+        for value in values
+    )
+    if not complete:
+        return {"complete": False}
+
+    capital = max(float(capital), 0.0)
+    leverage = max(float(leverage), 0.0)
+    taker_fee_pct = max(float(taker_fee_pct), 0.0)
+    funding_rate_8h_pct = max(float(funding_rate_8h_pct), 0.0)
+    hold_days = max(float(hold_days), 0.0)
+
+    price_return = (float(price_now) / float(entry_price) - 1) * 100
+    if signal_type == "short_a":
+        side = "Шорт"
+        position_move_pct = -price_return
+    elif signal_type == "long_a":
+        side = "Лонг"
+        position_move_pct = price_return
+    else:
+        side = "Ожидание"
+        position_move_pct = 0.0
+
+    gross_exposure = capital * leverage
+    gross_pnl = gross_exposure * (position_move_pct / 100)
+    commissions = gross_exposure * (taker_fee_pct / 100) * 2
+    funding_cost = (
+        gross_exposure
+        * (funding_rate_8h_pct / 100)
+        * hold_days
+        * 3
+    )
+    total_cost = commissions + funding_cost
+    net_pnl = gross_pnl - total_cost
+    net_return_pct = net_pnl / capital * 100 if capital > 0 else 0.0
+
+    return {
+        "complete": True,
+        "leg_a_side": side,
+        "price_return_a_pct": round(price_return, 4),
+        "leg_a_pnl_pct": round(position_move_pct, 4),
+        "pair_move_pct": round(position_move_pct, 4),
+        "capital": round(capital, 2),
+        "leverage": round(leverage, 2),
+        "gross_exposure": round(gross_exposure, 2),
+        "gross_pnl": round(gross_pnl, 2),
+        "gross_return_pct": round(
+            gross_pnl / capital * 100 if capital > 0 else 0.0,
+            4,
+        ),
+        "commissions": round(commissions, 2),
+        "funding_cost": round(funding_cost, 2),
+        "total_cost": round(total_cost, 2),
+        "net_pnl": round(net_pnl, 2),
+        "net_return_pct": round(net_return_pct, 4),
+        "taker_fee_pct": taker_fee_pct,
+        "funding_rate_pct": funding_rate_8h_pct,
+        "hold_days": round(hold_days, 2),
+    }
+
+
 def calc_pair_performance(
     signal_type: str,
     entry_a: float,

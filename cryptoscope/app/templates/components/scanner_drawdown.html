@@ -25,7 +25,19 @@
             <tbody>
                 {% for r in results %}
                 <tr>
-                    <td><strong>{{ r.ticker }}</strong></td>
+                    <td>
+                        {% if r.recommendation_class == "long" %}
+                        <button class="fav-btn fav-btn-inline {% if r.is_favorite %}favorited{% endif %}"
+                                type="button"
+                                data-pair="{{ r.favorite_pair }}"
+                                title="Отслеживать позицию в избранном"
+                                aria-label="Отслеживать {{ r.ticker }} в избранном"
+                                onclick="toggleScannerFavorite('{{ r.ticker }}','drawdown','{{ r.recommendation_class }}','{{ r.recommendation }}')">
+                            {% if r.is_favorite %}★{% else %}☆{% endif %}
+                        </button>
+                        {% endif %}
+                        <strong>{{ r.ticker }}</strong>
+                    </td>
                     <td class="text-mono">
                         <span class="badge {% if r.drawdown_pct >= 30 %}badge-red{% elif r.drawdown_pct >= 15 %}badge-orange{% else %}badge-blue{% endif %}">
                             -{{ "%.2f"|format(r.drawdown_pct) }}%

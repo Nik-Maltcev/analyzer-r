@@ -5,7 +5,7 @@ import math
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import AuthUser, require_current_or_legacy_user
-from app.core.calculator import calc_pair_performance
+from app.core.calculator import calc_pair_performance, calc_single_performance
 from app.core.signals import estimate_signal_timing
 from app.data.moex import get_ru_live_snapshot, refresh_ru_live_prices
 from app.db.database import (
@@ -72,6 +72,13 @@ def _pair_pnl(signal_type, entry_a, entry_b, price_a_now, price_b_now) -> float:
     return 0
 
 
+def _single_pnl(signal_type, entry_price, price_now) -> float:
+    if not entry_price or entry_price <= 0 or not price_now:
+        return 0
+    price_return = (price_now / entry_price - 1) * 100
+    return -price_return if signal_type == "short_a" else price_return
+
+
 @router.get("/live-status")
 async def live_prices_status():
     """Check Binance WS connection status."""
@@ -107,7 +114,8 @@ async def get_favorites(
     for _, favorite in favs.iterrows():
         market = favorite.get("market") or "crypto"
         ticker_keys.add((market, favorite["ticker_a"]))
-        ticker_keys.add((market, favorite["ticker_b"]))
+        if favorite.get("ticker_b"):
+            ticker_keys.add((market, favorite["ticker_b"]))
 
     latest_prices = {}
     pair_risks = {}
@@ -136,31 +144,41 @@ async def get_favorites(
     active_positions = []
     for _, row in favs.iterrows():
         market = row.get("market") or "crypto"
+        position_kind = row.get("position_kind") or "pair"
+        is_single = position_kind == "single"
         entry_a = row.get("price_a_entry")
         entry_b = row.get("price_b_entry")
 
         # Backfill missing entry prices from latest_prices
         if not entry_a or entry_a == 0:
             entry_a = float(latest_prices.get((market, row["ticker_a"]), 0) or 0)
-        if not entry_b or entry_b == 0:
+        if not is_single and (not entry_b or entry_b == 0):
             entry_b = float(latest_prices.get((market, row["ticker_b"]), 0) or 0)
 
         price_a_now = _get_current_price(row["ticker_a"], latest_prices, market)
-        price_b_now = _get_current_price(row["ticker_b"], latest_prices, market)
+        price_b_now = (
+            0
+            if is_single
+            else _get_current_price(row["ticker_b"], latest_prices, market)
+        )
 
         # Fall back to DB prices if live price is 0 and DB has one
         if (price_a_now or 0) == 0:
             price_a_now = float(latest_prices.get((market, row["ticker_a"]), 0) or 0)
-        if (price_b_now or 0) == 0:
+        if not is_single and (price_b_now or 0) == 0:
             price_b_now = float(latest_prices.get((market, row["ticker_b"]), 0) or 0)
 
         sig_type = row.get("signal_type", "wait")
-        pnl_total = _pair_pnl(
-            sig_type,
-            entry_a,
-            entry_b,
-            price_a_now,
-            price_b_now,
+        pnl_total = (
+            _single_pnl(sig_type, entry_a, price_a_now)
+            if is_single
+            else _pair_pnl(
+                sig_type,
+                entry_a,
+                entry_b,
+                price_a_now,
+                price_b_now,
+            )
         )
 
         hl = _query_int(row.get("halflife"), None)
@@ -169,25 +187,44 @@ async def get_favorites(
         days_held = timing["signal_days_elapsed"]
         hl_remaining = timing["signal_days_remaining"]
         is_expired = timing["signal_is_expired"]
-        performance = calc_pair_performance(
-            sig_type,
-            entry_a,
-            entry_b,
-            price_a_now,
-            price_b_now,
-            capital=capital,
-            leverage=leverage,
-            taker_fee_pct=taker_fee,
-            funding_rate_8h_pct=(
-                funding_rate if market == "crypto" else 0
-            ),
-            hold_days=days_held,
+        performance = (
+            calc_single_performance(
+                sig_type,
+                entry_a,
+                price_a_now,
+                capital=capital,
+                leverage=leverage,
+                taker_fee_pct=taker_fee,
+                funding_rate_8h_pct=(
+                    funding_rate if market == "crypto" else 0
+                ),
+                hold_days=days_held,
+            )
+            if is_single
+            else calc_pair_performance(
+                sig_type,
+                entry_a,
+                entry_b,
+                price_a_now,
+                price_b_now,
+                capital=capital,
+                leverage=leverage,
+                taker_fee_pct=taker_fee,
+                funding_rate_8h_pct=(
+                    funding_rate if market == "crypto" else 0
+                ),
+                hold_days=days_held,
+            )
         )
-        pair_risk = pair_risks.get(
-            (market, row["ticker_a"], row["ticker_b"]),
-            {},
+        pair_risk = (
+            {}
+            if is_single
+            else pair_risks.get(
+                (market, row["ticker_a"], row["ticker_b"]),
+                {},
+            )
         )
-        default_eligible = 0 if market == "ru" else 1
+        default_eligible = 1 if is_single else 0 if market == "ru" else 1
         risk_reason = pair_risk.get("risk_reason")
         if market == "ru" and not pair_risk:
             risk_reason = "Пара отсутствует в свежем анализе"
@@ -196,6 +233,8 @@ async def get_favorites(
             "id": int(row["id"]),
             "pair": row["pair"],
             "market": market,
+            "position_kind": position_kind,
+            "source": row.get("source") or "signal",
             "ticker_a": row["ticker_a"],
             "ticker_b": row["ticker_b"],
             "signal": row.get("signal", ""),
@@ -267,9 +306,21 @@ async def toggle_fav(
     halflife: str | None = Query(None),
     corr: str | None = Query(None),
     market: str = Query("crypto"),
+    position_kind: str = Query("pair"),
+    source: str = Query("signal"),
     user: AuthUser = Depends(require_current_or_legacy_user),
 ):
     """Toggle favorite (add/remove)."""
+    if position_kind not in {"pair", "single"}:
+        raise HTTPException(status_code=400, detail="Unknown position type")
+    if position_kind == "single":
+        if source not in {"scanner_momentum", "scanner_drawdown"}:
+            raise HTTPException(status_code=400, detail="Unknown scanner source")
+        if signal_type not in {"long_a", "short_a"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Single position requires long or short direction",
+            )
     async with get_connection() as conn:
         result = await toggle_favorite(
             conn, pair, ticker_a, ticker_b, user.id, market,
@@ -279,6 +330,8 @@ async def toggle_fav(
             price_b_entry=_query_float(price_b_entry, 0),
             halflife=_query_int(halflife),
             corr=_query_float(corr, 0),
+            position_kind=position_kind,
+            source=source,
         )
     return result
 
@@ -299,7 +352,8 @@ async def refresh_ru_favorites(
         for _, favorite in favorites.iterrows():
             if (favorite.get("market") or "crypto") == "ru":
                 tickers.add(favorite["ticker_a"])
-                tickers.add(favorite["ticker_b"])
+                if favorite.get("ticker_b"):
+                    tickers.add(favorite["ticker_b"])
     if not tickers:
         raise HTTPException(
             status_code=400,
@@ -356,8 +410,11 @@ async def close_fav(
             raise HTTPException(status_code=404, detail="Позиция не найдена")
         if favorite:
             market = favorite["market"] or "crypto"
+            is_single = (favorite["position_kind"] or "pair") == "single"
             latest_prices = {}
             for ticker in (favorite["ticker_a"], favorite["ticker_b"]):
+                if not ticker:
+                    continue
                 price_cursor = await conn.execute(
                     """
                     SELECT close FROM prices
@@ -374,36 +431,59 @@ async def close_fav(
                 exit_price_a = _get_current_price(
                     favorite["ticker_a"], latest_prices, market
                 )
-            if exit_price_b <= 0:
+            if not is_single and exit_price_b <= 0:
                 exit_price_b = _get_current_price(
                     favorite["ticker_b"], latest_prices, market
                 )
             if exit_pnl_pct == 0:
-                raw_pair_pnl = _pair_pnl(
-                    favorite["signal_type"],
-                    favorite["price_a_entry"],
-                    favorite["price_b_entry"],
-                    exit_price_a,
-                    exit_price_b,
+                raw_pair_pnl = (
+                    _single_pnl(
+                        favorite["signal_type"],
+                        favorite["price_a_entry"],
+                        exit_price_a,
+                    )
+                    if is_single
+                    else _pair_pnl(
+                        favorite["signal_type"],
+                        favorite["price_a_entry"],
+                        favorite["price_b_entry"],
+                        exit_price_a,
+                        exit_price_b,
+                    )
                 )
                 if use_net:
                     timing = estimate_signal_timing(
                         favorite["entry_time"],
                         _query_int(favorite["halflife"]),
                     )
-                    performance = calc_pair_performance(
-                        favorite["signal_type"],
-                        favorite["price_a_entry"],
-                        favorite["price_b_entry"],
-                        exit_price_a,
-                        exit_price_b,
-                        capital=capital,
-                        leverage=leverage,
-                        taker_fee_pct=taker_fee,
-                        funding_rate_8h_pct=(
-                            funding_rate if market == "crypto" else 0
-                        ),
-                        hold_days=timing["signal_days_elapsed"],
+                    performance = (
+                        calc_single_performance(
+                            favorite["signal_type"],
+                            favorite["price_a_entry"],
+                            exit_price_a,
+                            capital=capital,
+                            leverage=leverage,
+                            taker_fee_pct=taker_fee,
+                            funding_rate_8h_pct=(
+                                funding_rate if market == "crypto" else 0
+                            ),
+                            hold_days=timing["signal_days_elapsed"],
+                        )
+                        if is_single
+                        else calc_pair_performance(
+                            favorite["signal_type"],
+                            favorite["price_a_entry"],
+                            favorite["price_b_entry"],
+                            exit_price_a,
+                            exit_price_b,
+                            capital=capital,
+                            leverage=leverage,
+                            taker_fee_pct=taker_fee,
+                            funding_rate_8h_pct=(
+                                funding_rate if market == "crypto" else 0
+                            ),
+                            hold_days=timing["signal_days_elapsed"],
+                        )
                     )
                     exit_pnl_pct = performance.get(
                         "net_return_pct",

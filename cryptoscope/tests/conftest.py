@@ -81,6 +81,8 @@ def temp_db():
         CREATE TABLE IF NOT EXISTS favorites (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             pair TEXT NOT NULL, market TEXT DEFAULT 'crypto',
+            position_kind TEXT DEFAULT 'pair',
+            source TEXT DEFAULT 'signal',
             ticker_a TEXT NOT NULL, ticker_b TEXT NOT NULL,
             signal TEXT, signal_type TEXT, z_at_entry REAL,
             hedge_ratio_entry REAL, spread_mean_entry REAL,

@@ -96,6 +96,13 @@ async def init_db(db_path: str | None = None):
         await conn.execute(
             """
             UPDATE favorites
+            SET position_kind = COALESCE(position_kind, 'pair'),
+                source = COALESCE(source, 'signal')
+            """
+        )
+        await conn.execute(
+            """
+            UPDATE favorites
             SET market = COALESCE((
                 SELECT market
                 FROM pairs
@@ -271,6 +278,8 @@ async def ensure_favorite_z_model(
     favorite,
 ) -> dict[str, Any]:
     """Backfill a fixed model for a favorite created before model snapshots."""
+    if favorite.get("position_kind", "pair") == "single":
+        return {}
     if _valid_fixed_model(favorite):
         return {
             key: favorite.get(key)
@@ -330,10 +339,22 @@ async def toggle_favorite(conn: aiosqlite.Connection, pair: str, ticker_a: str, 
 
     price_a = kwargs.get("price_a_entry", 0) or 0
     price_b = kwargs.get("price_b_entry", 0) or 0
+    position_kind = kwargs.get("position_kind", "pair")
+    source = kwargs.get("source", "signal")
+    if position_kind not in {"pair", "single"}:
+        position_kind = "pair"
+    if position_kind == "single":
+        ticker_b = ""
+        price_b = 0
 
     # If entry prices are 0, look them up from DB
-    if price_a == 0 or price_b == 0:
-        for ticker, key in [(ticker_a, "price_a_entry"), (ticker_b, "price_b_entry")]:
+    price_lookups = []
+    if price_a == 0:
+        price_lookups.append((ticker_a, "price_a_entry"))
+    if position_kind == "pair" and price_b == 0:
+        price_lookups.append((ticker_b, "price_b_entry"))
+    for ticker, key in price_lookups:
+        if ticker:
             cursor2 = await conn.execute(
                 """
                 SELECT close FROM prices
@@ -349,24 +370,27 @@ async def toggle_favorite(conn: aiosqlite.Connection, pair: str, ticker_a: str, 
                 else:
                     price_b = float(row2[0])
 
-    model = await build_favorite_z_model(
-        conn,
-        market,
-        ticker_a,
-        ticker_b,
-        z_at_entry=kwargs.get("z_at_entry"),
-        price_a_entry=price_a,
-        price_b_entry=price_b,
-    )
+    model = {}
+    if position_kind == "pair":
+        model = await build_favorite_z_model(
+            conn,
+            market,
+            ticker_a,
+            ticker_b,
+            z_at_entry=kwargs.get("z_at_entry"),
+            price_a_entry=price_a,
+            price_b_entry=price_b,
+        )
     z_at_entry = model.get("z_at_entry", kwargs.get("z_at_entry", 0))
 
     await conn.execute("""
-        INSERT INTO favorites (pair, market, ticker_a, ticker_b, signal, signal_type, z_at_entry,
+        INSERT INTO favorites (pair, market, position_kind, source,
+                              ticker_a, ticker_b, signal, signal_type, z_at_entry,
                               hedge_ratio_entry, spread_mean_entry, spread_sd_entry,
                               price_a_entry, price_b_entry, entry_time, status, halflife, corr, user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 'active', ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 'active', ?, ?, ?)
     """, (
-        pair, market, ticker_a, ticker_b,
+        pair, market, position_kind, source, ticker_a, ticker_b,
         kwargs.get("signal", ""),
         kwargs.get("signal_type", "wait"),
         z_at_entry,

@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from zoneinfo import ZoneInfo
 
 from app.auth import get_current_or_legacy_user
-from app.core.calculator import calc_pair_performance
+from app.core.calculator import calc_pair_performance, calc_single_performance
 from app.core.cointegration import compute_fixed_zscore, compute_zscore, engle_granger
 from app.core.scanners import corr_breakdown_scan, drawdown_scan, momentum_scan
 from app.core.signals import estimate_signal_timing, is_actionable_signal
@@ -203,6 +203,87 @@ def _make_forecast_trades(pairs, fav_pairs=None):
 
     trades.sort(key=lambda x: abs(x.get("z_now", 0) or 0), reverse=True)
     return trades
+
+
+def _single_scanner_status(
+    source,
+    signal_type,
+    prices,
+    ticker,
+) -> dict:
+    """Re-run a scanner to decide whether a tracked single position still holds."""
+    result = {
+        "status": "Перепроверить",
+        "status_color": "orange",
+        "status_detail": "Недостаточно свежих данных для повторного расчёта",
+        "recommendation": "hold_warn",
+        "progress_pct": 0,
+        "progress_str": "",
+        "hl_remaining": None,
+        "is_expired": False,
+        "z_now": None,
+        "z_entry": None,
+    }
+    values = np.asarray(prices, dtype=float)
+    values = values[np.isfinite(values) & (values > 0)]
+    if len(values) < 14:
+        return result
+
+    if source == "scanner_momentum":
+        scan = momentum_scan(
+            values.reshape(-1, 1),
+            [ticker],
+            [],
+        )
+    elif source == "scanner_drawdown":
+        if len(values) < 90:
+            return result
+        scan = drawdown_scan(values.reshape(-1, 1), [ticker])
+        if scan.empty:
+            return {
+                **result,
+                "status": "Цель достигнута",
+                "status_color": "green",
+                "status_detail": "Актив вышел из просадки сканера",
+                "recommendation": "close",
+            }
+    else:
+        return result
+
+    if scan.empty:
+        return result
+
+    current = scan.iloc[0]
+    expected_class = "short" if signal_type == "short_a" else "long"
+    current_class = current.get("recommendation_class", "wait")
+    detail = str(current.get("recommendation_reason") or "")
+    risk_note = current.get("risk_note")
+    if risk_note:
+        detail = f"{detail}. {risk_note}" if detail else str(risk_note)
+
+    if current_class == expected_class:
+        return {
+            **result,
+            "status": "Держать",
+            "status_color": "green",
+            "status_detail": detail or "Направление сканера сохраняется",
+            "recommendation": "holding",
+        }
+    if current_class == "wait":
+        return {
+            **result,
+            "status": "Закрыть?",
+            "status_color": "orange",
+            "status_detail": detail or "Сканер больше не подтверждает вход",
+            "recommendation": "close_warn",
+        }
+    return {
+        **result,
+        "status": "Сигнал развернулся",
+        "status_color": "red",
+        "status_detail": detail or "Текущее направление противоположно входу",
+        "recommendation": "close",
+    }
 
 
 async def _dash_data(conn, market):
@@ -451,6 +532,32 @@ async def tab_scanner_content(
                 df = df[df["deviation"] >= min_deviation] if not df.empty else df
             results = _df_records(df)
 
+        if scanner_type in {"momentum", "drawdown"} and results:
+            favorite_pairs = set()
+            try:
+                user = await get_current_or_legacy_user(request)
+                if user:
+                    async with get_connection() as conn:
+                        cursor = await conn.execute(
+                            """
+                            SELECT pair
+                            FROM favorites
+                            WHERE user_id = ?
+                              AND status = 'active'
+                              AND COALESCE(market, 'crypto') = ?
+                              AND COALESCE(position_kind, 'pair') = 'single'
+                            """,
+                            (user.id, market),
+                        )
+                        favorite_pairs = {
+                            str(row[0]) for row in await cursor.fetchall()
+                        }
+            except Exception:
+                favorite_pairs = set()
+            for result in results:
+                result["favorite_pair"] = result["ticker"]
+                result["is_favorite"] = result["ticker"] in favorite_pairs
+
         return templates.TemplateResponse(request, template, {
             **ctx,
             "results": results,
@@ -597,7 +704,8 @@ async def tab_favorites(
             market = favorite.get("market") or "crypto"
             has_ru_favorites = has_ru_favorites or market == "ru"
             ticker_keys.add((market, favorite["ticker_a"]))
-            ticker_keys.add((market, favorite["ticker_b"]))
+            if favorite.get("ticker_b"):
+                ticker_keys.add((market, favorite["ticker_b"]))
         latest_prices = {}
         price_history = {}  # (market, ticker) -> np.array of close prices
         pair_risks = {}
@@ -645,17 +753,24 @@ async def tab_favorites(
 
         for _, row in favs.iterrows():
             market = row.get("market") or "crypto"
+            position_kind = row.get("position_kind") or "pair"
+            is_single = position_kind == "single"
+            source = row.get("source") or "signal"
             entry_a = row.get("price_a_entry")
             entry_b = row.get("price_b_entry")
 
             # Backfill entry from DB if 0
             if not entry_a or entry_a == 0:
                 entry_a = latest_prices.get((market, row["ticker_a"]), 0)
-            if not entry_b or entry_b == 0:
+            if not is_single and (not entry_b or entry_b == 0):
                 entry_b = latest_prices.get((market, row["ticker_b"]), 0)
 
             p_a = latest_prices.get((market, row["ticker_a"]), 0)
-            p_b = latest_prices.get((market, row["ticker_b"]), 0)
+            p_b = (
+                0
+                if is_single
+                else latest_prices.get((market, row["ticker_b"]), 0)
+            )
             pnl_a = (p_a / entry_a - 1) * 100 if entry_a and entry_a > 0 and p_a else 0
             pnl_b = (p_b / entry_b - 1) * 100 if entry_b and entry_b > 0 and p_b else 0
             st = row.get("signal_type", "wait")
@@ -666,34 +781,55 @@ async def tab_favorites(
             entry_time = row.get("entry_time")
             holding_timing = estimate_signal_timing(entry_time, hl)
             days_held = holding_timing["signal_days_elapsed"]
-            performance = calc_pair_performance(
-                st,
-                entry_a,
-                entry_b,
-                p_a,
-                p_b,
-                capital=capital,
-                leverage=leverage,
-                taker_fee_pct=taker_fee,
-                funding_rate_8h_pct=(
-                    funding_rate if market == "crypto" else 0
-                ),
-                hold_days=days_held,
+            performance = (
+                calc_single_performance(
+                    st,
+                    entry_a,
+                    p_a,
+                    capital=capital,
+                    leverage=leverage,
+                    taker_fee_pct=taker_fee,
+                    funding_rate_8h_pct=(
+                        funding_rate if market == "crypto" else 0
+                    ),
+                    hold_days=days_held,
+                )
+                if is_single
+                else calc_pair_performance(
+                    st,
+                    entry_a,
+                    entry_b,
+                    p_a,
+                    p_b,
+                    capital=capital,
+                    leverage=leverage,
+                    taker_fee_pct=taker_fee,
+                    funding_rate_8h_pct=(
+                        funding_rate if market == "crypto" else 0
+                    ),
+                    hold_days=days_held,
+                )
             )
 
             # Recalculate current Z-score from price history
-            z_now_live = compute_fixed_zscore(
-                p_a,
-                p_b,
-                row.get("hedge_ratio_entry"),
-                row.get("spread_mean_entry"),
-                row.get("spread_sd_entry"),
+            z_now_live = (
+                None
+                if is_single
+                else compute_fixed_zscore(
+                    p_a,
+                    p_b,
+                    row.get("hedge_ratio_entry"),
+                    row.get("spread_mean_entry"),
+                    row.get("spread_sd_entry"),
+                )
             )
             if z_now_live is not None:
                 z_now_live = round(z_now_live, 2)
             ta_hist = price_history.get((market, row["ticker_a"]))
             tb_hist = price_history.get((market, row["ticker_b"]))
             if (
+                not is_single
+                and
                 z_now_live is None
                 and ta_hist is not None
                 and tb_hist is not None
@@ -714,46 +850,67 @@ async def tab_favorites(
                     if not hl and cg["halflife"]:
                         hl = _finite_int(cg["halflife"])
 
-            # If we couldn't recalc, use the stored z_at_entry as fallback
-            z_now_for_status = z_now_live if z_now_live is not None else z_at_entry
-
-            # Compute forecast status
-            fc = _forecast_status(
-                z_now=z_now_for_status,
-                z_entry=z_at_entry,
-                signal_type=st,
-                days_held=days_held,
-                hl=hl,
-                pnl_pct=total_pnl,
-            )
-            pair_risk = pair_risks.get(
-                (market, row["ticker_a"], row["ticker_b"]),
-                {},
-            )
-            signal_eligible = _finite_bool(
-                pair_risk.get(
-                    "signal_eligible",
-                    0 if market == "ru" else 1,
+            if is_single:
+                status_prices = (
+                    np.array(ta_hist, copy=True)
+                    if ta_hist is not None
+                    else np.array([], dtype=float)
                 )
-            )
-            risk_reason = pair_risk.get("risk_reason")
-            if market == "ru" and not pair_risk:
-                risk_reason = "Пара отсутствует в свежем анализе"
-            if market == "ru" and not signal_eligible:
-                fc.update({
-                    "status": "Перепроверить",
-                    "status_color": "orange",
-                    "status_detail": (
-                        risk_reason
-                        or "Текущая модель больше не подтверждает сигнал"
-                    ),
-                    "recommendation": "hold_warn",
-                })
+                if len(status_prices) and p_a:
+                    status_prices[-1] = p_a
+                fc = _single_scanner_status(
+                    source,
+                    st,
+                    status_prices,
+                    row["ticker_a"],
+                )
+                pair_risk = {}
+                signal_eligible = True
+                risk_reason = None
+            else:
+                # If we couldn't recalc, use the stored z_at_entry as fallback
+                z_now_for_status = (
+                    z_now_live if z_now_live is not None else z_at_entry
+                )
+                fc = _forecast_status(
+                    z_now=z_now_for_status,
+                    z_entry=z_at_entry,
+                    signal_type=st,
+                    days_held=days_held,
+                    hl=hl,
+                    pnl_pct=total_pnl,
+                )
+                pair_risk = pair_risks.get(
+                    (market, row["ticker_a"], row["ticker_b"]),
+                    {},
+                )
+                signal_eligible = _finite_bool(
+                    pair_risk.get(
+                        "signal_eligible",
+                        0 if market == "ru" else 1,
+                    )
+                )
+                risk_reason = pair_risk.get("risk_reason")
+                if market == "ru" and not pair_risk:
+                    risk_reason = "Пара отсутствует в свежем анализе"
+                if market == "ru" and not signal_eligible:
+                    fc.update({
+                        "status": "Перепроверить",
+                        "status_color": "orange",
+                        "status_detail": (
+                            risk_reason
+                            or "Текущая модель больше не подтверждает сигнал"
+                        ),
+                        "recommendation": "hold_warn",
+                    })
 
             active.append({
                 "id": int(row["id"]),
                 "pair": row["pair"],
                 "market": market,
+                "position_kind": position_kind,
+                "is_single": is_single,
+                "source": source,
                 "ticker_a": row["ticker_a"],
                 "ticker_b": row["ticker_b"],
                 "signal": row.get("signal", ""),
