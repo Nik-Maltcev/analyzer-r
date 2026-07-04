@@ -19,7 +19,7 @@
                     <th>High 90д</th>
                     <th>Сейчас</th>
                     <th>Ист. риск</th>
-                    <th>Сигнал</th>
+                    <th>Рекомендация</th>
                 </tr>
             </thead>
             <tbody>
@@ -35,7 +35,20 @@
                     <td class="text-mono">{{ "%.4f"|format(r.high_90d) }}</td>
                     <td class="text-mono">{{ "%.4f"|format(r.current) }}</td>
                     <td class="text-mono">{{ "%.2f"|format(r.avg_historical_recovery) }}%</td>
-                    <td>{{ r.signal }}</td>
+                    <td>
+                        <div class="scanner-recommendation">
+                            <span class="badge {% if r.recommendation_class == 'long' %}badge-green{% else %}badge-gray{% endif %}">
+                                {{ r.recommendation }}
+                            </span>
+                            <span class="scanner-confidence">Уверенность: {{ r.confidence }}</span>
+                            <span class="scanner-reason">
+                                {{ r.recommendation_reason }} · 3д {{ "%+.1f"|format(r.pct_3d) }}% · 7д {{ "%+.1f"|format(r.pct_7d) }}%
+                            </span>
+                            {% if r.risk_note %}
+                            <span class="scanner-risk-note">{{ r.risk_note }}</span>
+                            {% endif %}
+                        </div>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>

@@ -2127,6 +2127,34 @@ body.modal-open {
 .scanner-results {
 }
 
+.scanner-recommendation {
+    align-items: flex-start;
+    display: grid;
+    gap: 4px;
+    min-width: 210px;
+}
+
+.scanner-recommendation .badge {
+    justify-self: start;
+}
+
+.scanner-confidence {
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.scanner-reason,
+.scanner-risk-note {
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.scanner-risk-note {
+    color: var(--orange-bright);
+}
+
 /* ---------- 24. Scrollbars ---------- */
 ::-webkit-scrollbar {
     width: 10px;

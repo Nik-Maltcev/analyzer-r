@@ -19,7 +19,7 @@
                     <th>14д</th>
                     <th>Vol 7д</th>
                     <th>Score</th>
-                    <th>Сигнал</th>
+                    <th>Рекомендация</th>
                     <th>Тренд</th>
                 </tr>
             </thead>
@@ -36,7 +36,18 @@
                             {{ "%+.2f"|format(r.momentum_score) }}
                         </span>
                     </td>
-                    <td>{{ r.signal }}</td>
+                    <td>
+                        <div class="scanner-recommendation">
+                            <span class="badge {% if r.recommendation_class == 'long' %}badge-green{% elif r.recommendation_class == 'short' %}badge-red{% else %}badge-gray{% endif %}">
+                                {{ r.recommendation }}
+                            </span>
+                            <span class="scanner-confidence">Уверенность: {{ r.confidence }}</span>
+                            <span class="scanner-reason">{{ r.recommendation_reason }}</span>
+                            {% if r.risk_note %}
+                            <span class="scanner-risk-note">{{ r.risk_note }}</span>
+                            {% endif %}
+                        </div>
+                    </td>
                     <td>{{ r.trend }}</td>
                 </tr>
                 {% endfor %}

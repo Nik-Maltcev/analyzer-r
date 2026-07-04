@@ -5,6 +5,13 @@ import pandas as pd
 from typing import Dict, Any, List
 
 
+def _lower_confidence(confidence: str) -> str:
+    return {
+        "Высокая": "Средняя",
+        "Средняя": "Низкая",
+    }.get(confidence, confidence)
+
+
 def corr_breakdown_scan(price_matrix: pd.DataFrame, tickers: List[str]) -> pd.DataFrame:
     """
     Find pairs where rolling correlation deviates from static correlation by >= 0.2.
@@ -36,7 +43,25 @@ def corr_breakdown_scan(price_matrix: pd.DataFrame, tickers: List[str]) -> pd.Da
             
             dev = abs(sc - rc)
             if dev >= 0.2:
-                signal = "Корреляция сломалась" if rc < sc else "Синхронизировались сильнее"
+                relationship_weakened = (
+                    sc * rc < 0
+                    or abs(rc) < abs(sc)
+                )
+                signal = (
+                    "Корреляция сломалась"
+                    if relationship_weakened
+                    else "Синхронизировались сильнее"
+                )
+                if relationship_weakened:
+                    recommendation = "Не открывать пару"
+                    recommendation_reason = (
+                        "Корреляция заметно ослабла"
+                        if dev >= 0.5
+                        else "Корреляция ослабла"
+                    )
+                else:
+                    recommendation = "Перепроверить пару"
+                    recommendation_reason = "Активы синхронизировались сильнее"
                 results.append({
                     "ticker_a": tickers[i],
                     "ticker_b": tickers[j],
@@ -44,6 +69,10 @@ def corr_breakdown_scan(price_matrix: pd.DataFrame, tickers: List[str]) -> pd.Da
                     "rolling_corr": round(float(rc), 4),
                     "deviation": round(float(dev), 4),
                     "signal": signal,
+                    "recommendation": recommendation,
+                    "recommendation_class": "wait",
+                    "confidence": "Высокая" if dev >= 0.5 else "Средняя",
+                    "recommendation_reason": recommendation_reason,
                     "scanner": "corrbreak",
                 })
     
@@ -95,6 +124,42 @@ def momentum_scan(prices: np.ndarray, tickers: List[str], dates: List[str]) -> p
         else:
             trend = "Боковик"
             signal = "Ждать"
+
+        direction = 1 if signal == "Лонг" else -1 if signal == "Шорт" else 0
+        confirmations = sum(
+            1 for move in (p3, p7, p14)
+            if direction and np.sign(move) == direction
+        )
+        if signal == "Лонг":
+            recommendation = "Рассмотреть лонг"
+            recommendation_class = "long"
+        elif signal == "Шорт":
+            recommendation = "Рассмотреть шорт"
+            recommendation_class = "short"
+        else:
+            recommendation = "Ждать подтверждения"
+            recommendation_class = "wait"
+
+        if signal == "Ждать":
+            confidence = "Низкая"
+            recommendation_reason = "Импульс недостаточно согласован"
+        else:
+            if confirmations == 3 and abs(avg_m) >= 10:
+                confidence = "Высокая"
+            elif confirmations >= 2 and abs(avg_m) >= 5:
+                confidence = "Средняя"
+            else:
+                confidence = "Низкая"
+            recommendation_reason = (
+                f"Импульс подтверждён на {confirmations} из 3 горизонтов"
+            )
+
+        risk_note = None
+        if vol7 >= 8:
+            confidence = _lower_confidence(confidence)
+            risk_note = "Высокая волатильность: уменьшите размер позиции"
+        elif vol7 >= 4:
+            risk_note = "Повышенная волатильность: контролируйте размер позиции"
         
         results.append({
             "ticker": ticker,
@@ -104,6 +169,11 @@ def momentum_scan(prices: np.ndarray, tickers: List[str], dates: List[str]) -> p
             "volatility_7d": round(float(vol7), 2),
             "trend": trend,
             "signal": signal,
+            "recommendation": recommendation,
+            "recommendation_class": recommendation_class,
+            "confidence": confidence,
+            "recommendation_reason": recommendation_reason,
+            "risk_note": risk_note,
             "momentum_score": round(float(avg_m), 2),
             "scanner": "momentum",
         })
@@ -156,6 +226,45 @@ def drawdown_scan(prices: np.ndarray, tickers: List[str]) -> pd.DataFrame:
                 recoveries.append(future_dd)
         
         avg_recovery = float(np.mean(recoveries)) if recoveries else 0
+
+        p3 = (
+            (valid[-1] / valid[-4] - 1) * 100
+            if len(valid) >= 4
+            else 0
+        )
+        p7 = (
+            (valid[-1] / valid[-8] - 1) * 100
+            if len(valid) >= 8
+            else 0
+        )
+        if p3 > 1 and p7 > 0:
+            signal = "Лонг"
+            recommendation = "Рассмотреть лонг"
+            recommendation_class = "long"
+            confidence = (
+                "Высокая"
+                if p3 >= 3 and p7 >= 3 and dd_pct < 30
+                else "Средняя"
+            )
+            recommendation_reason = "Отскок подтверждается"
+        elif p3 < 0 and p7 < 0:
+            signal = "Ждать"
+            recommendation = "Не входить"
+            recommendation_class = "wait"
+            confidence = "Высокая" if p3 <= -3 else "Средняя"
+            recommendation_reason = "Падение продолжается"
+        else:
+            signal = "Ждать"
+            recommendation = "Ждать подтверждения"
+            recommendation_class = "wait"
+            confidence = "Низкая"
+            recommendation_reason = "Нет подтверждённого отскока"
+
+        risk_note = (
+            "Глубокая просадка: риск продолжения движения"
+            if dd_pct >= 30
+            else None
+        )
         
         results.append({
             "ticker": ticker,
@@ -164,7 +273,14 @@ def drawdown_scan(prices: np.ndarray, tickers: List[str]) -> pd.DataFrame:
             "high_90d": round(high_90, 4),
             "current": round(current, 4),
             "avg_historical_recovery": round(float(avg_recovery), 2),
-            "signal": "Лонг",
+            "pct_3d": round(float(p3), 2),
+            "pct_7d": round(float(p7), 2),
+            "signal": signal,
+            "recommendation": recommendation,
+            "recommendation_class": recommendation_class,
+            "confidence": confidence,
+            "recommendation_reason": recommendation_reason,
+            "risk_note": risk_note,
             "scanner": "drawdown",
         })
     

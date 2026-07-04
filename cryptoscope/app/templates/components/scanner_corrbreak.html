@@ -18,6 +18,7 @@
                     <th>30д corr</th>
                     <th>Отклонение</th>
                     <th>Сигнал</th>
+                    <th>Рекомендация</th>
                 </tr>
             </thead>
             <tbody>
@@ -32,6 +33,13 @@
                         </span>
                     </td>
                     <td>{{ r.signal }}</td>
+                    <td>
+                        <div class="scanner-recommendation">
+                            <span class="badge badge-gray">{{ r.recommendation }}</span>
+                            <span class="scanner-confidence">Уверенность: {{ r.confidence }}</span>
+                            <span class="scanner-reason">{{ r.recommendation_reason }}</span>
+                        </div>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
