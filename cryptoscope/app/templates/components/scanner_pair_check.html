@@ -1,0 +1,59 @@
+<div class="corr-pair-check corr-pair-check-{{ check_state }}">
+    {% if check_state == "missing" %}
+    <div class="corr-check-status">
+        <strong>Проверка пока недоступна</strong>
+        <span>Пара отсутствует в последнем ежедневном анализе.</span>
+    </div>
+    {% elif check_state == "error" %}
+    <div class="corr-check-status">
+        <strong>Ошибка проверки</strong>
+        <span>{{ check_reason }}</span>
+    </div>
+    {% else %}
+    <div class="corr-check-header">
+        <div class="corr-check-status">
+            {% if check_state == "confirmed" %}
+            <span class="badge badge-green">Сигнал подтверждён</span>
+            <strong>{{ analysis.signal }}</strong>
+            {% elif check_state == "wait" %}
+            <span class="badge badge-blue">Пока ждать</span>
+            <strong>Точки входа сейчас нет</strong>
+            {% else %}
+            <span class="badge badge-orange">Не входить</span>
+            <strong>Статистическая связь не подтверждена</strong>
+            {% endif %}
+            <span>{{ check_reason }}</span>
+        </div>
+
+        {% if check_state == "confirmed" %}
+        <button class="fav-btn fav-btn-inline {% if analysis.is_favorite %}favorited{% endif %}"
+                type="button"
+                data-pair="{{ analysis.pair_id }}"
+                title="Добавить позицию в портфель"
+                aria-label="Добавить {{ ticker_a }} / {{ ticker_b }} в портфель"
+                onclick="toggleFavorite('{{ analysis.pair_id }}','{{ ticker_a }}','{{ ticker_b }}','{{ analysis.signal }}','{{ analysis.signal_type }}','{{ analysis.z_now|default('') }}',0,0,'{{ analysis.halflife|default('') }}','{{ analysis.corr|default(0) }}',{source:'scanner_corrbreak'})">
+            {% if analysis.is_favorite %}★{% else %}☆{% endif %}
+        </button>
+        {% endif %}
+    </div>
+
+    <div class="corr-check-metrics">
+        <div>
+            <span>Коинтеграция</span>
+            <strong>{% if analysis.is_coint_stable %}✓ подтверждена{% else %}не подтверждена{% endif %}</strong>
+        </div>
+        <div>
+            <span>Z сейчас</span>
+            <strong class="text-mono">{{ analysis.z_now|default("—", true) }}</strong>
+        </div>
+        <div>
+            <span>Z прогноз</span>
+            <strong class="text-mono">{{ analysis.z_forecast|default("—", true) }}</strong>
+        </div>
+        <div>
+            <span>Полупериод</span>
+            <strong>{{ analysis.halflife|default("—", true) }}{% if analysis.halflife %} дн.{% endif %}</strong>
+        </div>
+    </div>
+    {% endif %}
+</div>

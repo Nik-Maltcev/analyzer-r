@@ -71,10 +71,10 @@ MESSAGES = {
         "Acompanhamento de posições",
         "Pelacakan posisi",
     ),
-    "Добавляйте сигналы в Избранное и следите за P&L в реальном времени.": (
-        "Add signals to your watchlist and track P&L in real time.",
-        "Adicione sinais aos favoritos e acompanhe o P&L em tempo real.",
-        "Tambahkan sinyal ke favorit dan pantau P&L secara real time.",
+    "Добавляйте сигналы в Портфель и следите за P&L в реальном времени.": (
+        "Add signals to your portfolio and track P&L in real time.",
+        "Adicione sinais ao portfólio e acompanhe o P&L em tempo real.",
+        "Tambahkan sinyal ke portofolio dan pantau P&L secara real time.",
     ),
     "Калькулятор P&L учитывает комиссии MEXC и фандинг.": (
         "The P&L calculator includes MEXC fees and funding.",
@@ -154,17 +154,22 @@ MESSAGES = {
         "Quebras de correlação, momentum e drawdowns sem revisar centenas de gráficos.",
         "Correlation break, momentum, dan drawdown tanpa memeriksa ratusan grafik.",
     ),
-    "Личное избранное": ("Personal watchlist", "Favoritos pessoais", "Favorit pribadi"),
+    "Личный портфель": ("Personal portfolio", "Portfólio pessoal", "Portofolio pribadi"),
     "Отслеживание позиций с live P&L": ("Position tracking with live P&L", "Acompanhamento de posições com P&L ao vivo", "Pelacakan posisi dengan P&L live"),
     "Активные позиции с движением пары, net P&L и прогнозом": (
         "Active positions with pair movement, net P&L and forecasts",
         "Posições ativas com movimento do par, P&L líquido e previsões",
         "Posisi aktif dengan pergerakan pasangan, P&L net, dan prediksi",
     ),
-    "Полный доступ к рынкам, сигналам, сканерам и избранному.": (
-        "Full access to markets, signals, scanners and watchlists.",
-        "Acesso completo a mercados, sinais, scanners e favoritos.",
-        "Akses penuh ke pasar, sinyal, pemindai, dan favorit.",
+    "Полный доступ к рынкам, сигналам, сканерам и портфелю.": (
+        "Full access to markets, signals, scanners and portfolio.",
+        "Acesso completo a mercados, sinais, scanners e portfólio.",
+        "Akses penuh ke pasar, sinyal, pemindai, dan portofolio.",
+    ),
+    "Портфель и история": (
+        "Portfolio and history",
+        "Portfólio e histórico",
+        "Portofolio dan riwayat",
     ),
     "Три дня, чтобы проверить на своих сценариях": (
         "Three days to test your own workflows",
@@ -343,6 +348,59 @@ MESSAGES = {
     "Не входить": ("Do not enter", "Não entrar", "Jangan masuk"),
     "Не открывать пару": ("Do not open the pair", "Não abrir o par", "Jangan buka pasangan"),
     "Перепроверить пару": ("Recheck the pair", "Reavaliar o par", "Periksa ulang pasangan"),
+    "Проверить пару": ("Check pair", "Verificar par", "Periksa pasangan"),
+    "Сигнал подтверждён": ("Signal confirmed", "Sinal confirmado", "Sinyal terkonfirmasi"),
+    "Пока ждать": ("Wait for now", "Aguardar por enquanto", "Tunggu dulu"),
+    "Точки входа сейчас нет": (
+        "There is no entry point now",
+        "Não há ponto de entrada agora",
+        "Belum ada titik masuk",
+    ),
+    "Статистическая связь не подтверждена": (
+        "The statistical relationship is not validated",
+        "A relação estatística não foi validada",
+        "Hubungan statistik belum tervalidasi",
+    ),
+    "Коинтеграция пары не подтверждена": (
+        "Pair cointegration is not validated",
+        "A cointegração do par não foi validada",
+        "Kointegrasi pasangan belum tervalidasi",
+    ),
+    "Связь подтверждена, но Z-score пока не даёт точки входа": (
+        "The relationship is validated, but the Z-score does not provide an entry yet",
+        "A relação foi validada, mas o Z-score ainda não oferece uma entrada",
+        "Hubungan tervalidasi, tetapi Z-score belum memberi titik masuk",
+    ),
+    "Коинтеграция и отклонение подтверждают точку входа": (
+        "Cointegration and the deviation validate the entry point",
+        "A cointegração e o desvio validam o ponto de entrada",
+        "Kointegrasi dan deviasi mengonfirmasi titik masuk",
+    ),
+    "Проверка пока недоступна": (
+        "The check is not available yet",
+        "A verificação ainda não está disponível",
+        "Pemeriksaan belum tersedia",
+    ),
+    "Пара отсутствует в последнем ежедневном анализе.": (
+        "The pair is missing from the latest daily analysis.",
+        "O par não está na análise diária mais recente.",
+        "Pasangan tidak ada dalam analisis harian terbaru.",
+    ),
+    "Ошибка проверки": ("Check failed", "Falha na verificação", "Pemeriksaan gagal"),
+    "Не удалось загрузить проверку пары": (
+        "Could not load the pair check",
+        "Não foi possível carregar a verificação do par",
+        "Pemeriksaan pasangan gagal dimuat",
+    ),
+    "Добавить позицию в портфель": (
+        "Add position to portfolio",
+        "Adicionar posição ao portfólio",
+        "Tambahkan posisi ke portofolio",
+    ),
+    "подтверждена": ("validated", "validada", "tervalidasi"),
+    "не подтверждена": ("not validated", "não validada", "belum tervalidasi"),
+    "Z сейчас": ("Z now", "Z agora", "Z sekarang"),
+    "Z прогноз": ("Z forecast", "Z previsto", "Prediksi Z"),
     "Высокая": ("High", "Alta", "Tinggi"),
     "Средняя": ("Medium", "Média", "Sedang"),
     "Низкая": ("Low", "Baixa", "Rendah"),
@@ -411,6 +469,11 @@ MESSAGES = {
         "Acompanhar posição nos favoritos",
         "Pantau posisi di favorit",
     ),
+    "Отслеживать позицию в портфеле": (
+        "Track position in portfolio",
+        "Acompanhar posição no portfólio",
+        "Pantau posisi di portofolio",
+    ),
     "Капитал позиции": (
         "Position capital",
         "Capital da posição",
@@ -473,6 +536,11 @@ MESSAGES = {
     "Активные позиции": ("Active positions", "Posições ativas", "Posisi aktif"),
     "История закрытых": ("Closed history", "Histórico encerrado", "Riwayat ditutup"),
     "Закрытых позиций пока нет": ("No closed positions yet", "Ainda não há posições encerradas", "Belum ada posisi ditutup"),
+    "Когда вы закроете позицию из портфеля, она появится здесь.": (
+        "When you close a portfolio position, it will appear here.",
+        "Quando você encerrar uma posição do portfólio, ela aparecerá aqui.",
+        "Saat posisi portofolio ditutup, posisinya akan muncul di sini.",
+    ),
     "Закрыть": ("Close", "Encerrar", "Tutup"),
     "Закрыть?": ("Close?", "Encerrar?", "Tutup?"),
     "Обновить котировки RU": ("Refresh RU quotes", "Atualizar cotações RU", "Perbarui harga RU"),
@@ -491,6 +559,11 @@ MESSAGES = {
         "Storage status, update schedule and calculator settings",
         "Status do armazenamento, agenda de atualizações e calculadora",
         "Status penyimpanan, jadwal pembaruan, dan kalkulator",
+    ),
+    "Сигналы, сканеры и портфель снова откроются сразу после подтверждения платежа.": (
+        "Signals, scanners and portfolio will reopen as soon as payment is confirmed.",
+        "Sinais, scanners e portfólio serão liberados assim que o pagamento for confirmado.",
+        "Sinyal, pemindai, dan portofolio akan terbuka kembali setelah pembayaran terkonfirmasi.",
     ),
     "Обновление данных": ("Data updates", "Atualização de dados", "Pembaruan data"),
     "Последнее обновление цен:": ("Last price update:", "Última atualização de preços:", "Pembaruan harga terakhir:"),
@@ -632,10 +705,10 @@ MESSAGES = {
         "Salve a posição",
         "Simpan posisi",
     ),
-    "Зафиксируйте модель и точку входа в личном избранном одним нажатием.": (
-        "Save the model and entry point to your watchlist in one click.",
-        "Salve o modelo e o ponto de entrada nos favoritos com um clique.",
-        "Simpan model dan titik masuk ke favorit dengan satu klik.",
+    "Зафиксируйте модель и точку входа в личном портфеле одним нажатием.": (
+        "Save the model and entry point to your portfolio in one click.",
+        "Salve o modelo e o ponto de entrada no portfólio com um clique.",
+        "Simpan model dan titik masuk ke portofolio dengan satu klik.",
     ),
     "Закройте по плану": (
         "Close according to plan",
@@ -739,20 +812,40 @@ MESSAGES = {
         "Adicionado aos favoritos",
         "Ditambahkan ke favorit",
     ),
+    "Добавлено в портфель": (
+        "Added to portfolio",
+        "Adicionado ao portfólio",
+        "Ditambahkan ke portofolio",
+    ),
     "Удалено из избранного": (
         "Removed from watchlist",
         "Removido dos favoritos",
         "Dihapus dari favorit",
+    ),
+    "Удалено из портфеля": (
+        "Removed from portfolio",
+        "Removido do portfólio",
+        "Dihapus dari portofolio",
     ),
     "Не удалось обновить избранное": (
         "Could not update the watchlist",
         "Não foi possível atualizar os favoritos",
         "Favorit tidak dapat diperbarui",
     ),
+    "Не удалось обновить портфель": (
+        "Could not update the portfolio",
+        "Não foi possível atualizar o portfólio",
+        "Portofolio tidak dapat diperbarui",
+    ),
     "Ошибка избранного": (
         "Watchlist error",
         "Erro nos favoritos",
         "Kesalahan favorit",
+    ),
+    "Ошибка портфеля": (
+        "Portfolio error",
+        "Erro no portfólio",
+        "Kesalahan portofolio",
     ),
     "Закрыть позицию?": (
         "Close the position?",

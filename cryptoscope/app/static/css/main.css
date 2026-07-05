@@ -2155,6 +2155,91 @@ body.modal-open {
     color: var(--orange-bright);
 }
 
+.corr-check-btn {
+    justify-self: start;
+    margin-top: 4px;
+}
+
+.corr-check-row > td {
+    border-top: 0;
+    padding: 0 12px 10px;
+}
+
+.corr-check-row:has(> td > div:empty) {
+    display: none;
+}
+
+.corr-pair-check {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--blue);
+    border-radius: var(--radius-sm);
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+}
+
+.corr-pair-check-confirmed {
+    border-left-color: var(--green);
+}
+
+.corr-pair-check-rejected,
+.corr-pair-check-error {
+    border-left-color: var(--orange);
+}
+
+.corr-check-header {
+    align-items: flex-start;
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+}
+
+.corr-check-status {
+    display: grid;
+    gap: 4px;
+}
+
+.corr-check-status .badge {
+    justify-self: start;
+}
+
+.corr-check-status > span:not(.badge) {
+    color: var(--text-dim);
+    font-size: 12px;
+}
+
+.corr-check-metrics {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(4, minmax(110px, 1fr));
+}
+
+.corr-check-metrics > div {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    display: grid;
+    gap: 4px;
+    padding: 8px 10px;
+}
+
+.corr-check-metrics span {
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.corr-check-metrics strong {
+    font-size: 12px;
+}
+
+@media (max-width: 720px) {
+    .corr-check-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 /* ---------- 24. Scrollbars ---------- */
 ::-webkit-scrollbar {
     width: 10px;

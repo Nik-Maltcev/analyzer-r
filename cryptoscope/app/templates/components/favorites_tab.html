@@ -1,7 +1,7 @@
 <div class="tab-page favorites-page">
     <div class="page-header">
         <div>
-            <h2>⭐ Избранное — Портфель</h2>
+            <h2>📊 Портфель</h2>
             <p class="page-desc">Активные позиции с движением пары, net P&L и прогнозом</p>
         </div>
     </div>
@@ -256,6 +256,12 @@
                         </span>
                     </div>
                     {% else %}
+                    {% if f.source == "scanner_corrbreak" %}
+                    <div class="detail-row">
+                        <span class="detail-label">Источник сигнала</span>
+                        <span class="detail-value">Corr Breakdown</span>
+                    </div>
+                    {% endif %}
                     <div class="detail-row">
                         <span class="detail-label">Z на входе</span>
                         <span class="detail-value text-mono">{{ f.z_at_entry if f.z_at_entry is not none else '—' }}</span>

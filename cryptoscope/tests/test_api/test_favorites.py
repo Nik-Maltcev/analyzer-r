@@ -281,6 +281,96 @@ async def test_scanner_single_position_tracks_pnl_and_recommendation(
 
 
 @pytest.mark.asyncio
+async def test_corrbreak_pair_check_only_allows_validated_signal(
+    app,
+    temp_db,
+):
+    conn = sqlite3.connect(temp_db)
+    _add_auth_session(conn)
+    conn.commit()
+    conn.close()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        client.cookies.set(SESSION_COOKIE_NAME, TEST_SESSION)
+        confirmed = await client.get(
+            "/tab/scanner/corrbreak/check",
+            params={
+                "market": "crypto",
+                "ticker_a": "BTC/USD",
+                "ticker_b": "ETH/USD",
+            },
+        )
+
+        assert confirmed.status_code == 200
+        assert "Сигнал подтверждён" in confirmed.text
+        assert "Шорт BTC / Лонг ETH" in confirmed.text
+        assert 'data-pair="BTC/USD_ETH/USD"' in confirmed.text
+        assert "scanner_corrbreak" in confirmed.text
+
+        added = await client.post(
+            "/api/favorites/toggle",
+            params={
+                "pair": "BTC/USD_ETH/USD",
+                "ticker_a": "BTC/USD",
+                "ticker_b": "ETH/USD",
+                "signal": "Шорт BTC / Лонг ETH",
+                "signal_type": "short_a",
+                "z_at_entry": 2.3,
+                "halflife": 30,
+                "corr": 0.85,
+                "market": "crypto",
+                "source": "scanner_corrbreak",
+            },
+        )
+        favorited = await client.get(
+            "/tab/scanner/corrbreak/check",
+            params={
+                "market": "crypto",
+                "ticker_a": "BTC/USD",
+                "ticker_b": "ETH/USD",
+            },
+        )
+        portfolio = await client.get("/tab/favorites")
+
+    assert added.status_code == 200
+    assert added.json()["action"] == "added"
+    assert "fav-btn fav-btn-inline favorited" in favorited.text
+    assert "Corr Breakdown" in portfolio.text
+
+    conn = sqlite3.connect(temp_db)
+    conn.execute(
+        """
+        UPDATE pairs
+        SET is_coint = 0,
+            signal = 'Ждать',
+            signal_type = 'wait',
+            strength = 'Нет'
+        WHERE market = 'crypto'
+          AND ticker_a = 'BTC/USD'
+          AND ticker_b = 'ETH/USD'
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        rejected = await client.get(
+            "/tab/scanner/corrbreak/check",
+            params={
+                "market": "crypto",
+                "ticker_a": "BTC/USD",
+                "ticker_b": "ETH/USD",
+            },
+        )
+
+    assert rejected.status_code == 200
+    assert "Не входить" in rejected.text
+    assert "Статистическая связь не подтверждена" in rejected.text
+    assert "fav-btn" not in rejected.text
+
+
+@pytest.mark.asyncio
 async def test_favorites_require_authentication(app, monkeypatch):
     monkeypatch.setattr(get_settings(), "resend_api_key", "re_test")
     transport = ASGITransport(app=app)

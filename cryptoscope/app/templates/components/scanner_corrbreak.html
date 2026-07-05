@@ -38,9 +38,27 @@
                             <span class="badge badge-gray">{{ r.recommendation }}</span>
                             <span class="scanner-confidence">Уверенность: {{ r.confidence }}</span>
                             <span class="scanner-reason">{{ r.recommendation_reason }}</span>
+                            {% if r.recommendation == "Перепроверить пару" %}
+                            <button class="btn btn-outline btn-sm corr-check-btn"
+                                    type="button"
+                                    hx-get="/tab/scanner/corrbreak/check"
+                                    hx-target="#corr-check-{{ loop.index }}"
+                                    hx-swap="innerHTML"
+                                    hx-disabled-elt="this"
+                                    hx-vals='{"ticker_a":{{ r.ticker_a|tojson }},"ticker_b":{{ r.ticker_b|tojson }},"market":{{ market|tojson }}}'>
+                                Проверить пару
+                            </button>
+                            {% endif %}
                         </div>
                     </td>
                 </tr>
+                {% if r.recommendation == "Перепроверить пару" %}
+                <tr class="corr-check-row">
+                    <td colspan="6">
+                        <div id="corr-check-{{ loop.index }}"></div>
+                    </td>
+                </tr>
+                {% endif %}
                 {% endfor %}
             </tbody>
         </table>

@@ -30,8 +30,8 @@
                         <button class="fav-btn fav-btn-inline {% if r.is_favorite %}favorited{% endif %}"
                                 type="button"
                                 data-pair="{{ r.favorite_pair }}"
-                                title="Отслеживать позицию в избранном"
-                                aria-label="Отслеживать {{ r.ticker }} в избранном"
+                                title="Отслеживать позицию в портфеле"
+                                aria-label="Отслеживать {{ r.ticker }} в портфеле"
                                 onclick="toggleScannerFavorite('{{ r.ticker }}','drawdown','{{ r.recommendation_class }}','{{ r.recommendation }}')">
                             {% if r.is_favorite %}★{% else %}☆{% endif %}
                         </button>

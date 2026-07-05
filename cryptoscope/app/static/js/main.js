@@ -337,16 +337,16 @@ function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, 
     .then(async r => {
         const data = await r.json().catch(() => ({}));
         if (r.status === 401) openAuthModal();
-        if (!r.ok) throw new Error(data.detail || 'Не удалось обновить избранное');
+        if (!r.ok) throw new Error(data.detail || 'Не удалось обновить портфель');
         return data;
     })
     .then(data => {
         if (data.action === 'added') {
             btns.forEach(b => { b.classList.add('favorited'); b.textContent = '★'; });
-            showToast('Добавлено в избранное', 'success');
+            showToast('Добавлено в портфель', 'success');
         } else {
             btns.forEach(b => { b.classList.remove('favorited'); b.textContent = '☆'; });
-            showToast('Удалено из избранного', '');
+            showToast('Удалено из портфеля', '');
 
             // If on favorites tab, remove the position card immediately
             const card = document.getElementById('position-' + pairId);
@@ -363,7 +363,7 @@ function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, 
             }
         }
     })
-    .catch(e => showToast(e.message || 'Ошибка избранного', 'error'));
+    .catch(e => showToast(e.message || 'Ошибка портфеля', 'error'));
 }
 
 function toggleScannerFavorite(ticker, scanner, recommendationClass, recommendation) {

@@ -471,6 +471,129 @@ async def tab_portfolio(request: Request, market: str = Query("crypto")):
     })
 
 
+@router.get("/scanner/corrbreak/check", response_class=HTMLResponse)
+async def check_corrbreak_pair(
+    request: Request,
+    ticker_a: str = Query(...),
+    ticker_b: str = Query(...),
+    market: str = Query("crypto"),
+):
+    """Show the latest validated pair analysis for a correlation anomaly."""
+    ctx = {
+        "request": request,
+        "market": market,
+        "ticker_a": ticker_a,
+        "ticker_b": ticker_b,
+        "analysis": None,
+        "check_state": "missing",
+    }
+
+    try:
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT *
+                FROM pairs
+                WHERE market = ?
+                  AND (
+                    (ticker_a = ? AND ticker_b = ?)
+                    OR (ticker_a = ? AND ticker_b = ?)
+                  )
+                LIMIT 1
+                """,
+                (market, ticker_a, ticker_b, ticker_b, ticker_a),
+            )
+            pair_row = await cursor.fetchone()
+
+            if not pair_row:
+                return templates.TemplateResponse(
+                    request,
+                    "components/scanner_pair_check.html",
+                    ctx,
+                )
+
+            row = dict(pair_row)
+            pair_id = f"{row['ticker_a']}_{row['ticker_b']}"
+            favorite_pairs = set()
+            user = await get_current_or_legacy_user(request)
+            if user:
+                cursor = await conn.execute(
+                    """
+                    SELECT pair
+                    FROM favorites
+                    WHERE user_id = ?
+                      AND status = 'active'
+                      AND COALESCE(market, 'crypto') = ?
+                      AND COALESCE(position_kind, 'pair') = 'pair'
+                    """,
+                    (user.id, market),
+                )
+                favorite_pairs = {
+                    str(favorite[0]) for favorite in await cursor.fetchall()
+                }
+
+        analysis = _make_signal_cards(
+            pd.DataFrame([row]),
+            market,
+            favorite_pairs,
+        )[0]
+        analysis["pair_id"] = pair_id
+        analysis["computed_at"] = row.get("computed_at")
+
+        is_validated = _is_validated_pair(row)
+        stored_eligible = row.get("signal_eligible")
+        if stored_eligible is None:
+            stored_eligible = row.get("signal_type") not in (None, "wait")
+        stored_eligible = _finite_bool(stored_eligible)
+        actionable = (
+            stored_eligible
+            and is_actionable_signal(
+                row.get("signal_type"),
+                is_validated,
+            )
+        )
+        analysis["signal_eligible"] = actionable
+
+        if not is_validated:
+            check_state = "rejected"
+            check_reason = (
+                row.get("risk_reason")
+                or "Коинтеграция пары не подтверждена"
+            )
+        elif not actionable:
+            check_state = "wait"
+            check_reason = (
+                row.get("risk_reason")
+                or "Связь подтверждена, но Z-score пока не даёт точки входа"
+            )
+        else:
+            check_state = "confirmed"
+            check_reason = "Коинтеграция и отклонение подтверждают точку входа"
+
+        return templates.TemplateResponse(
+            request,
+            "components/scanner_pair_check.html",
+            {
+                **ctx,
+                "ticker_a": row["ticker_a"],
+                "ticker_b": row["ticker_b"],
+                "analysis": analysis,
+                "check_state": check_state,
+                "check_reason": check_reason,
+            },
+        )
+    except Exception:
+        return templates.TemplateResponse(
+            request,
+            "components/scanner_pair_check.html",
+            {
+                **ctx,
+                "check_state": "error",
+                "check_reason": "Не удалось загрузить проверку пары",
+            },
+        )
+
+
 @router.get("/scanners", response_class=HTMLResponse)
 async def tab_scanners(request: Request):
     return templates.TemplateResponse(
