@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from app.auth import AuthUser
 from app.config import get_settings
 from app.db.database import get_connection
-from app.product import get_product_profile
 
 
 @dataclass(frozen=True)
@@ -53,8 +52,7 @@ def _active_state(
 
 async def get_access_state(user: AuthUser | None) -> AccessState:
     settings = get_settings()
-    profile = get_product_profile(settings)
-    if profile.variant != "global" or not settings.resend_api_key:
+    if not settings.resend_api_key:
         return AccessState(status="unrestricted", has_access=True)
     if user is None:
         return AccessState(status="unauthenticated", has_access=False)

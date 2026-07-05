@@ -14,6 +14,7 @@ from app.db.schema import (
     ALL_TABLES_SQL,
     FAVORITE_COLUMN_MIGRATIONS,
     PAIR_COLUMN_MIGRATIONS,
+    PAYMENT_ORDER_COLUMN_MIGRATIONS,
 )
 
 DB_PATH = "/data/market.db"
@@ -140,6 +141,15 @@ async def init_db(db_path: str | None = None):
             await conn.execute(
                 "ALTER TABLE auth_magic_links ADD COLUMN redirect_path TEXT"
             )
+        cursor = await conn.execute("PRAGMA table_info(payment_orders)")
+        payment_order_columns = {
+            row["name"] for row in await cursor.fetchall()
+        }
+        for column, definition in PAYMENT_ORDER_COLUMN_MIGRATIONS.items():
+            if column not in payment_order_columns:
+                await conn.execute(
+                    f"ALTER TABLE payment_orders ADD COLUMN {column} {definition}"
+                )
         for sql in ALL_INDICES_SQL:
             await conn.execute(sql)
         await conn.commit()

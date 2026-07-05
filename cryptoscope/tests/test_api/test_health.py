@@ -121,7 +121,7 @@ async def test_app_page(app):
         assert 'data-market="id"' not in response.text
         assert 'data-market="ru"' in response.text
         assert 'data-tab="ai"' not in response.text
-        assert "/static/js/main.js?v=20260703-checkout1" in response.text
+        assert "/static/js/main.js?v=20260705-paypal-orders1" in response.text
         assert response.text.index("</nav>") < response.text.index('id="auth-modal"')
 
 

@@ -1,6 +1,7 @@
-from pydantic_settings import BaseSettings
-from functools import lru_cache
 import os
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -35,6 +36,13 @@ class Settings(BaseSettings):
     payanyway_integrity_code: str = ""
     payanyway_test_mode: bool = False
 
+    paypal_client_id: str = ""
+    paypal_client_secret: str = ""
+    paypal_mode: str = "sandbox"
+    paypal_currency: str = "USD"
+    paypal_month_amount: str = "9.90"
+    paypal_year_amount: str = "99.00"
+
     twelve_data_api_key: str = ""
     pyth_api_key: str = ""
 
@@ -46,6 +54,6 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()

@@ -1115,6 +1115,40 @@ body.modal-open {
     margin-top: 16px;
 }
 
+.paypal-checkout-modal-content {
+    max-width: 500px;
+}
+
+.paypal-checkout-summary {
+    align-items: baseline;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+}
+
+.paypal-checkout-summary span {
+    color: var(--text-dim);
+    font-size: 13px;
+}
+
+.paypal-checkout-summary strong {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 18px;
+}
+
+.paypal-checkout-buttons {
+    min-height: 150px;
+    margin-top: 18px;
+}
+
+.paypal-checkout-buttons.is-loading {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
 /* ---------- 14. Toast ---------- */
 #toast-container {
     position: fixed;

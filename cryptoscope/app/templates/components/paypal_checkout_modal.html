@@ -1,0 +1,27 @@
+{% if product.variant in ("br", "id") %}
+<div id="paypal-checkout-modal" class="modal hidden" role="dialog"
+     aria-modal="true" aria-labelledby="paypal-checkout-title">
+    <div class="modal-backdrop" onclick="closePayPalCheckout()"></div>
+    <div class="modal-content paypal-checkout-modal-content">
+        <div class="modal-header">
+            <h3 id="paypal-checkout-title">Оплата через PayPal</h3>
+            <button class="modal-close" type="button"
+                    onclick="closePayPalCheckout()"
+                    aria-label="Закрыть">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="paypal-checkout-summary">
+                <span id="paypal-checkout-plan">Подписка MEANX</span>
+                <strong id="paypal-checkout-amount"></strong>
+            </div>
+            <p class="auth-hint">
+                Платёж будет привязан к текущему аккаунту.
+            </p>
+            <div id="paypal-checkout-buttons" class="paypal-checkout-buttons"></div>
+            <div id="paypal-checkout-status"
+                 class="auth-message hidden"
+                 role="status"></div>
+        </div>
+    </div>
+</div>
+{% endif %}

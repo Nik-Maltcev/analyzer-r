@@ -12,6 +12,7 @@
     <h2>Продлите доступ к аналитике</h2>
     <p>Сигналы, сканеры и портфель снова откроются сразу после подтверждения платежа.</p>
     <div class="access-plan-actions">
+        {% if product.variant == "global" %}
         <a class="btn btn-outline"
            href="/api/payments/payanyway/checkout?plan=month">
             Месяц · 990 ₽
@@ -20,6 +21,14 @@
            href="/api/payments/payanyway/checkout?plan=year">
             Год · 7 900 ₽
         </a>
+        {% else %}
+        <a class="btn btn-outline" href="/app?checkout=month">
+            Месяц · $9.90
+        </a>
+        <a class="btn btn-primary" href="/app?checkout=year">
+            Год · $99.00
+        </a>
+        {% endif %}
     </div>
     {% endif %}
 </section>

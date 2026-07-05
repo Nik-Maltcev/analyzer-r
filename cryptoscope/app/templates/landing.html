@@ -16,12 +16,7 @@
     <link rel="stylesheet" href="/static/css/landing.css?v=20260703-paypal1">
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
     <script>window.CRYPTOSCOPE_TRANSLATIONS = {{ translations|tojson }};</script>
-    {% if product.variant in ("br", "id") %}
-    <script id="paypal-sdk"
-            src="https://www.paypal.com/sdk/js?client-id=BAAcqbJ_FI0s3Uq5-RSJBi-88N-CntiFQQBBQxV-wjqnZe-ELs27-nLOoB4JCYsnXXLblOc96x05RnUACw&components=hosted-buttons&disable-funding=venmo&currency=USD"
-            crossorigin="anonymous" async></script>
-    {% endif %}
-    <script src="/static/js/landing.js" defer></script>
+    <script src="/static/js/landing.js?v=20260705-paypal-orders1" defer></script>
 </head>
 <body>
     <header class="landing-nav">
@@ -276,42 +271,37 @@
                 <h2>Три дня, чтобы проверить на своих сценариях</h2>
                 <p>Полный доступ к рынкам, сигналам, сканерам и портфелю.</p>
             </div>
-            <div class="paypal-checkout regional-paypal-checkout">
-                <div class="paypal-checkout-copy">
-                    <span class="section-label">Оплата</span>
-                    <h3>Подписка через PayPal</h3>
-                    <p>Оплата обрабатывается на стороне PayPal, итоговая сумма отображается в USD.</p>
-                </div>
-                <div class="paypal-checkout-action">
-                    <div class="paypal-plan-grid">
-                        <div class="paypal-plan">
-                            <span class="price-name">Месячный тариф</span>
-                            <div id="paypal-container-DNWAM39RY9XML"
-                                 aria-label="Оплата месячного тарифа через PayPal"></div>
-                        </div>
-                        <div class="paypal-plan paypal-plan-featured">
-                            <span class="price-name">Годовой тариф</span>
-                            <form class="paypal-ncp-form"
-                                  action="https://www.paypal.com/ncp/payment/HUGDPR8DKNB52"
-                                  method="post"
-                                  target="_blank">
-                                <input class="paypal-ncp-button"
-                                       type="submit"
-                                       value="Buy Now"
-                                       aria-label="Оплата годового тарифа через PayPal">
-                                <img class="paypal-payment-methods"
-                                     src="https://www.paypalobjects.com/images/Debit_Credit_APM.svg"
-                                     alt="Банковские карты">
-                                <span class="paypal-powered">
-                                    Powered by
-                                    <img src="https://www.paypalobjects.com/paypal-ui/logos/svg/paypal-wordmark-color.svg"
-                                         alt="PayPal">
-                                </span>
-                            </form>
-                        </div>
+            <div class="pricing-grid">
+                <article class="price-card">
+                    <div>
+                        <span class="price-name">Месячный тариф</span>
+                        <div class="price-value"><strong>$9.90</strong><span>/ месяц</span></div>
+                        <p>Оплата через PayPal после входа в аккаунт.</p>
                     </div>
-                    <p class="paypal-status hidden" id="paypal-status" role="status"></p>
-                </div>
+                    <ul class="price-features">
+                        <li><i data-lucide="check" aria-hidden="true"></i>Все доступные рынки</li>
+                        <li><i data-lucide="check" aria-hidden="true"></i>Сигналы и сканеры</li>
+                        <li><i data-lucide="check" aria-hidden="true"></i>Портфель и история</li>
+                    </ul>
+                    <a class="button button-secondary" href="/app?checkout=month">
+                        Оформить на месяц
+                    </a>
+                </article>
+                <article class="price-card price-card-featured">
+                    <div>
+                        <span class="price-name">Годовой тариф</span>
+                        <div class="price-value"><strong>$99.00</strong><span>/ год</span></div>
+                        <p>Оплата подтверждается сервером PayPal.</p>
+                    </div>
+                    <ul class="price-features">
+                        <li><i data-lucide="check" aria-hidden="true"></i>Все доступные рынки</li>
+                        <li><i data-lucide="check" aria-hidden="true"></i>Сигналы и сканеры</li>
+                        <li><i data-lucide="check" aria-hidden="true"></i>Портфель и история</li>
+                    </ul>
+                    <a class="button button-primary" href="/app?checkout=year">
+                        Оформить на год
+                    </a>
+                </article>
             </div>
         </section>
         {% endif %}

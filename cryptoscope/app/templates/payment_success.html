@@ -23,16 +23,24 @@
                 {% if payment_confirmed %}
                 Доступ к аналитике уже активирован.
                 {% else %}
+                {% if product.variant == "global" %}
                 Доступ будет подтверждён серверным уведомлением PayAnyWay.
                 Обычно это занимает несколько секунд.
+                {% else %}
+                Проверяем подтверждение платежа PayPal.
+                Обычно это занимает несколько секунд.
+                {% endif %}
                 {% endif %}
             </p>
             <a class="button button-primary" href="/app">Открыть {{ product.name }}</a>
         </section>
     </main>
     <script>
-        const expectedTransaction = new URLSearchParams(location.search)
-            .get('MNT_TRANSACTION_ID');
+        const paymentParams = new URLSearchParams(location.search);
+        const expectedTransaction = (
+            paymentParams.get('MNT_TRANSACTION_ID')
+            || paymentParams.get('paypal_order_id')
+        );
         let paymentChecks = 0;
         const checkPayment = async () => {
             if (!expectedTransaction || paymentChecks >= 15) return;

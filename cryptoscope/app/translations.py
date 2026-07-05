@@ -212,6 +212,38 @@ MESSAGES = {
         "Plano anual",
         "Paket tahunan",
     ),
+    "/ месяц": ("/ month", "/ mês", "/ bulan"),
+    "/ год": ("/ year", "/ ano", "/ tahun"),
+    "Оплата через PayPal после входа в аккаунт.": (
+        "Pay with PayPal after signing in.",
+        "Pague com PayPal após entrar na conta.",
+        "Bayar dengan PayPal setelah masuk ke akun.",
+    ),
+    "Оплата подтверждается сервером PayPal.": (
+        "Payment is verified by the PayPal server.",
+        "O pagamento é verificado pelo servidor do PayPal.",
+        "Pembayaran diverifikasi oleh server PayPal.",
+    ),
+    "Оформить на месяц": (
+        "Choose monthly",
+        "Assinar por um mês",
+        "Pilih paket bulanan",
+    ),
+    "Оформить на год": (
+        "Choose annual",
+        "Assinar por um ano",
+        "Pilih paket tahunan",
+    ),
+    "Подписка MEANX": (
+        "MEANX subscription",
+        "Assinatura MEANX",
+        "Langganan MEANX",
+    ),
+    "Платёж будет привязан к текущему аккаунту.": (
+        "The payment will be linked to your current account.",
+        "O pagamento será vinculado à sua conta atual.",
+        "Pembayaran akan ditautkan ke akun saat ini.",
+    ),
     "Оплата месячного тарифа через PayPal": (
         "Pay for the monthly plan with PayPal",
         "Pagar o plano mensal com PayPal",
@@ -871,6 +903,66 @@ MESSAGES = {
         "PayPal is temporarily unavailable. Please try again later.",
         "O PayPal está temporariamente indisponível. Tente novamente mais tarde.",
         "PayPal sementara tidak tersedia. Silakan coba lagi nanti.",
+    ),
+    "PayPal не настроен": (
+        "PayPal is not configured",
+        "O PayPal não está configurado",
+        "PayPal belum dikonfigurasi",
+    ),
+    "Не удалось создать платёж PayPal": (
+        "Could not create the PayPal payment",
+        "Não foi possível criar o pagamento pelo PayPal",
+        "Pembayaran PayPal gagal dibuat",
+    ),
+    "Подтверждаем оплату...": (
+        "Confirming payment...",
+        "Confirmando o pagamento...",
+        "Mengonfirmasi pembayaran...",
+    ),
+    "Способ оплаты отклонён. Выберите другой.": (
+        "The payment method was declined. Choose another one.",
+        "A forma de pagamento foi recusada. Escolha outra.",
+        "Metode pembayaran ditolak. Pilih metode lain.",
+    ),
+    "Не удалось подтвердить платёж PayPal": (
+        "Could not confirm the PayPal payment",
+        "Não foi possível confirmar o pagamento pelo PayPal",
+        "Pembayaran PayPal gagal dikonfirmasi",
+    ),
+    "Оплата подтверждена. Доступ активирован.": (
+        "Payment confirmed. Access activated.",
+        "Pagamento confirmado. Acesso ativado.",
+        "Pembayaran terkonfirmasi. Akses diaktifkan.",
+    ),
+    "Оплата подтверждена": (
+        "Payment confirmed",
+        "Pagamento confirmado",
+        "Pembayaran terkonfirmasi",
+    ),
+    "Доступ к аналитике уже активирован.": (
+        "Analytics access is already active.",
+        "O acesso à análise já está ativo.",
+        "Akses analitik sudah aktif.",
+    ),
+    "Оплата отменена": (
+        "Payment cancelled",
+        "Pagamento cancelado",
+        "Pembayaran dibatalkan",
+    ),
+    "PayPal недоступен для этого устройства": (
+        "PayPal is not available on this device",
+        "O PayPal não está disponível neste dispositivo",
+        "PayPal tidak tersedia di perangkat ini",
+    ),
+    "Проверяем подтверждение платежа PayPal.": (
+        "Checking PayPal payment confirmation.",
+        "Verificando a confirmação do pagamento pelo PayPal.",
+        "Memeriksa konfirmasi pembayaran PayPal.",
+    ),
+    "Обычно это занимает несколько секунд.": (
+        "This usually takes a few seconds.",
+        "Isso geralmente leva alguns segundos.",
+        "Biasanya hanya membutuhkan beberapa detik.",
     ),
     "Можно начинать": ("Ready", "Pronto", "Siap"),
 }

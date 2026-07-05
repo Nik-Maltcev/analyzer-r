@@ -10,6 +10,7 @@ from urllib.parse import parse_qsl, urlencode
 from uuid import uuid4
 from xml.sax.saxutils import escape
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
@@ -17,6 +18,7 @@ from fastapi.responses import (
     PlainTextResponse,
     RedirectResponse,
 )
+from pydantic import BaseModel
 
 from app.access import get_access_state
 from app.auth import get_current_user
@@ -31,6 +33,10 @@ PAYMENT_PLANS = {
     "month": {"amount": "990.00", "days": 30},
     "year": {"amount": "7900.00", "days": 365},
 }
+
+
+class PayPalOrderRequest(BaseModel):
+    plan: str
 
 
 def normalize_amount(value: str) -> str:
@@ -153,7 +159,7 @@ def _xml_response(
 async def _load_order(conn, transaction_id: str):
     cursor = await conn.execute(
         """
-        SELECT transaction_id, user_id, plan, amount, currency,
+        SELECT transaction_id, provider, user_id, plan, amount, currency,
                status, provider_operation_id, test_mode
         FROM payment_orders
         WHERE transaction_id = ?
@@ -172,6 +178,8 @@ def _validate_order_notification(
 ) -> None:
     if not order:
         raise ValueError("Unknown payment order")
+    if str(order["provider"]) != "payanyway":
+        raise ValueError("Unexpected payment provider")
     if amount != str(order["amount"]):
         raise ValueError("Unexpected payment amount")
     if parameters["MNT_CURRENCY_CODE"] != str(order["currency"]):
@@ -186,6 +194,7 @@ async def _activate_subscription(
     conn,
     order,
     operation_id: str,
+    provider: str = "payanyway",
 ) -> str:
     plan = str(order["plan"])
     plan_config = PAYMENT_PLANS.get(plan)
@@ -235,7 +244,7 @@ async def _activate_subscription(
         INSERT INTO user_subscriptions (
             user_id, plan, status, access_until, provider,
             last_transaction_id, updated_at
-        ) VALUES (?, ?, 'active', ?, 'payanyway', ?, datetime('now'))
+        ) VALUES (?, ?, 'active', ?, ?, ?, datetime('now'))
         ON CONFLICT(user_id) DO UPDATE SET
             plan = excluded.plan,
             status = 'active',
@@ -248,6 +257,7 @@ async def _activate_subscription(
             order["user_id"],
             plan,
             _utc_sql(access_until),
+            provider,
             order["transaction_id"],
         ),
     )
@@ -262,6 +272,202 @@ async def _activate_subscription(
         (operation_id, order["transaction_id"]),
     )
     return _utc_sql(access_until)
+
+
+def _paypal_base_url() -> str:
+    mode = get_settings().paypal_mode.strip().lower()
+    return (
+        "https://api-m.paypal.com"
+        if mode == "live"
+        else "https://api-m.sandbox.paypal.com"
+    )
+
+
+def _paypal_plan(plan: str) -> dict[str, str | int]:
+    settings = get_settings()
+    base = PAYMENT_PLANS.get(plan)
+    if not base:
+        raise HTTPException(status_code=404, detail="Unknown payment plan")
+    raw_amount = (
+        settings.paypal_month_amount
+        if plan == "month"
+        else settings.paypal_year_amount
+    )
+    try:
+        amount = normalize_amount(raw_amount)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="PayPal plan amount is not configured",
+        ) from exc
+    currency = settings.paypal_currency.strip().upper()
+    if len(currency) != 3 or not currency.isalpha():
+        raise HTTPException(
+            status_code=503,
+            detail="PayPal currency is not configured",
+        )
+    return {
+        "amount": amount,
+        "currency": currency,
+        "days": int(base["days"]),
+    }
+
+
+def _require_paypal_settings():
+    settings = get_settings()
+    if (
+        not settings.paypal_client_id.strip()
+        or not settings.paypal_client_secret.strip()
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="PayPal is not configured",
+        )
+    if settings.paypal_mode.strip().lower() not in {"sandbox", "live"}:
+        raise HTTPException(
+            status_code=503,
+            detail="PayPal mode is not configured",
+        )
+    return settings
+
+
+def _paypal_api_error(response: httpx.Response) -> HTTPException:
+    message = "PayPal request failed"
+    try:
+        payload = response.json()
+        details = payload.get("details") or []
+        if details:
+            issue = details[0].get("issue") or ""
+            description = details[0].get("description") or ""
+            message = " · ".join(
+                value for value in (issue, description) if value
+            ) or message
+        elif payload.get("message"):
+            message = str(payload["message"])
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return HTTPException(status_code=502, detail=message)
+
+
+async def _paypal_access_token() -> str:
+    settings = _require_paypal_settings()
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(
+                f"{_paypal_base_url()}/v1/oauth2/token",
+                auth=(
+                    settings.paypal_client_id.strip(),
+                    settings.paypal_client_secret.strip(),
+                ),
+                headers={
+                    "Accept": "application/json",
+                    "Accept-Language": "en_US",
+                },
+                data={"grant_type": "client_credentials"},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="PayPal is temporarily unavailable",
+        ) from exc
+    if response.status_code != 200:
+        raise _paypal_api_error(response)
+    token = str(response.json().get("access_token") or "")
+    if not token:
+        raise HTTPException(
+            status_code=502,
+            detail="PayPal authentication failed",
+        )
+    return token
+
+
+async def _paypal_create_remote_order(
+    *,
+    plan: str,
+    amount: str,
+    currency: str,
+    user_id: str,
+    invoice_id: str,
+) -> dict:
+    access_token = await _paypal_access_token()
+    payload = {
+        "intent": "CAPTURE",
+        "purchase_units": [{
+            "reference_id": invoice_id,
+            "custom_id": user_id,
+            "invoice_id": invoice_id,
+            "description": (
+                "MEANX subscription: 1 month"
+                if plan == "month"
+                else "MEANX subscription: 1 year"
+            ),
+            "amount": {
+                "currency_code": currency,
+                "value": amount,
+            },
+        }],
+        "application_context": {
+            "brand_name": "MEANX",
+            "shipping_preference": "NO_SHIPPING",
+            "user_action": "PAY_NOW",
+        },
+    }
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            response = await client.post(
+                f"{_paypal_base_url()}/v2/checkout/orders",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                    "PayPal-Request-Id": invoice_id,
+                    "Prefer": "return=representation",
+                },
+                json=payload,
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="PayPal is temporarily unavailable",
+        ) from exc
+    if response.status_code != 201:
+        raise _paypal_api_error(response)
+    return response.json()
+
+
+async def _paypal_capture_remote_order(order_id: str) -> dict:
+    access_token = await _paypal_access_token()
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            response = await client.post(
+                (
+                    f"{_paypal_base_url()}/v2/checkout/orders/"
+                    f"{order_id}/capture"
+                ),
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                    "PayPal-Request-Id": f"capture-{order_id}",
+                    "Prefer": "return=representation",
+                },
+                json={},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="PayPal is temporarily unavailable",
+        ) from exc
+    if response.status_code not in {200, 201}:
+        raise _paypal_api_error(response)
+    return response.json()
+
+
+def _paypal_completed_capture(payload: dict) -> dict | None:
+    for purchase_unit in payload.get("purchase_units") or []:
+        payments = purchase_unit.get("payments") or {}
+        for capture in payments.get("captures") or []:
+            if capture.get("status") == "COMPLETED":
+                return capture
+    return None
 
 
 @router.get("/api/payments/payanyway/checkout")
@@ -316,8 +522,9 @@ async def payanyway_checkout(request: Request, plan: str):
         await conn.execute(
             """
             INSERT INTO payment_orders (
-                transaction_id, user_id, plan, amount, currency, test_mode
-            ) VALUES (?, ?, ?, ?, 'RUB', ?)
+                transaction_id, provider, user_id, plan, amount,
+                currency, test_mode
+            ) VALUES (?, 'payanyway', ?, ?, ?, 'RUB', ?)
             """,
             (
                 transaction_id,
@@ -449,6 +656,181 @@ async def payanyway_notify(request: Request):
     return PlainTextResponse("SUCCESS")
 
 
+@router.post("/api/payments/paypal/orders")
+async def paypal_create_order(
+    payload: PayPalOrderRequest,
+    request: Request,
+):
+    settings = get_settings()
+    profile = get_product_profile(settings)
+    if profile.variant not in {"br", "id"}:
+        raise HTTPException(status_code=404, detail="Payment is not available")
+    settings = _require_paypal_settings()
+
+    user = await get_current_user(request)
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required",
+        )
+
+    plan = payload.plan.strip().lower()
+    plan_config = _paypal_plan(plan)
+    invoice_id = f"meanx-{profile.variant}-{uuid4().hex}"
+    remote_order = await _paypal_create_remote_order(
+        plan=plan,
+        amount=str(plan_config["amount"]),
+        currency=str(plan_config["currency"]),
+        user_id=user.id,
+        invoice_id=invoice_id,
+    )
+    order_id = str(remote_order.get("id") or "")
+    if not order_id or remote_order.get("status") != "CREATED":
+        raise HTTPException(
+            status_code=502,
+            detail="PayPal did not create an order",
+        )
+
+    test_mode = 0 if settings.paypal_mode.strip().lower() == "live" else 1
+    async with get_connection() as conn:
+        await conn.execute(
+            """
+            INSERT INTO payment_orders (
+                transaction_id, provider, user_id, plan, amount,
+                currency, test_mode
+            ) VALUES (?, 'paypal', ?, ?, ?, ?, ?)
+            """,
+            (
+                order_id,
+                user.id,
+                plan,
+                plan_config["amount"],
+                plan_config["currency"],
+                test_mode,
+            ),
+        )
+        await conn.commit()
+
+    return {
+        "id": order_id,
+        "status": remote_order.get("status"),
+        "plan": plan,
+        "amount": plan_config["amount"],
+        "currency": plan_config["currency"],
+    }
+
+
+@router.post("/api/payments/paypal/orders/{order_id}/capture")
+async def paypal_capture_order(
+    order_id: str,
+    request: Request,
+):
+    settings = get_settings()
+    if get_product_profile(settings).variant not in {"br", "id"}:
+        raise HTTPException(status_code=404, detail="Payment is not available")
+    _require_paypal_settings()
+    user = await get_current_user(request)
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required",
+        )
+
+    async with get_connection() as conn:
+        order = await _load_order(conn, order_id)
+    if (
+        not order
+        or str(order["provider"]) != "paypal"
+        or str(order["user_id"]) != user.id
+    ):
+        raise HTTPException(status_code=404, detail="Payment order not found")
+    if str(order["status"]) == "paid":
+        return {
+            "status": "COMPLETED",
+            "order_id": order_id,
+            "capture_id": order["provider_operation_id"],
+            "access_until": (
+                await get_access_state(user)
+            ).access_until,
+        }
+
+    remote_order = await _paypal_capture_remote_order(order_id)
+    if (
+        str(remote_order.get("id") or "") != order_id
+        or remote_order.get("status") != "COMPLETED"
+    ):
+        raise HTTPException(
+            status_code=502,
+            detail="PayPal payment is not completed",
+        )
+    capture = _paypal_completed_capture(remote_order)
+    if not capture:
+        raise HTTPException(
+            status_code=502,
+            detail="PayPal capture is not completed",
+        )
+
+    capture_id = str(capture.get("id") or "")
+    capture_amount = capture.get("amount") or {}
+    try:
+        amount = normalize_amount(str(capture_amount.get("value") or ""))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="PayPal returned an invalid amount",
+        ) from exc
+    currency = str(capture_amount.get("currency_code") or "").upper()
+    if (
+        not capture_id
+        or amount != str(order["amount"])
+        or currency != str(order["currency"])
+    ):
+        raise HTTPException(
+            status_code=502,
+            detail="PayPal payment details do not match the order",
+        )
+
+    async with get_connection() as conn:
+        current_order = await _load_order(conn, order_id)
+        if current_order["status"] == "paid":
+            access_until = (
+                await get_access_state(user)
+            ).access_until
+        else:
+            await conn.execute(
+                """
+                INSERT INTO payment_notifications (
+                    provider, transaction_id, operation_id, account_id,
+                    amount, currency, subscriber_id, test_mode
+                ) VALUES (
+                    'paypal', ?, ?, 'paypal', ?, ?, ?, ?
+                )
+                """,
+                (
+                    order_id,
+                    capture_id,
+                    amount,
+                    currency,
+                    user.id,
+                    int(order["test_mode"]),
+                ),
+            )
+            access_until = await _activate_subscription(
+                conn,
+                current_order,
+                capture_id,
+                provider="paypal",
+            )
+            await conn.commit()
+
+    return {
+        "status": "COMPLETED",
+        "order_id": order_id,
+        "capture_id": capture_id,
+        "access_until": access_until,
+    }
+
+
 @router.get("/api/payments/status")
 async def payment_status(request: Request):
     user = await get_current_user(request)
@@ -464,7 +846,10 @@ async def payment_status(request: Request):
 async def payment_success(request: Request):
     user = await get_current_user(request)
     access = (await get_access_state(user)).as_dict()
-    transaction_id = request.query_params.get("MNT_TRANSACTION_ID", "")
+    transaction_id = (
+        request.query_params.get("MNT_TRANSACTION_ID", "")
+        or request.query_params.get("paypal_order_id", "")
+    )
     return templates.TemplateResponse(
         request,
         "payment_success.html",

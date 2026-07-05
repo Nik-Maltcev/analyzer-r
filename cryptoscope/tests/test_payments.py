@@ -78,6 +78,30 @@ def _seed_order(temp_db, plan="month", amount="990.00"):
         conn.commit()
 
 
+def _seed_session(temp_db):
+    session_token = "paypal-test-session"
+    with closing(get_sync_connection(temp_db)) as conn:
+        conn.execute(
+            """
+            INSERT INTO auth_users (
+                id, email, trial_started_at, trial_ends_at
+            ) VALUES (
+                'paypal-user', 'paypal@example.com', datetime('now'),
+                datetime('now', '+3 days')
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO auth_sessions (token_hash, user_id, expires_at)
+            VALUES (?, 'paypal-user', datetime('now', '+1 day'))
+            """,
+            (hash_auth_token(session_token),),
+        )
+        conn.commit()
+    return session_token
+
+
 def test_payanyway_signatures_match_official_examples():
     parameters = {
         "MNT_ID": "54600817",
@@ -285,3 +309,195 @@ async def test_payment_success_page(app):
 
     assert response.status_code == 200
     assert "Платёж обрабатывается" in response.text
+
+
+@pytest.mark.asyncio
+async def test_paypal_order_is_bound_captured_and_idempotent(
+    app,
+    temp_db,
+    monkeypatch,
+):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "app_variant", "br")
+    monkeypatch.setattr(settings, "paypal_client_id", "live-client")
+    monkeypatch.setattr(settings, "paypal_client_secret", "live-secret")
+    monkeypatch.setattr(settings, "paypal_mode", "live")
+    monkeypatch.setattr(settings, "paypal_month_amount", "9.90")
+    monkeypatch.setattr(settings, "paypal_year_amount", "99.00")
+    session_token = _seed_session(temp_db)
+    captured_create = {}
+    capture_calls = 0
+
+    async def fake_create_remote_order(**kwargs):
+        captured_create.update(kwargs)
+        return {"id": "PAYPAL-ORDER-1", "status": "CREATED"}
+
+    async def fake_capture_remote_order(order_id):
+        nonlocal capture_calls
+        capture_calls += 1
+        assert order_id == "PAYPAL-ORDER-1"
+        return {
+            "id": order_id,
+            "status": "COMPLETED",
+            "purchase_units": [{
+                "payments": {
+                    "captures": [{
+                        "id": "PAYPAL-CAPTURE-1",
+                        "status": "COMPLETED",
+                        "amount": {
+                            "value": "9.90",
+                            "currency_code": "USD",
+                        },
+                    }],
+                },
+            }],
+        }
+
+    monkeypatch.setattr(
+        "app.api.payments._paypal_create_remote_order",
+        fake_create_remote_order,
+    )
+    monkeypatch.setattr(
+        "app.api.payments._paypal_capture_remote_order",
+        fake_capture_remote_order,
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="https://test",
+        cookies={SESSION_COOKIE_NAME: session_token},
+    ) as client:
+        created = await client.post(
+            "/api/payments/paypal/orders",
+            json={"plan": "month"},
+        )
+        captured = await client.post(
+            "/api/payments/paypal/orders/PAYPAL-ORDER-1/capture",
+        )
+        repeated = await client.post(
+            "/api/payments/paypal/orders/PAYPAL-ORDER-1/capture",
+        )
+
+    assert created.status_code == 200
+    assert created.json()["id"] == "PAYPAL-ORDER-1"
+    assert captured_create["user_id"] == "paypal-user"
+    assert captured_create["amount"] == "9.90"
+    assert captured_create["currency"] == "USD"
+    assert captured.status_code == 200
+    assert captured.json()["status"] == "COMPLETED"
+    assert repeated.status_code == 200
+    assert capture_calls == 1
+
+    with closing(get_sync_connection(temp_db)) as conn:
+        order = conn.execute(
+            """
+            SELECT provider, user_id, plan, amount, currency, status,
+                   provider_operation_id
+            FROM payment_orders
+            WHERE transaction_id = 'PAYPAL-ORDER-1'
+            """
+        ).fetchone()
+        subscription = conn.execute(
+            """
+            SELECT provider, plan, status, last_transaction_id
+            FROM user_subscriptions
+            WHERE user_id = 'paypal-user'
+            """
+        ).fetchone()
+        notification_count = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM payment_notifications
+            WHERE provider = 'paypal'
+            """
+        ).fetchone()[0]
+
+    assert tuple(order) == (
+        "paypal",
+        "paypal-user",
+        "month",
+        "9.90",
+        "USD",
+        "paid",
+        "PAYPAL-CAPTURE-1",
+    )
+    assert tuple(subscription) == (
+        "paypal",
+        "month",
+        "active",
+        "PAYPAL-ORDER-1",
+    )
+    assert notification_count == 1
+
+
+@pytest.mark.asyncio
+async def test_paypal_rejects_capture_amount_mismatch(
+    app,
+    temp_db,
+    monkeypatch,
+):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "app_variant", "id")
+    monkeypatch.setattr(settings, "paypal_client_id", "live-client")
+    monkeypatch.setattr(settings, "paypal_client_secret", "live-secret")
+    monkeypatch.setattr(settings, "paypal_mode", "live")
+    session_token = _seed_session(temp_db)
+
+    async def fake_create_remote_order(**_kwargs):
+        return {"id": "PAYPAL-ORDER-BAD", "status": "CREATED"}
+
+    async def fake_capture_remote_order(order_id):
+        return {
+            "id": order_id,
+            "status": "COMPLETED",
+            "purchase_units": [{
+                "payments": {
+                    "captures": [{
+                        "id": "PAYPAL-CAPTURE-BAD",
+                        "status": "COMPLETED",
+                        "amount": {
+                            "value": "1.00",
+                            "currency_code": "USD",
+                        },
+                    }],
+                },
+            }],
+        }
+
+    monkeypatch.setattr(
+        "app.api.payments._paypal_create_remote_order",
+        fake_create_remote_order,
+    )
+    monkeypatch.setattr(
+        "app.api.payments._paypal_capture_remote_order",
+        fake_capture_remote_order,
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="https://test",
+        cookies={SESSION_COOKIE_NAME: session_token},
+    ) as client:
+        await client.post(
+            "/api/payments/paypal/orders",
+            json={"plan": "year"},
+        )
+        response = await client.post(
+            "/api/payments/paypal/orders/PAYPAL-ORDER-BAD/capture",
+        )
+
+    assert response.status_code == 502
+    with closing(get_sync_connection(temp_db)) as conn:
+        subscription_count = conn.execute(
+            "SELECT COUNT(*) FROM user_subscriptions"
+        ).fetchone()[0]
+        order_status = conn.execute(
+            """
+            SELECT status
+            FROM payment_orders
+            WHERE transaction_id = 'PAYPAL-ORDER-BAD'
+            """
+        ).fetchone()[0]
+    assert subscription_count == 0
+    assert order_status == "pending"

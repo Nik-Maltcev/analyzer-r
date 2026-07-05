@@ -79,6 +79,12 @@ async def test_brazil_edition_limits_markets_and_localizes(
     monkeypatch,
 ):
     set_variant(monkeypatch, "br")
+    monkeypatch.setattr(get_settings(), "paypal_client_id", "public-client-id")
+    monkeypatch.setattr(
+        get_settings(),
+        "paypal_client_secret",
+        "private-client-secret",
+    )
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport,
@@ -94,15 +100,13 @@ async def test_brazil_edition_limits_markets_and_localizes(
     assert "MEANX" in landing.text
     assert "Recursos" in landing.text
     assert "Rússia" not in landing.text
-    assert "paypal.com/sdk/js" in landing.text
-    assert 'id="paypal-container-DNWAM39RY9XML"' in landing.text
-    assert (
-        'action="https://www.paypal.com/ncp/payment/HUGDPR8DKNB52"'
-        in landing.text
-    )
+    assert "paypal.com/sdk/js" not in landing.text
+    assert 'href="/app?checkout=month"' in landing.text
+    assert 'href="/app?checkout=year"' in landing.text
+    assert "$9.90" in landing.text
+    assert "$99.00" in landing.text
     assert "Plano mensal" in landing.text
     assert "Plano anual" in landing.text
-    assert 'href="/app?checkout=' not in landing.text
 
     assert terminal.status_code == 200
     assert 'window.CRYPTOSCOPE_INITIAL_MARKET = "br"' in terminal.text
@@ -111,6 +115,9 @@ async def test_brazil_edition_limits_markets_and_localizes(
     assert 'data-market="br"' in terminal.text
     assert 'data-market="ru"' not in terminal.text
     assert 'data-market="id"' not in terminal.text
+    assert 'id="paypal-checkout-modal"' in terminal.text
+    assert '"public-client-id"' in terminal.text
+    assert "private-client-secret" not in terminal.text
     assert blocked.status_code == 404
     assert allowed.status_code == 200
 
@@ -135,14 +142,11 @@ async def test_indonesia_edition_switches_between_id_and_english(
     assert '<html lang="id">' in default_page.text
     assert "Buka aplikasi" in default_page.text
     assert "Harga Binance live" in default_page.text
-    assert "paypal.com/sdk/js" in default_page.text
-    assert (
-        'action="https://www.paypal.com/ncp/payment/HUGDPR8DKNB52"'
-        in default_page.text
-    )
+    assert "paypal.com/sdk/js" not in default_page.text
+    assert 'href="/app?checkout=month"' in default_page.text
+    assert 'href="/app?checkout=year"' in default_page.text
     assert "Paket bulanan" in default_page.text
     assert "Paket tahunan" in default_page.text
-    assert 'href="/app?checkout=' not in default_page.text
 
     assert locale_response.status_code == 200
     assert "cryptoscope_locale=en" in locale_response.headers["set-cookie"]

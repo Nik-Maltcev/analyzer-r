@@ -146,6 +146,7 @@ def temp_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS payment_orders (
             transaction_id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL DEFAULT 'payanyway',
             user_id TEXT NOT NULL,
             plan TEXT NOT NULL,
             amount TEXT NOT NULL,

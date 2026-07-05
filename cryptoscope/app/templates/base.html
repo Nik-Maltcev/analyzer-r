@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/main.css?v=20260705-corrcheck1">
+    <link rel="stylesheet" href="/static/css/main.css?v=20260705-paypal-orders1">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org/dist/ext/json-enc.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -17,8 +17,15 @@
         window.CRYPTOSCOPE_INITIAL_MARKET = {{ market|default(product.default_market)|tojson }};
         window.CRYPTOSCOPE_TRANSLATIONS = {{ translations|tojson }};
         window.MEANX_ACCESS_STATE = {{ access|default({"status": "unrestricted", "has_access": true})|tojson }};
+        window.MEANX_PRODUCT_VARIANT = {{ product.variant|tojson }};
+        window.MEANX_PAYPAL_CONFIG = {
+            clientId: {{ settings.paypal_client_id|default("", true)|tojson }},
+            currency: {{ settings.paypal_currency|default("USD", true)|tojson }},
+            monthAmount: {{ settings.paypal_month_amount|default("9.90", true)|tojson }},
+            yearAmount: {{ settings.paypal_year_amount|default("99.00", true)|tojson }}
+        };
     </script>
-    <script src="/static/js/main.js?v=20260705-corrcheck1" defer></script>
+    <script src="/static/js/main.js?v=20260705-paypal-orders1" defer></script>
 </head>
 <body>
     <nav class="navbar">
@@ -74,6 +81,7 @@
     <div id="toast-container"></div>
 
     {% include "components/auth_modal.html" %}
+    {% include "components/paypal_checkout_modal.html" %}
     {% include "components/onboarding_modal.html" %}
 
     <script>

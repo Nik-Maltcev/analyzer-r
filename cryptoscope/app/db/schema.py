@@ -205,6 +205,7 @@ CREATE TABLE IF NOT EXISTS payment_notifications (
 CREATE_PAYMENT_ORDERS = """
 CREATE TABLE IF NOT EXISTS payment_orders (
     transaction_id       TEXT PRIMARY KEY,
+    provider             TEXT NOT NULL DEFAULT 'payanyway',
     user_id              TEXT NOT NULL,
     plan                 TEXT NOT NULL,
     amount               TEXT NOT NULL,
@@ -217,6 +218,10 @@ CREATE TABLE IF NOT EXISTS payment_orders (
     UNIQUE(provider_operation_id)
 )
 """
+
+PAYMENT_ORDER_COLUMN_MIGRATIONS = {
+    "provider": "TEXT NOT NULL DEFAULT 'payanyway'",
+}
 
 CREATE_USER_SUBSCRIPTIONS = """
 CREATE TABLE IF NOT EXISTS user_subscriptions (

@@ -133,6 +133,162 @@ function closeAuthModal() {
 window.openAuthModal = openAuthModal;
 window.closeAuthModal = closeAuthModal;
 
+let paypalSdkPromise = null;
+
+function setPayPalCheckoutStatus(message, type = '') {
+    const status = document.getElementById('paypal-checkout-status');
+    if (!status) return;
+    status.textContent = translateUi(message);
+    status.className = `auth-message ${type}`.trim();
+}
+
+function loadPayPalSdk() {
+    if (window.paypal?.Buttons) return Promise.resolve(window.paypal);
+    if (paypalSdkPromise) return paypalSdkPromise;
+
+    const config = window.MEANX_PAYPAL_CONFIG || {};
+    if (!config.clientId) {
+        return Promise.reject(new Error('PayPal не настроен'));
+    }
+    const params = new URLSearchParams({
+        'client-id': config.clientId,
+        currency: config.currency || 'USD',
+        components: 'buttons',
+        intent: 'capture'
+    });
+    paypalSdkPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.id = 'meanx-paypal-sdk';
+        script.src = `https://www.paypal.com/sdk/js?${params.toString()}`;
+        script.async = true;
+        script.addEventListener('load', () => resolve(window.paypal), {once: true});
+        script.addEventListener(
+            'error',
+            () => reject(new Error('PayPal временно недоступен. Попробуйте позже.')),
+            {once: true}
+        );
+        document.head.appendChild(script);
+    });
+    return paypalSdkPromise;
+}
+
+function closePayPalCheckout() {
+    document.getElementById('paypal-checkout-modal')?.classList.add('hidden');
+    if (document.getElementById('auth-modal')?.classList.contains('hidden')) {
+        document.body.classList.remove('modal-open');
+    }
+}
+
+async function openPayPalCheckout(plan) {
+    if (!['month', 'year'].includes(plan)) return;
+    const modal = document.getElementById('paypal-checkout-modal');
+    const container = document.getElementById('paypal-checkout-buttons');
+    const planLabel = document.getElementById('paypal-checkout-plan');
+    const amountLabel = document.getElementById('paypal-checkout-amount');
+    const config = window.MEANX_PAYPAL_CONFIG || {};
+    if (!modal || !container) return;
+
+    planLabel.textContent = translateUi(
+        plan === 'month' ? 'Месячный тариф' : 'Годовой тариф'
+    );
+    amountLabel.textContent = `${config.currency || 'USD'} ${
+        plan === 'month' ? config.monthAmount : config.yearAmount
+    }`;
+    container.replaceChildren();
+    container.classList.add('is-loading');
+    setPayPalCheckoutStatus('', 'hidden');
+    modal.classList.remove('hidden');
+    document.body.classList.add('modal-open');
+
+    try {
+        const paypal = await loadPayPalSdk();
+        const buttons = paypal.Buttons({
+            style: {
+                layout: 'vertical',
+                shape: 'rect',
+                label: 'paypal',
+                height: 42
+            },
+            async createOrder() {
+                const response = await fetch('/api/payments/paypal/orders', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({plan})
+                });
+                const data = await response.json().catch(() => ({}));
+                if (response.status === 401) {
+                    closePayPalCheckout();
+                    openAuthModal();
+                }
+                if (!response.ok || !data.id) {
+                    throw new Error(data.detail || 'Не удалось создать платёж PayPal');
+                }
+                return data.id;
+            },
+            async onApprove(data, actions) {
+                setPayPalCheckoutStatus('Подтверждаем оплату...', '');
+                const response = await fetch(
+                    `/api/payments/paypal/orders/${encodeURIComponent(data.orderID)}/capture`,
+                    {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {'Content-Type': 'application/json'}
+                    }
+                );
+                const result = await response.json().catch(() => ({}));
+                if (
+                    !response.ok
+                    && String(result.detail || '').includes('INSTRUMENT_DECLINED')
+                ) {
+                    setPayPalCheckoutStatus(
+                        'Способ оплаты отклонён. Выберите другой.',
+                        'error'
+                    );
+                    return actions.restart();
+                }
+                if (!response.ok || result.status !== 'COMPLETED') {
+                    throw new Error(
+                        result.detail || 'Не удалось подтвердить платёж PayPal'
+                    );
+                }
+                setPayPalCheckoutStatus(
+                    'Оплата подтверждена. Доступ активирован.',
+                    'success'
+                );
+                window.location.href = (
+                    `/payment/success?paypal_order_id=${
+                        encodeURIComponent(result.order_id)
+                    }`
+                );
+            },
+            onCancel() {
+                setPayPalCheckoutStatus('Оплата отменена', '');
+            },
+            onError(error) {
+                setPayPalCheckoutStatus(
+                    error?.message || 'PayPal временно недоступен. Попробуйте позже.',
+                    'error'
+                );
+            }
+        });
+        if (!buttons.isEligible()) {
+            throw new Error('PayPal недоступен для этого устройства');
+        }
+        await buttons.render(container);
+    } catch (error) {
+        setPayPalCheckoutStatus(
+            error.message || 'PayPal временно недоступен. Попробуйте позже.',
+            'error'
+        );
+    } finally {
+        container.classList.remove('is-loading');
+    }
+}
+
+window.openPayPalCheckout = openPayPalCheckout;
+window.closePayPalCheckout = closePayPalCheckout;
+
 function setAuthMessage(message, type = '') {
     const messageEl = document.getElementById('auth-message');
     if (!messageEl) return;
@@ -286,10 +442,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 authAvailable ? '' : 'error'
             );
         } else {
-            window.location.replace(
-                `/api/payments/payanyway/checkout?plan=${encodeURIComponent(checkoutPlan)}`
+            if (window.MEANX_PRODUCT_VARIANT === 'global') {
+                window.location.replace(
+                    `/api/payments/payanyway/checkout?plan=${encodeURIComponent(checkoutPlan)}`
+                );
+                return;
+            }
+            url.searchParams.delete('checkout');
+            window.history.replaceState(
+                {},
+                '',
+                `${url.pathname}${url.search}${url.hash}`
             );
-            return;
+            await openPayPalCheckout(checkoutPlan);
         }
     } else if (accessStatus === 'unauthenticated') {
         openAuthModal();
