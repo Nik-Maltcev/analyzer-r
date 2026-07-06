@@ -17,6 +17,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.data.brazil import fetch_brazil_prices, upsert_brazil_prices
 from app.data.fetcher import fetch_batch
 from app.data.indonesia import fetch_indonesia_prices, upsert_indonesia_prices
+from app.data.international import (
+    INTERNATIONAL_MARKETS,
+    fetch_international_prices,
+    upsert_international_prices,
+)
 from app.data.moex import (
     fetch_ru_prices,
     latest_ru_start_dates,
@@ -39,7 +44,7 @@ ENABLED_MARKETS = {
     market.strip()
     for market in os.environ.get(
         "ENABLED_MARKETS",
-        "crypto,stocks,ru,br,id",
+        "crypto,stocks,ru,br,id,au,ca,my,za",
     ).split(",")
     if market.strip()
 }
@@ -241,6 +246,31 @@ def update_indonesia_market(conn: sqlite3.Connection) -> int:
     )
 
 
+def update_international_market(
+    conn: sqlite3.Connection,
+    market: str,
+) -> int:
+    """Refresh a rolling adjusted history for an administrator-only market."""
+    config = INTERNATIONAL_MARKETS[market]
+    return update_adjusted_market(
+        conn,
+        config.market,
+        config.label,
+        config.tickers,
+        int(os.environ.get("INTERNATIONAL_HISTORY_YEARS", "3")),
+        lambda **kwargs: fetch_international_prices(
+            config.market,
+            **kwargs,
+        ),
+        lambda database, prices, tickers: upsert_international_prices(
+            database,
+            config.market,
+            prices,
+            tickers,
+        ),
+    )
+
+
 def main():
     conn = sqlite3.connect(DB_PATH)
 
@@ -257,6 +287,9 @@ def main():
         total += update_brazil_market(conn)
     if "id" in ENABLED_MARKETS:
         total += update_indonesia_market(conn)
+    for market in INTERNATIONAL_MARKETS:
+        if market in ENABLED_MARKETS:
+            total += update_international_market(conn, market)
 
     conn.close()
 

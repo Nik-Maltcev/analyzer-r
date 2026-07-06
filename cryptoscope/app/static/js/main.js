@@ -191,9 +191,15 @@ async function openPayPalCheckout(plan) {
     planLabel.textContent = translateUi(
         plan === 'month' ? 'Месячный тариф' : 'Годовой тариф'
     );
-    amountLabel.textContent = `${config.currency || 'USD'} ${
+    const displayAmount = (
+        plan === 'month' ? config.monthDisplay : config.yearDisplay
+    );
+    const checkoutAmount = (
         plan === 'month' ? config.monthAmount : config.yearAmount
-    }`;
+    );
+    amountLabel.textContent = config.displayCurrencyAtCheckout
+        ? displayAmount
+        : `${displayAmount} · PayPal ${config.currency || 'USD'} ${checkoutAmount}`;
     container.replaceChildren();
     container.classList.add('is-loading');
     setPayPalCheckoutStatus('', 'hidden');

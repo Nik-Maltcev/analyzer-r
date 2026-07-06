@@ -10,9 +10,17 @@ mounted at `/data`. All editions use the `MEANX` brand.
 APP_VARIANT=global
 APP_BASE_URL=https://global-domain.example
 DB_PATH=/data/market.db
+AUTH_LEGACY_OWNER_EMAIL=owner@example.com
 ```
 
-Enabled markets: crypto, US stocks/ETF, Russia, Brazil, and Indonesia.
+Regular users see crypto, US stocks/ETF, and Russia. The global service also
+updates administrator-only markets, and the account matching
+`AUTH_LEGACY_OWNER_EMAIL` sees Brazil, Indonesia, Australia, Canada, Malaysia,
+and South Africa in the same terminal.
+Leave `ENABLED_MARKETS` unset on this service, or set it to
+`crypto,stocks,ru,br,id,au,ca,my,za`, so the admin-only markets keep receiving
+updates.
+`INTERNATIONAL_HISTORY_YEARS` defaults to `3`.
 
 ## Brazil
 
@@ -24,9 +32,6 @@ AUTH_LEGACY_OWNER_EMAIL=owner@example.com
 PAYPAL_CLIENT_ID=...
 PAYPAL_CLIENT_SECRET=...
 PAYPAL_MODE=live
-PAYPAL_CURRENCY=USD
-PAYPAL_MONTH_AMOUNT=9.90
-PAYPAL_YEAR_AMOUNT=99.00
 ```
 
 The interface is in Brazilian Portuguese. Enabled markets: crypto, US
@@ -42,9 +47,6 @@ AUTH_LEGACY_OWNER_EMAIL=owner@example.com
 PAYPAL_CLIENT_ID=...
 PAYPAL_CLIENT_SECRET=...
 PAYPAL_MODE=live
-PAYPAL_CURRENCY=USD
-PAYPAL_MONTH_AMOUNT=9.90
-PAYPAL_YEAR_AMOUNT=99.00
 ```
 
 The default language is Indonesian, with an English switch. Enabled markets:
@@ -73,6 +75,12 @@ Brazil and Indonesia use server-created PayPal Orders. The public Client ID is
 used by the JavaScript SDK; the Client Secret remains server-side. A completed
 capture is checked against the stored user, plan, amount, and currency before
 access is extended.
+
+Regional prices are defined in the application, not in Railway variables.
+Brazil displays and charges `R$ 51,44` monthly or `R$ 514,42` yearly in BRL.
+Indonesia displays `Rp178.141` monthly or `Rp1.781.406` yearly; because PayPal
+Orders does not support IDR, checkout clearly shows and charges `USD 9.90` or
+`USD 99.00`.
 
 Keep all three services always on. Each service runs its own Binance stream
 and daily data update, matching the current deployment model.

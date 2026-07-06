@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi.templating import Jinja2Templates
 
 from app.i18n import localize_html, request_locale
+from app.pricing import get_subscription_pricing
 from app.product import get_product_profile
 from app.translations import TRANSLATIONS
 
@@ -12,17 +13,27 @@ from app.translations import TRANSLATIONS
 def product_context(request):
     profile = get_product_profile()
     locale = request_locale(request, profile)
+    enabled_markets = getattr(
+        request.state,
+        "enabled_markets",
+        profile.enabled_markets,
+    )
     return {
         "product": profile,
+        "pricing": get_subscription_pricing(profile),
         "locale": locale,
         "translations": TRANSLATIONS.get(locale, {}),
-        "enabled_markets": profile.enabled_markets,
+        "enabled_markets": enabled_markets,
         "market_names": {
             "crypto": "Crypto",
             "stocks": "Акции/ETF",
             "ru": "RU",
             "br": "BR · B3",
             "id": "ID · IDX",
+            "au": "AU · ASX",
+            "ca": "CA · TSX",
+            "my": "MY · Bursa",
+            "za": "ZA · JSE",
         },
     }
 

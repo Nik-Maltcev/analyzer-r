@@ -50,6 +50,13 @@ def _active_state(
     )
 
 
+def is_admin_user(user: AuthUser | None) -> bool:
+    if user is None:
+        return False
+    owner_email = get_settings().auth_legacy_owner_email.strip().lower()
+    return bool(owner_email and user.email.lower() == owner_email)
+
+
 async def get_access_state(user: AuthUser | None) -> AccessState:
     settings = get_settings()
     if not settings.resend_api_key:
@@ -57,8 +64,7 @@ async def get_access_state(user: AuthUser | None) -> AccessState:
     if user is None:
         return AccessState(status="unauthenticated", has_access=False)
 
-    owner_email = settings.auth_legacy_owner_email.strip().lower()
-    if owner_email and user.email.lower() == owner_email:
+    if is_admin_user(user):
         return AccessState(status="admin", has_access=True)
 
     async with get_connection() as conn:

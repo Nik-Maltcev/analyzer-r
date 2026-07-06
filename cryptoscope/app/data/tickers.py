@@ -61,12 +61,44 @@ INDONESIA_TICKERS = [
     "TLKM", "TOWR", "UNTR", "UNVR", "WIFI",
 ]
 
+AUSTRALIA_TICKERS = [
+    "BHP.AX", "CBA.AX", "CSL.AX", "NAB.AX", "WBC.AX",
+    "ANZ.AX", "WES.AX", "MQG.AX", "WOW.AX", "TLS.AX",
+    "GMG.AX", "RIO.AX", "FMG.AX", "WDS.AX", "TCL.AX",
+    "ALL.AX", "QBE.AX", "COL.AX", "REA.AX", "XRO.AX",
+]
+
+CANADA_TICKERS = [
+    "RY.TO", "TD.TO", "SHOP.TO", "ENB.TO", "CNR.TO",
+    "CP.TO", "BMO.TO", "BNS.TO", "CM.TO", "CNQ.TO",
+    "SU.TO", "TRI.TO", "MFC.TO", "BCE.TO", "WCN.TO",
+    "ATD.TO", "ABX.TO", "FNV.TO", "NTR.TO", "AEM.TO",
+]
+
+MALAYSIA_TICKERS = [
+    "1155.KL", "1295.KL", "1023.KL", "5347.KL", "5183.KL",
+    "5681.KL", "6033.KL", "5225.KL", "8869.KL", "5819.KL",
+    "2445.KL", "1961.KL", "4707.KL", "4065.KL", "7084.KL",
+    "6888.KL", "4863.KL", "6947.KL", "1066.KL", "4197.KL",
+]
+
+SOUTH_AFRICA_TICKERS = [
+    "NPN.JO", "PRX.JO", "BTI.JO", "CFR.JO", "GLN.JO",
+    "AGL.JO", "AMS.JO", "SBK.JO", "FSR.JO", "NED.JO",
+    "ABG.JO", "MTN.JO", "VOD.JO", "SHP.JO", "WHL.JO",
+    "CPI.JO", "CLS.JO", "MNP.JO", "IMP.JO", "REM.JO",
+]
+
 ALL_MARKETS = {
     "crypto": CRYPTO_TICKERS,
     "stocks": STOCK_TICKERS,
     "ru": RU_TICKERS,
     "br": BRAZIL_TICKERS,
     "id": INDONESIA_TICKERS,
+    "au": AUSTRALIA_TICKERS,
+    "ca": CANADA_TICKERS,
+    "my": MALAYSIA_TICKERS,
+    "za": SOUTH_AFRICA_TICKERS,
 }
 
 MARKET_NAMES = {
@@ -75,4 +107,8 @@ MARKET_NAMES = {
     "ru": "RU",
     "br": "Brasil B3",
     "id": "Indonesia IDX",
+    "au": "Australia ASX",
+    "ca": "Canada TSX",
+    "my": "Malaysia Bursa",
+    "za": "South Africa JSE",
 }

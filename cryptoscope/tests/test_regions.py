@@ -103,8 +103,8 @@ async def test_brazil_edition_limits_markets_and_localizes(
     assert "paypal.com/sdk/js" not in landing.text
     assert 'href="/app?checkout=month"' in landing.text
     assert 'href="/app?checkout=year"' in landing.text
-    assert "$9.90" in landing.text
-    assert "$99.00" in landing.text
+    assert "R$ 51,44" in landing.text
+    assert "R$ 514,42" in landing.text
     assert "Plano mensal" in landing.text
     assert "Plano anual" in landing.text
 
@@ -117,6 +117,9 @@ async def test_brazil_edition_limits_markets_and_localizes(
     assert 'data-market="id"' not in terminal.text
     assert 'id="paypal-checkout-modal"' in terminal.text
     assert '"public-client-id"' in terminal.text
+    assert 'currency: "BRL"' in terminal.text
+    assert 'monthAmount: "51.44"' in terminal.text
+    assert 'yearAmount: "514.42"' in terminal.text
     assert "private-client-secret" not in terminal.text
     assert blocked.status_code == 404
     assert allowed.status_code == 200
@@ -145,6 +148,8 @@ async def test_indonesia_edition_switches_between_id_and_english(
     assert "paypal.com/sdk/js" not in default_page.text
     assert 'href="/app?checkout=month"' in default_page.text
     assert 'href="/app?checkout=year"' in default_page.text
+    assert "Rp178.141" in default_page.text
+    assert "Rp1.781.406" in default_page.text
     assert "Paket bulanan" in default_page.text
     assert "Paket tahunan" in default_page.text
 
@@ -154,4 +159,9 @@ async def test_indonesia_edition_switches_between_id_and_english(
     assert "Signals" in english_page.text
     assert 'data-market="id"' in english_page.text
     assert 'data-market="ru"' not in english_page.text
+    assert 'currency: "USD"' in english_page.text
+    assert 'monthAmount: "9.90"' in english_page.text
+    assert 'yearAmount: "99.00"' in english_page.text
+    assert 'monthDisplay: "Rp178.141"' in english_page.text
+    assert "displayCurrencyAtCheckout: false" in english_page.text
     assert unsupported.status_code == 400

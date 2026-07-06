@@ -39,9 +39,6 @@ class Settings(BaseSettings):
     paypal_client_id: str = ""
     paypal_client_secret: str = ""
     paypal_mode: str = "sandbox"
-    paypal_currency: str = "USD"
-    paypal_month_amount: str = "9.90"
-    paypal_year_amount: str = "99.00"
 
     twelve_data_api_key: str = ""
     pyth_api_key: str = ""

@@ -10,7 +10,7 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.access import get_access_state
+from app.access import get_access_state, is_admin_user
 from app.api.auth import router as auth_router
 from app.api.charts import router as charts_router
 from app.api.data_view import router as data_router
@@ -27,7 +27,12 @@ from app.api.ui_routes import router as ui_router
 from app.auth import get_current_user
 from app.config import get_settings
 from app.db.database import db_status, fetch_pairs, get_connection, init_db, set_db_path
-from app.product import BASE_PRODUCT_NAME, get_product_profile, normalize_market
+from app.product import (
+    BASE_PRODUCT_NAME,
+    get_product_profile,
+    get_user_enabled_markets,
+    normalize_market,
+)
 from app.ui.templates import templates
 
 # Ensure cryptoscope is on path
@@ -89,7 +94,9 @@ async def enforce_subscription_access(request: Request, call_next):
     if not protected:
         return await call_next(request)
 
-    user = await get_current_user(request)
+    user = getattr(request.state, "current_user", None)
+    if user is None:
+        user = await get_current_user(request)
     access = await get_access_state(user)
     if access.has_access:
         return await call_next(request)
@@ -120,11 +127,23 @@ async def enforce_subscription_access(request: Request, call_next):
 
 @app.middleware("http")
 async def enforce_product_markets(request: Request, call_next):
+    if request.url.path.startswith("/static/"):
+        return await call_next(request)
+
+    profile = get_product_profile()
+    user = await get_current_user(request)
+    enabled_markets = get_user_enabled_markets(
+        profile,
+        is_admin=is_admin_user(user),
+    )
+    request.state.current_user = user
+    request.state.enabled_markets = enabled_markets
+
     market = request.query_params.get("market")
     if (
         market
         and request.url.path.startswith(("/api/", "/tab/"))
-        and market not in get_product_profile().enabled_markets
+        and market not in enabled_markets
     ):
         return JSONResponse(
             status_code=404,
@@ -205,8 +224,15 @@ async def app_page(
     market: str | None = Query(None),
 ):
     """Full app page."""
-    market = normalize_market(market)
-    user = await get_current_user(request)
+    user = getattr(request.state, "current_user", None)
+    if user is None:
+        user = await get_current_user(request)
+    enabled_markets = getattr(
+        request.state,
+        "enabled_markets",
+        get_product_profile().enabled_markets,
+    )
+    market = normalize_market(market, enabled_markets=enabled_markets)
     access = await get_access_state(user)
     dash = (
         await _get_dashboard_context(market)

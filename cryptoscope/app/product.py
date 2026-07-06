@@ -9,13 +9,27 @@ from fastapi import HTTPException
 from app.config import Settings, get_settings
 
 BASE_PRODUCT_NAME = "MEANX"
-ALL_MARKETS = ("crypto", "stocks", "ru", "br", "id")
+ALL_MARKETS = (
+    "crypto",
+    "stocks",
+    "ru",
+    "br",
+    "id",
+    "au",
+    "ca",
+    "my",
+    "za",
+)
 MARKET_NAMES = {
     "crypto": "Crypto",
     "stocks": "Акции/ETF",
     "ru": "RU",
     "br": "BR · B3",
     "id": "ID · IDX",
+    "au": "AU · ASX",
+    "ca": "CA · TSX",
+    "my": "MY · Bursa",
+    "za": "ZA · JSE",
 }
 
 
@@ -118,13 +132,26 @@ def get_product_profile(settings: Settings | None = None) -> ProductProfile:
 def normalize_market(
     market: str | None,
     profile: ProductProfile | None = None,
+    enabled_markets: tuple[str, ...] | None = None,
 ) -> str:
     profile = profile or get_product_profile()
+    available_markets = enabled_markets or profile.enabled_markets
     return (
         market
-        if market in profile.enabled_markets
+        if market in available_markets
         else profile.default_market
     )
+
+
+def get_user_enabled_markets(
+    profile: ProductProfile | None = None,
+    *,
+    is_admin: bool = False,
+) -> tuple[str, ...]:
+    profile = profile or get_product_profile()
+    if is_admin and profile.variant == "global":
+        return ALL_MARKETS
+    return profile.enabled_markets
 
 
 def require_market_enabled(

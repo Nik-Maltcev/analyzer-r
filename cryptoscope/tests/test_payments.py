@@ -322,8 +322,6 @@ async def test_paypal_order_is_bound_captured_and_idempotent(
     monkeypatch.setattr(settings, "paypal_client_id", "live-client")
     monkeypatch.setattr(settings, "paypal_client_secret", "live-secret")
     monkeypatch.setattr(settings, "paypal_mode", "live")
-    monkeypatch.setattr(settings, "paypal_month_amount", "9.90")
-    monkeypatch.setattr(settings, "paypal_year_amount", "99.00")
     session_token = _seed_session(temp_db)
     captured_create = {}
     capture_calls = 0
@@ -345,8 +343,8 @@ async def test_paypal_order_is_bound_captured_and_idempotent(
                         "id": "PAYPAL-CAPTURE-1",
                         "status": "COMPLETED",
                         "amount": {
-                            "value": "9.90",
-                            "currency_code": "USD",
+                            "value": "51.44",
+                            "currency_code": "BRL",
                         },
                     }],
                 },
@@ -382,8 +380,8 @@ async def test_paypal_order_is_bound_captured_and_idempotent(
     assert created.status_code == 200
     assert created.json()["id"] == "PAYPAL-ORDER-1"
     assert captured_create["user_id"] == "paypal-user"
-    assert captured_create["amount"] == "9.90"
-    assert captured_create["currency"] == "USD"
+    assert captured_create["amount"] == "51.44"
+    assert captured_create["currency"] == "BRL"
     assert captured.status_code == 200
     assert captured.json()["status"] == "COMPLETED"
     assert repeated.status_code == 200
@@ -417,8 +415,8 @@ async def test_paypal_order_is_bound_captured_and_idempotent(
         "paypal",
         "paypal-user",
         "month",
-        "9.90",
-        "USD",
+        "51.44",
+        "BRL",
         "paid",
         "PAYPAL-CAPTURE-1",
     )

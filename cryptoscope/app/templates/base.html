@@ -20,12 +20,15 @@
         window.MEANX_PRODUCT_VARIANT = {{ product.variant|tojson }};
         window.MEANX_PAYPAL_CONFIG = {
             clientId: {{ settings.paypal_client_id|default("", true)|tojson }},
-            currency: {{ settings.paypal_currency|default("USD", true)|tojson }},
-            monthAmount: {{ settings.paypal_month_amount|default("9.90", true)|tojson }},
-            yearAmount: {{ settings.paypal_year_amount|default("99.00", true)|tojson }}
+            currency: {{ pricing.checkout_currency|tojson }},
+            monthAmount: {{ pricing.checkout_month_amount|tojson }},
+            yearAmount: {{ pricing.checkout_year_amount|tojson }},
+            monthDisplay: {{ pricing.month_display|tojson }},
+            yearDisplay: {{ pricing.year_display|tojson }},
+            displayCurrencyAtCheckout: {{ pricing.checkout_uses_display_currency|tojson }}
         };
     </script>
-    <script src="/static/js/main.js?v=20260705-paypal-orders1" defer></script>
+    <script src="/static/js/main.js?v=20260705-regional-prices1" defer></script>
 </head>
 <body>
     <nav class="navbar">

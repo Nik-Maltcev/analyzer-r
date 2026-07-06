@@ -24,6 +24,7 @@ from app.access import get_access_state
 from app.auth import get_current_user
 from app.config import get_settings
 from app.db.database import get_connection
+from app.pricing import get_subscription_pricing
 from app.product import get_product_profile
 from app.ui.templates import templates
 
@@ -284,23 +285,23 @@ def _paypal_base_url() -> str:
 
 
 def _paypal_plan(plan: str) -> dict[str, str | int]:
-    settings = get_settings()
     base = PAYMENT_PLANS.get(plan)
     if not base:
         raise HTTPException(status_code=404, detail="Unknown payment plan")
-    raw_amount = (
-        settings.paypal_month_amount
+    pricing = get_subscription_pricing()
+    amount = (
+        pricing.checkout_month_amount
         if plan == "month"
-        else settings.paypal_year_amount
+        else pricing.checkout_year_amount
     )
     try:
-        amount = normalize_amount(raw_amount)
+        amount = normalize_amount(amount)
     except ValueError as exc:
         raise HTTPException(
             status_code=503,
             detail="PayPal plan amount is not configured",
         ) from exc
-    currency = settings.paypal_currency.strip().upper()
+    currency = pricing.checkout_currency
     if len(currency) != 3 or not currency.isalpha():
         raise HTTPException(
             status_code=503,

@@ -7,8 +7,9 @@
 # 5. Load and refresh RU market
 # 6. Load Brazil market
 # 7. Load Indonesia market
-# 8. Start background updater loop
-# 9. Launch app
+# 8. Load administrator-only international markets
+# 9. Start background updater loop
+# 10. Launch app
 
 set -e
 
@@ -22,7 +23,7 @@ if [ -z "${ENABLED_MARKETS:-}" ]; then
     case "${APP_VARIANT:-global}" in
         br) export ENABLED_MARKETS="crypto,stocks,br" ;;
         id) export ENABLED_MARKETS="crypto,stocks,id" ;;
-        *) export ENABLED_MARKETS="crypto,stocks,ru,br,id" ;;
+        *) export ENABLED_MARKETS="crypto,stocks,ru,br,id,au,ca,my,za" ;;
     esac
 fi
 
@@ -97,7 +98,10 @@ if market_enabled "id"; then
     fi
 fi
 
-# 8. Start background update loop (checks every 30s, runs daily_update at 06:00 UTC)
+# 8. Load administrator-only international equity markets
+python /scripts/load_international.py
+
+# 9. Start background update loop (checks every 30s, runs daily_update at 06:00 UTC)
 (
     while true; do
         CURRENT_HOUR=$(date -u +%H)
@@ -111,6 +115,6 @@ fi
     done
 ) &
 
-# 9. Launch FastAPI app
+# 10. Launch FastAPI app
 echo "Starting MEANX on port $PORT..."
 exec python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT"

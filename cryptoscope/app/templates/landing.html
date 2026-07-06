@@ -216,6 +216,34 @@
                         <span>Акции IDX</span>
                     </div>
                     {% endif %}
+                    {% if "au" in enabled_markets %}
+                    <div class="market-row">
+                        <span class="market-code">AU</span>
+                        <strong>Австралия</strong>
+                        <span>Акции ASX</span>
+                    </div>
+                    {% endif %}
+                    {% if "ca" in enabled_markets %}
+                    <div class="market-row">
+                        <span class="market-code">CA</span>
+                        <strong>Канада</strong>
+                        <span>Акции TSX</span>
+                    </div>
+                    {% endif %}
+                    {% if "my" in enabled_markets %}
+                    <div class="market-row">
+                        <span class="market-code">MY</span>
+                        <strong>Малайзия</strong>
+                        <span>Акции Bursa</span>
+                    </div>
+                    {% endif %}
+                    {% if "za" in enabled_markets %}
+                    <div class="market-row">
+                        <span class="market-code">ZA</span>
+                        <strong>ЮАР</strong>
+                        <span>Акции JSE</span>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </section>
@@ -275,8 +303,12 @@
                 <article class="price-card">
                     <div>
                         <span class="price-name">Месячный тариф</span>
-                        <div class="price-value"><strong>$9.90</strong><span>/ месяц</span></div>
+                        <div class="price-value"><strong>{{ pricing.month_display }}</strong><span>/ месяц</span></div>
+                        {% if pricing.checkout_uses_display_currency %}
                         <p>Оплата через PayPal после входа в аккаунт.</p>
+                        {% else %}
+                        <p>Оплата обрабатывается на стороне PayPal, итоговая сумма отображается в USD.</p>
+                        {% endif %}
                     </div>
                     <ul class="price-features">
                         <li><i data-lucide="check" aria-hidden="true"></i>Все доступные рынки</li>
@@ -290,8 +322,12 @@
                 <article class="price-card price-card-featured">
                     <div>
                         <span class="price-name">Годовой тариф</span>
-                        <div class="price-value"><strong>$99.00</strong><span>/ год</span></div>
+                        <div class="price-value"><strong>{{ pricing.year_display }}</strong><span>/ год</span></div>
+                        {% if pricing.checkout_uses_display_currency %}
                         <p>Оплата подтверждается сервером PayPal.</p>
+                        {% else %}
+                        <p>Оплата обрабатывается на стороне PayPal, итоговая сумма отображается в USD.</p>
+                        {% endif %}
                     </div>
                     <ul class="price-features">
                         <li><i data-lucide="check" aria-hidden="true"></i>Все доступные рынки</li>
