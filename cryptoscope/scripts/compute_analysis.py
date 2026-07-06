@@ -26,6 +26,7 @@ from app.core.signals import (
     determine_strength,
     resolve_signal_started_at,
 )
+from app.data.tickers import ALL_MARKETS
 from app.db.schema import PAIR_COLUMN_MIGRATIONS
 
 DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
@@ -249,7 +250,7 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
 def main():
     conn = sqlite3.connect(DB_PATH)
 
-    for market in ["crypto", "stocks", "ru", "br", "id"]:
+    for market in ALL_MARKETS:
         if market not in ENABLED_MARKETS:
             print(f"Skipping disabled market: {market}")
             continue
