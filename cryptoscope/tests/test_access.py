@@ -16,6 +16,7 @@ def app(temp_db, monkeypatch):
     monkeypatch.setattr(settings, "app_variant", "global")
     monkeypatch.setattr(settings, "resend_api_key", "re_test")
     monkeypatch.setattr(settings, "auth_legacy_owner_email", "")
+    monkeypatch.setattr(settings, "auth_admin_emails", "")
     set_db_path(temp_db)
 
     from app.main import app
@@ -102,6 +103,31 @@ async def test_global_admin_can_open_every_market(
     assert 'data-market="my"' in terminal.text
     assert 'data-market="za"' in terminal.text
     assert indonesia.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_additional_admin_email_gets_admin_access(
+    app,
+    temp_db,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        get_settings(),
+        "auth_admin_emails",
+        "first@example.com; user@example.com",
+    )
+    token = _add_user(temp_db, "+3 days")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        cookies={SESSION_COOKIE_NAME: token},
+    ) as client:
+        terminal = await client.get("/app?market=au")
+
+    assert terminal.status_code == 200
+    assert 'window.CRYPTOSCOPE_INITIAL_MARKET = "au"' in terminal.text
+    assert '"status": "admin"' in terminal.text
 
 
 @pytest.mark.asyncio

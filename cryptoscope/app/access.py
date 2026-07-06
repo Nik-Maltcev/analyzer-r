@@ -53,8 +53,16 @@ def _active_state(
 def is_admin_user(user: AuthUser | None) -> bool:
     if user is None:
         return False
-    owner_email = get_settings().auth_legacy_owner_email.strip().lower()
-    return bool(owner_email and user.email.lower() == owner_email)
+    settings = get_settings()
+    admin_emails = {
+        email.strip().lower()
+        for email in settings.auth_admin_emails.replace(";", ",").split(",")
+        if email.strip()
+    }
+    owner_email = settings.auth_legacy_owner_email.strip().lower()
+    if owner_email:
+        admin_emails.add(owner_email)
+    return user.email.strip().lower() in admin_emails
 
 
 async def get_access_state(user: AuthUser | None) -> AccessState:

@@ -11,6 +11,7 @@ APP_VARIANT=global
 APP_BASE_URL=https://global-domain.example
 DB_PATH=/data/market.db
 AUTH_LEGACY_OWNER_EMAIL=owner@example.com
+AUTH_ADMIN_EMAILS=second-admin@example.com
 ```
 
 Regular users see crypto, US stocks/ETF, and Russia. The global service also
@@ -87,4 +88,5 @@ and daily data update, matching the current deployment model.
 
 When Resend is configured, every edition enforces the three-day trial and paid
 subscription access. `AUTH_LEGACY_OWNER_EMAIL` remains unrestricted and should
-be the operator's own login email.
+be the operator's own login email. Add more administrators through the
+comma-separated `AUTH_ADMIN_EMAILS` variable.
