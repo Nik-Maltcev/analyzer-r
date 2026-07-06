@@ -491,8 +491,12 @@
 
 {% else %}
 <div class="empty-state">
-    <span class="empty-icon">📡</span>
-    <p>Нет данных для отображения. Запустите <code>compute_analysis.py</code> для расчёта пар.</p>
-    <p class="text-dim">DB: {{ market }} | corr &ge; {{ min_corr }} | max_days: {{ max_days }}</p>
+    <span class="empty-icon">⏳</span>
+    <p>Данные рынка загружаются или ещё не прошли первый расчёт.</p>
+    <p class="text-dim">{{ market|upper }} · обновите страницу через несколько минут</p>
+    <button class="btn btn-outline" type="button"
+            onclick="switchMarket('{{ market }}')">
+        Обновить
+    </button>
 </div>
 {% endif %}

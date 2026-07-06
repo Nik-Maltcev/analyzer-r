@@ -22,8 +22,7 @@ function switchMarket(market) {
     document.querySelectorAll('.market-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.market === market);
     });
-    // Refresh dashboard and signals for new market
-    htmx.ajax('GET', '/tab/dashboard?market=' + market, {target: '#signals-dashboard', swap: 'outerHTML'});
+    // Signals response owns its dashboard, so one swap keeps the page atomic.
     const activeMode = document.querySelector('.mode-btn.active');
     const mode = activeMode ? activeMode.dataset.mode : 'all';
     htmx.ajax('GET', '/tab/signals?mode=' + mode + '&market=' + market, {target: '#signals-content', swap: 'innerHTML'});
