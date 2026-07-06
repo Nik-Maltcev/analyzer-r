@@ -27,14 +27,17 @@ if [ -z "${ENABLED_MARKETS:-}" ]; then
     esac
 fi
 
-if [ "${APP_VARIANT:-global}" = "global" ]; then
-    for ADMIN_MARKET in au ca my za; do
-        case ",$ENABLED_MARKETS," in
-            *",$ADMIN_MARKET,"*) ;;
-            *) export ENABLED_MARKETS="$ENABLED_MARKETS,$ADMIN_MARKET" ;;
-        esac
-    done
-fi
+case "${APP_VARIANT:-global}" in
+    br|id) ;;
+    *)
+        for ADMIN_MARKET in au ca my za; do
+            case ",$ENABLED_MARKETS," in
+                *",$ADMIN_MARKET,"*) ;;
+                *) export ENABLED_MARKETS="$ENABLED_MARKETS,$ADMIN_MARKET" ;;
+            esac
+        done
+        ;;
+esac
 
 market_enabled() {
     case ",$ENABLED_MARKETS," in
