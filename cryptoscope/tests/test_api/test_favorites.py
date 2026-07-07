@@ -174,6 +174,89 @@ async def test_refresh_ru_favorites_fetches_only_user_tickers(
 
 
 @pytest.mark.asyncio
+async def test_refresh_crypto_favorites_fetches_only_user_tickers(
+    app,
+    temp_db,
+    monkeypatch,
+):
+    conn = sqlite3.connect(temp_db)
+    _add_auth_session(conn)
+    conn.executemany(
+        """
+        INSERT INTO favorites (
+            pair, market, ticker_a, ticker_b, signal_type,
+            price_a_entry, price_b_entry, entry_time, status, user_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)
+        """,
+        [
+            (
+                "APT/USD_CELO/USD",
+                "crypto",
+                "APT/USD",
+                "CELO/USD",
+                "long_a",
+                0.57,
+                0.08,
+                "active",
+                TEST_USER_ID,
+            ),
+            (
+                "BTC/USD_ETH/USD",
+                "crypto",
+                "BTC/USD",
+                "ETH/USD",
+                "long_a",
+                100000,
+                3000,
+                "active",
+                "other-user",
+            ),
+            (
+                "SBER_GAZP",
+                "ru",
+                "SBER",
+                "GAZP",
+                "long_a",
+                300,
+                125,
+                "active",
+                TEST_USER_ID,
+            ),
+        ],
+    )
+    conn.commit()
+    conn.close()
+    captured = []
+
+    async def fake_refresh(tickers):
+        captured.extend(tickers)
+        return {
+            "prices": {"APT/USD": 0.58, "CELO/USD": 0.081},
+            "updated_at": datetime(2026, 7, 7, 9, 30, tzinfo=timezone.utc),
+            "cached": False,
+        }
+
+    monkeypatch.setattr(
+        "app.api.favorites.refresh_crypto_live_prices",
+        fake_refresh,
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        client.cookies.set(SESSION_COOKIE_NAME, TEST_SESSION)
+        response = await client.post("/api/favorites/refresh-crypto")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "updated": 2,
+        "cached": False,
+        "updated_at": "2026-07-07T09:30:00+00:00",
+    }
+    assert captured == ["APT/USD", "CELO/USD"]
+
+
+@pytest.mark.asyncio
 async def test_scanner_single_position_tracks_pnl_and_recommendation(
     app,
     temp_db,

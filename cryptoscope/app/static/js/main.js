@@ -593,6 +593,42 @@ async function refreshRuFavorites(button) {
     }
 }
 
+async function refreshCryptoFavorites(button) {
+    if (!button || button.disabled) return;
+    button.disabled = true;
+    button.classList.add('is-loading');
+
+    try {
+        const response = await fetch('/api/favorites/refresh-crypto', {
+            method: 'POST',
+            credentials: 'same-origin'
+        });
+        const data = await response.json().catch(() => ({}));
+        if (response.status === 401) openAuthModal();
+        if (!response.ok) {
+            throw new Error(data.detail || 'Не удалось обновить котировки Binance');
+        }
+
+        showToast(
+            data.cached
+                ? 'Котировки Binance уже актуальны'
+                : `Обновлено crypto-инструментов: ${data.updated}`,
+            'success'
+        );
+        await htmx.ajax('GET', favoritePnlUrl('/tab/favorites'), {
+            target: '#main-content',
+            swap: 'innerHTML'
+        });
+    } catch (error) {
+        showToast(error.message || 'Ошибка обновления Binance', 'error');
+    } finally {
+        if (button.isConnected) {
+            button.disabled = false;
+            button.classList.remove('is-loading');
+        }
+    }
+}
+
 // Close favorite position
 function closeFavorite(favId) {
     if (!confirm(translateUi('Закрыть позицию?'))) return;

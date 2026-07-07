@@ -575,7 +575,52 @@ MESSAGES = {
     ),
     "Закрыть": ("Close", "Encerrar", "Tutup"),
     "Закрыть?": ("Close?", "Encerrar?", "Tutup?"),
+    "Обновить котировки Crypto": (
+        "Refresh crypto quotes",
+        "Atualizar cotações cripto",
+        "Perbarui harga kripto",
+    ),
     "Обновить котировки RU": ("Refresh RU quotes", "Atualizar cotações RU", "Perbarui harga RU"),
+    "Данные Binance обновляются вручную": (
+        "Binance data refreshes manually",
+        "Dados da Binance atualizados manualmente",
+        "Data Binance diperbarui manual",
+    ),
+    "Котировки Binance уже актуальны": (
+        "Binance quotes are already up to date",
+        "As cotações da Binance já estão atualizadas",
+        "Harga Binance sudah terbaru",
+    ),
+    "Обновлено crypto-инструментов:": (
+        "Crypto instruments refreshed:",
+        "Instrumentos cripto atualizados:",
+        "Instrumen kripto diperbarui:",
+    ),
+    "Не удалось обновить котировки Binance": (
+        "Could not refresh Binance quotes",
+        "Não foi possível atualizar as cotações da Binance",
+        "Tidak dapat memperbarui harga Binance",
+    ),
+    "В избранном нет активных crypto-позиций": (
+        "There are no active crypto positions in the watchlist",
+        "Não há posições cripto ativas nos favoritos",
+        "Tidak ada posisi kripto aktif di favorit",
+    ),
+    "Binance временно не отвечает. Попробуйте немного позже": (
+        "Binance is temporarily unavailable. Please try again shortly",
+        "A Binance está temporariamente indisponível. Tente novamente em instantes",
+        "Binance sementara tidak tersedia. Coba lagi sebentar",
+    ),
+    "Binance не вернул котировки для избранных инструментов": (
+        "Binance did not return quotes for the selected instruments",
+        "A Binance não retornou cotações para os instrumentos selecionados",
+        "Binance tidak mengembalikan harga untuk instrumen favorit",
+    ),
+    "Ошибка обновления Binance": (
+        "Binance refresh error",
+        "Erro ao atualizar Binance",
+        "Kesalahan pembaruan Binance",
+    ),
     "Войдите, чтобы сохранять сигналы": ("Sign in to save signals", "Entre para salvar sinais", "Masuk untuk menyimpan sinyal"),
     "Получить ссылку для входа": ("Get sign-in link", "Receber link de acesso", "Dapatkan tautan masuk"),
     "Вход в MEANX": ("Sign in to MEANX", "Entrar no MEANX", "Masuk ke MEANX"),

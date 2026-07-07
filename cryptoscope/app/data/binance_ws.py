@@ -7,25 +7,35 @@ Stores latest prices in a global dict for instant access.
 import asyncio
 import json
 import time
-from typing import Dict, Optional
+from datetime import datetime, timezone
+from typing import Dict, Optional, Sequence
 from collections import defaultdict
 
 import httpx
 
 BINANCE_WS_URL = "wss://stream.binance.com:9443/ws"
 BINANCE_REST_URL = "https://api.binance.com/api/v3"
+CRYPTO_LIVE_CACHE_SECONDS = 30
 
 # Global cache of latest prices: {"BTCUSDT": 98765.4, ...}
 live_prices: Dict[str, float] = {}
 _last_update: Dict[str, float] = {}
 _connected: bool = False
 _start_time: float = 0.0
+_crypto_live_fetched_at = 0.0
+_crypto_live_lock = asyncio.Lock()
 
 # Mapping: our tickers → possible Binance symbols
 TICKER_MAP: Dict[str, list] = {}
 
 # Track all known ticker symbols we've seen
 _all_symbols: set = set()
+
+
+def _latest_live_updated_at() -> datetime | None:
+    if not _last_update:
+        return None
+    return datetime.fromtimestamp(max(_last_update.values()), timezone.utc)
 
 
 def normalize_binance_symbol(ticker: str) -> str:
@@ -69,6 +79,83 @@ async def fetch_latest_prices(symbols: list) -> Dict[str, float]:
     except Exception as e:
         print(f"[Binance] Failed to fetch prices: {e}")
         return {}
+
+
+def get_crypto_live_snapshot(
+    tickers: Sequence[str] | None = None,
+) -> tuple[dict[str, float], datetime | None]:
+    """Return the latest in-memory Binance prices without network I/O."""
+    selected = set(tickers) if tickers else set(TICKER_MAP)
+    prices = {}
+    for ticker in selected:
+        price = get_live_price(ticker)
+        if price is not None and price > 0:
+            prices[ticker] = float(price)
+    return prices, _latest_live_updated_at()
+
+
+async def refresh_crypto_live_prices(
+    tickers: Sequence[str],
+    ttl_seconds: int = CRYPTO_LIVE_CACHE_SECONDS,
+) -> dict:
+    """Fetch Binance quotes for selected crypto tickers and update live cache."""
+    global TICKER_MAP, _all_symbols, _crypto_live_fetched_at
+
+    selected = {
+        str(ticker).upper()
+        for ticker in tickers
+        if ticker and "/" in str(ticker)
+    }
+    if not selected:
+        return {
+            "prices": {},
+            "updated_at": _latest_live_updated_at(),
+            "cached": True,
+        }
+
+    async with _crypto_live_lock:
+        cache_age = time.monotonic() - _crypto_live_fetched_at
+        cached_prices, updated_at = get_crypto_live_snapshot(selected)
+        if (
+            _crypto_live_fetched_at
+            and cache_age < max(0, ttl_seconds)
+            and len(cached_prices) == len(selected)
+        ):
+            return {
+                "prices": cached_prices,
+                "updated_at": updated_at,
+                "cached": True,
+            }
+
+        if not _all_symbols or any(ticker not in TICKER_MAP for ticker in selected):
+            all_symbols = await fetch_exchange_info()
+            if all_symbols:
+                _all_symbols = set(all_symbols)
+                TICKER_MAP.update(build_ticker_map(list(selected), _all_symbols))
+
+        symbols_by_ticker = {
+            ticker: TICKER_MAP.get(ticker, [])[:1]
+            for ticker in selected
+        }
+        symbols = sorted({
+            symbol
+            for ticker_symbols in symbols_by_ticker.values()
+            for symbol in ticker_symbols
+        })
+        prices_by_symbol = await fetch_latest_prices(symbols)
+        now = time.time()
+        for symbol, price in prices_by_symbol.items():
+            if price and price > 0:
+                live_prices[symbol] = float(price)
+                _last_update[symbol] = now
+
+        _crypto_live_fetched_at = time.monotonic()
+        refreshed_prices, refreshed_at = get_crypto_live_snapshot(selected)
+        return {
+            "prices": refreshed_prices,
+            "updated_at": refreshed_at,
+            "cached": False,
+        }
 
 
 def build_ticker_map(tickers: list, all_symbols: set) -> Dict[str, list]:

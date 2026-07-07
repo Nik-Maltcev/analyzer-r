@@ -11,6 +11,7 @@ from app.core.calculator import calc_pair_performance, calc_single_performance
 from app.core.cointegration import compute_fixed_zscore, compute_zscore, engle_granger
 from app.core.scanners import corr_breakdown_scan, drawdown_scan, momentum_scan
 from app.core.signals import estimate_signal_timing, is_actionable_signal
+from app.data.binance_ws import get_crypto_live_snapshot
 from app.data.moex import get_ru_live_snapshot
 from app.db.database import (
     db_status,
@@ -792,6 +793,7 @@ async def tab_favorites(
             "request": request,
             "favorites": [],
             "auth_required": True,
+            "has_crypto_favorites": False,
             "has_ru_favorites": False,
             "pnl_settings": pnl_settings,
         })
@@ -816,15 +818,18 @@ async def tab_favorites(
             return templates.TemplateResponse(request, "components/favorites_tab.html", {
                 "request": request,
                 "favorites": [],
+                "has_crypto_favorites": False,
                 "has_ru_favorites": False,
                 "pnl_settings": pnl_settings,
             })
 
         # Fetch latest price per ticker + price history for Z-score recalculation
         ticker_keys = set()
+        has_crypto_favorites = False
         has_ru_favorites = False
         for _, favorite in favs.iterrows():
             market = favorite.get("market") or "crypto"
+            has_crypto_favorites = has_crypto_favorites or market == "crypto"
             has_ru_favorites = has_ru_favorites or market == "ru"
             ticker_keys.add((market, favorite["ticker_a"]))
             if favorite.get("ticker_b"):
@@ -1071,6 +1076,7 @@ async def tab_favorites(
         return templates.TemplateResponse(request, "components/favorites_tab.html", {
             "request": request,
             "favorites": [],
+            "has_crypto_favorites": False,
             "has_ru_favorites": False,
             "pnl_settings": pnl_settings,
             "error": str(e) if str(e) else "DB unavailable",
@@ -1081,10 +1087,19 @@ async def tab_favorites(
         ru_live_time = ru_live_updated_at.astimezone(
             ZoneInfo("Europe/Moscow")
         ).strftime("%d.%m, %H:%M МСК")
+    crypto_live_time = None
+    if has_crypto_favorites:
+        _, crypto_live_updated_at = get_crypto_live_snapshot()
+        if crypto_live_updated_at is not None:
+            crypto_live_time = crypto_live_updated_at.astimezone(
+                ZoneInfo("Europe/Moscow")
+            ).strftime("%d.%m, %H:%M МСК")
     return templates.TemplateResponse(request, "components/favorites_tab.html", {
         "request": request,
         "favorites": active,
+        "has_crypto_favorites": has_crypto_favorites,
         "has_ru_favorites": has_ru_favorites,
+        "crypto_live_updated_at": crypto_live_time,
         "ru_live_updated_at": ru_live_time,
         "pnl_settings": pnl_settings,
     })

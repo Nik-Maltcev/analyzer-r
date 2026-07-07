@@ -20,8 +20,24 @@
     <div class="section">
         <div class="favorites-section-toolbar">
             <h3>Активные позиции ({{ favorites|length }})</h3>
-            {% if has_ru_favorites %}
+            {% if has_crypto_favorites or has_ru_favorites %}
             <div class="ru-refresh-actions">
+                {% if has_crypto_favorites %}
+                <button class="btn btn-outline ru-refresh-btn"
+                        type="button"
+                        onclick="refreshCryptoFavorites(this)">
+                    <span class="refresh-icon" aria-hidden="true">↻</span>
+                    <span>Обновить котировки Crypto</span>
+                </button>
+                <span class="ru-refresh-time">
+                    {% if crypto_live_updated_at %}
+                    Binance: {{ crypto_live_updated_at }}
+                    {% else %}
+                    Данные Binance обновляются вручную
+                    {% endif %}
+                </span>
+                {% endif %}
+                {% if has_ru_favorites %}
                 <button class="btn btn-outline ru-refresh-btn"
                         type="button"
                         onclick="refreshRuFavorites(this)">
@@ -35,6 +51,7 @@
                     Данные MOEX с задержкой
                     {% endif %}
                 </span>
+                {% endif %}
             </div>
             {% endif %}
         </div>

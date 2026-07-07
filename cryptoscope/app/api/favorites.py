@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.auth import AuthUser, require_current_or_legacy_user
 from app.core.calculator import calc_pair_performance, calc_single_performance
 from app.core.signals import estimate_signal_timing
+from app.data.binance_ws import refresh_crypto_live_prices
 from app.data.moex import get_ru_live_snapshot, refresh_ru_live_prices
 from app.db.database import (
     close_favorite,
@@ -372,6 +373,53 @@ async def refresh_ru_favorites(
         raise HTTPException(
             status_code=502,
             detail="MOEX не вернул котировки для избранных инструментов",
+        )
+
+    updated_at = result["updated_at"]
+    return {
+        "ok": True,
+        "updated": len(result["prices"]),
+        "cached": result["cached"],
+        "updated_at": updated_at.isoformat() if updated_at else None,
+    }
+
+
+@router.post("/refresh-crypto")
+async def refresh_crypto_favorites(
+    user: AuthUser = Depends(require_current_or_legacy_user),
+):
+    """Refresh Binance quotes only for the user's active crypto favorites."""
+    if "crypto" not in get_product_profile().enabled_markets:
+        raise HTTPException(status_code=404, detail="Market is not available")
+
+    async with get_connection() as conn:
+        favorites = await fetch_favorites(conn, user.id)
+
+    tickers = set()
+    if not favorites.empty:
+        for _, favorite in favorites.iterrows():
+            if (favorite.get("market") or "crypto") == "crypto":
+                tickers.add(favorite["ticker_a"])
+                if favorite.get("ticker_b"):
+                    tickers.add(favorite["ticker_b"])
+    if not tickers:
+        raise HTTPException(
+            status_code=400,
+            detail="В избранном нет активных crypto-позиций",
+        )
+
+    try:
+        result = await refresh_crypto_live_prices(sorted(tickers))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Binance временно не отвечает. Попробуйте немного позже",
+        ) from exc
+
+    if not result["prices"]:
+        raise HTTPException(
+            status_code=502,
+            detail="Binance не вернул котировки для избранных инструментов",
         )
 
     updated_at = result["updated_at"]
