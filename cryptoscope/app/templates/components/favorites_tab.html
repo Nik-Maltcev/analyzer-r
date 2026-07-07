@@ -182,15 +182,10 @@
                             <strong>{{ f.status }}</strong>
                             <span>{{ f.status_detail }}</span>
                         </div>
-                        {% if f.complete %}
-                        <div class="position-simple-result {% if f.net_pnl >= 0 %}positive{% else %}negative{% endif %}">
-                            ${{ '%+.2f'|format(f.net_pnl) }}
-                        </div>
-                        {% else %}
                         <div class="position-simple-result {% if pair_move >= 0 %}positive{% else %}negative{% endif %}">
-                            {{ '%+.2f'|format(pair_move) }}%
+                            <small>Движение</small>
+                            <strong>{{ '%+.2f'|format(pair_move) }}%</strong>
                         </div>
-                        {% endif %}
                     </div>
                     <div class="position-simple-grid">
                         <div class="position-simple-card">
@@ -216,6 +211,21 @@
                                 {% else %}ещё ≈ {{ f.signal_days_remaining }} дн.{% endif %}
                             </strong>
                         </div>
+                        {% if f.complete %}
+                        <div class="position-simple-card">
+                            <span>Net P&amp;L</span>
+                            <strong class="{% if f.net_pnl >= 0 %}positive{% else %}negative{% endif %}">
+                                ${{ '%+.2f'|format(f.net_pnl) }}
+                            </strong>
+                            <small>
+                                {% if f.total_cost > 0 %}
+                                расходы ≈ ${{ '%.2f'|format(f.total_cost) }}
+                                {% else %}
+                                без расходов
+                                {% endif %}
+                            </small>
+                        </div>
+                        {% endif %}
                     </div>
                 </div>
 

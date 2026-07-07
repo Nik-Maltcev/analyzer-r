@@ -647,6 +647,9 @@ MESSAGES = {
     "Что открыто": ("Open position", "Posição aberta", "Posisi terbuka"),
     "В позиции": ("In position", "Em posição", "Dalam posisi"),
     "План": ("Plan", "Plano", "Rencana"),
+    "Движение": ("Move", "Movimento", "Pergerakan"),
+    "расходы": ("costs", "custos", "biaya"),
+    "без расходов": ("no costs", "sem custos", "tanpa biaya"),
     "по сигналу сканера": (
         "by scanner signal",
         "pelo sinal do scanner",

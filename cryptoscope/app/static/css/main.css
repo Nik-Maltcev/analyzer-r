@@ -1587,7 +1587,7 @@ html[data-view-mode='beginner'] .position-simple {
 .position-simple-grid {
     display: grid;
     gap: 8px;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
 html[data-view-mode='beginner'] .beginner-card-grid,
@@ -2036,9 +2036,24 @@ html[data-view-mode='beginner'] .signal-card {
 .position-simple-result {
     color: var(--text-bright);
     font-family: var(--font-mono);
-    font-size: 22px;
     font-weight: 800;
+    text-align: right;
     white-space: nowrap;
+}
+
+.position-simple-result small {
+    color: var(--text-muted);
+    display: block;
+    font-family: var(--font-sans);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.position-simple-result strong {
+    display: block;
+    font-size: 22px;
+    margin-top: 2px;
 }
 
 .position-simple-result.positive {
