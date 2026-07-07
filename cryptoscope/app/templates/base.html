@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#080b11">
     <title>{{ product.name }} — Pairs Trading Terminal</title>
+    <script>
+        try {
+            document.documentElement.dataset.viewMode =
+                localStorage.getItem('meanx_view_mode') || 'beginner';
+        } catch (_) {
+            document.documentElement.dataset.viewMode = 'beginner';
+        }
+    </script>
     <link rel="icon" href="/static/img/meanx-mark.svg" type="image/svg+xml">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -28,7 +36,7 @@
             displayCurrencyAtCheckout: {{ pricing.checkout_uses_display_currency|tojson }}
         };
     </script>
-    <script src="/static/js/main.js?v=20260707-crypto-refresh1" defer></script>
+    <script src="/static/js/main.js?v=20260707-view-mode1" defer></script>
 </head>
 <body>
     <nav class="navbar">
@@ -55,6 +63,16 @@
             </a>
         </div>
         <div class="navbar-end">
+            <div class="view-mode-switcher" aria-label="Режим отображения">
+                <button class="view-mode-btn" type="button" data-view-mode="beginner"
+                        onclick="setViewMode('beginner')">
+                    Новичок
+                </button>
+                <button class="view-mode-btn" type="button" data-view-mode="pro"
+                        onclick="setViewMode('pro')">
+                    Pro
+                </button>
+            </div>
             {% if product.supported_locales|length > 1 %}
             <div class="locale-switcher" aria-label="Language">
                 {% for locale_id in product.supported_locales %}

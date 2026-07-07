@@ -137,14 +137,14 @@
 
                 <!-- Pair movement and account P&L -->
                 {% set pair_move = f.pair_move_pct if f.pair_move_pct is defined else f.pnl_total_pct %}
-                <div class="position-pnl-caption">
+                <div class="position-pnl-caption pro-only">
                     {% if f.is_single %}Движение позиции{% else %}Движение пары{% endif %}
                 </div>
-                <div class="position-pnl-display {% if pair_move >= 0 %}positive{% else %}negative{% endif %}">
+                <div class="position-pnl-display pro-only {% if pair_move >= 0 %}positive{% else %}negative{% endif %}">
                     {{ '%+.2f'|format(pair_move) }} п.п.
                 </div>
                 {% if f.complete %}
-                <div class="position-pnl-breakdown">
+                <div class="position-pnl-breakdown pro-only">
                     <div>
                         <span>Gross P&amp;L</span>
                         <strong class="{% if f.gross_pnl >= 0 %}positive{% else %}negative{% endif %}">
@@ -176,8 +176,51 @@
                 </div>
                 {% endif %}
 
+                <div class="position-simple beginner-only">
+                    <div class="position-simple-head">
+                        <div>
+                            <strong>{{ f.status }}</strong>
+                            <span>{{ f.status_detail }}</span>
+                        </div>
+                        {% if f.complete %}
+                        <div class="position-simple-result {% if f.net_pnl >= 0 %}positive{% else %}negative{% endif %}">
+                            ${{ '%+.2f'|format(f.net_pnl) }}
+                        </div>
+                        {% else %}
+                        <div class="position-simple-result {% if pair_move >= 0 %}positive{% else %}negative{% endif %}">
+                            {{ '%+.2f'|format(pair_move) }}%
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="position-simple-grid">
+                        <div class="position-simple-card">
+                            <span>Что открыто</span>
+                            <strong>
+                                {% if f.signal_type == 'long_a' %}
+                                Лонг {{ f.ticker_a }}{% if not f.is_single %} / Шорт {{ f.ticker_b }}{% endif %}
+                                {% elif f.signal_type == 'short_a' %}
+                                Шорт {{ f.ticker_a }}{% if not f.is_single %} / Лонг {{ f.ticker_b }}{% endif %}
+                                {% else %}Наблюдение{% endif %}
+                            </strong>
+                        </div>
+                        <div class="position-simple-card">
+                            <span>В позиции</span>
+                            <strong>{{ f.days_held }} дн.</strong>
+                        </div>
+                        <div class="position-simple-card">
+                            <span>План</span>
+                            <strong>
+                                {% if f.is_single %}по сигналу сканера
+                                {% elif f.signal_days_remaining is none %}—
+                                {% elif f.signal_is_expired %}пересмотреть
+                                {% else %}ещё ≈ {{ f.signal_days_remaining }} дн.{% endif %}
+                            </strong>
+                        </div>
+                    </div>
+                </div>
+
                 {% if f.is_single %}
-                <div class="signal-timing">
+                <div class="signal-timing pro-only">
                     <div class="signal-timing-item">
                         <span>Добавлено</span>
                         <strong>{{ f.signal_started_date|default("—", true) }}</strong>
@@ -196,7 +239,7 @@
                     </div>
                 </div>
                 {% else %}
-                <div class="signal-timing {% if f.signal_is_expired %}is-overdue{% endif %}"
+                <div class="signal-timing pro-only {% if f.signal_is_expired %}is-overdue{% endif %}"
                      title="Ориентировочный срок рассчитан от даты добавления по полупериоду пары">
                     <div class="signal-timing-item">
                         <span>Сигнал с</span>
@@ -218,7 +261,7 @@
                 {% endif %}
 
                 <!-- Forecast status banner -->
-                <div class="forecast-status forecast-{{ f.status_color }}">
+                <div class="forecast-status pro-only forecast-{{ f.status_color }}">
                     <div class="forecast-label">
                         <span class="forecast-icon">
                         {% if f.status == 'Цель достигнута' %}✅
@@ -235,14 +278,14 @@
 
                 <!-- Progress bar -->
                 {% if not f.is_single and f.progress_pct is defined and f.progress_str %}
-                <div class="progress-bar-container">
+                <div class="progress-bar-container pro-only">
                     <div class="progress-bar-fill" style="width: {{ f.progress_pct }}%"></div>
                     <span class="progress-bar-label">{{ f.progress_str }}</span>
                 </div>
                 {% endif %}
 
                 <!-- Details -->
-                <div class="position-details">
+                <div class="position-details pro-only">
                     <div class="detail-row">
                         <span class="detail-label">Сигнал</span>
                         <span class="detail-value">{{ f.signal[:30] }}</span>

@@ -22,7 +22,7 @@
 {% if signals is defined and signals %}
 
 <!-- ============================== DASHBOARD BANNER ============================== -->
-<div class="dashboard-banner" id="signals-dashboard">
+<div class="dashboard-banner pro-only" id="signals-dashboard">
     <div class="glass-card stat-card">
         <div class="stat-card-top">
             <span class="stat-card-label">Маркет</span>
@@ -63,6 +63,23 @@
 <div class="section-header">
     <h3>🚦 Активные сигналы ({{ active|length }})</h3>
 </div>
+<div class="beginner-summary-strip beginner-only">
+    <div class="beginner-summary-item">
+        <span>Активные идеи</span>
+        <strong>{{ active|length }}</strong>
+        <small>только пары с рабочим сигналом</small>
+    </div>
+    <div class="beginner-summary-item">
+        <span>Рынок</span>
+        <strong>{{ market|upper }}</strong>
+        <small>{% if market_regime == "stress" %}стрессовый режим{% elif market_regime == "elevated" %}повышенная волатильность{% else %}обычный режим{% endif %}</small>
+    </div>
+    <div class="beginner-summary-item">
+        <span>Фокус</span>
+        <strong>{% if active[0] %}{{ active[0].ticker_a }}{% else %}—{% endif %}</strong>
+        <small>{% if active[0] %}первая идея в списке{% else %}нет идей{% endif %}</small>
+    </div>
+</div>
 <div class="cards-grid">
     {% for s in active %}
     <div class="signal-card signal-{{ s.signal_type }}" id="card-{{ s.pair_id }}"
@@ -84,7 +101,50 @@
             </span>
         </div>
 
-        <canvas class="sparkline" id="spark-{{ loop.index }}"
+        <div class="beginner-action-card beginner-only">
+            <div>
+                <span class="beginner-action-label">Что открыть</span>
+                <div class="beginner-direction">
+                    {% if s.signal_type == 'long_a' %}
+                    <span class="beginner-side long">Лонг {{ s.ticker_a }}</span>
+                    <span class="beginner-arrow">+</span>
+                    <span class="beginner-side short">Шорт {{ s.ticker_b }}</span>
+                    {% elif s.signal_type == 'short_a' %}
+                    <span class="beginner-side short">Шорт {{ s.ticker_a }}</span>
+                    <span class="beginner-arrow">+</span>
+                    <span class="beginner-side long">Лонг {{ s.ticker_b }}</span>
+                    {% else %}
+                    <span class="beginner-side">Наблюдать</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="beginner-card-grid">
+                <div class="beginner-metric">
+                    <span>Ожидаемый срок</span>
+                    <strong>
+                        {% if s.signal_days_remaining is none %}—
+                        {% elif s.signal_is_expired %}+{{ s.signal_days_overdue }} дн.
+                        {% else %}≈ {{ s.signal_days_remaining }} дн.{% endif %}
+                    </strong>
+                    <small>до пересмотра</small>
+                </div>
+                <div class="beginner-metric">
+                    <span>Темп возврата</span>
+                    <strong>{% if s.z_tomorrow_reversion_pct is not none %}≈{{ s.z_tomorrow_reversion_pct }}%{% else %}—{% endif %}</strong>
+                    <small>к среднему за сутки</small>
+                </div>
+                <div class="beginner-metric">
+                    <span>Контроль</span>
+                    <strong>{% if s.is_coint_stable %}Связь ок{% elif s.is_coint %}Проверить{% else %}Слабая{% endif %}</strong>
+                    <small>{% if s.corr_pct is not none %}корр. {{ s.corr_pct }}%{% else %}корр. —{% endif %}</small>
+                </div>
+            </div>
+            <p class="beginner-plain-note">
+                Пара отклонилась от среднего. Идея — дождаться движения обратно к норме и сопровождать позицию в портфеле.
+            </p>
+        </div>
+
+        <canvas class="sparkline pro-only" id="spark-{{ loop.index }}"
                 data-ticker-a="{{ s.ticker_a }}" data-ticker-b="{{ s.ticker_b }}"
                 data-z-now="{{ s.z_now|default('') }}"
                 width="280" height="40"></canvas>
@@ -116,7 +176,7 @@
             </div>
         </div>
 
-        <div class="signal-stats">
+        <div class="signal-stats pro-only">
             <div class="signal-stat">
                 <div class="signal-stat-label">Z сейчас</div>
                 <div class="signal-stat-value z-value {% if s.z_now and s.z_now >= 2 %}text-orange{% elif s.z_now and s.z_now <= -2 %}text-green{% else %}text-dim{% endif %}">
@@ -177,7 +237,7 @@
             </div>
         </div>
 
-        <div class="calc-block" id="calc-{{ s.pair_id }}"
+        <div class="calc-block pro-only" id="calc-{{ s.pair_id }}"
              data-pair-id="{{ s.pair_id }}"
              data-ticker-a="{{ s.ticker_a }}"
              data-ticker-b="{{ s.ticker_b }}"
@@ -209,10 +269,10 @@
 {% endif %}
 
 <!-- ============================== ALL PAIRS TABLE ============================== -->
-<div class="section-header">
+<div class="section-header pro-only">
     <h3>📋 Все пары ({{ total }})</h3>
 </div>
-<div class="table-container">
+<div class="table-container pro-only">
     <table class="data-table signals-table">
         <thead>
             <tr>

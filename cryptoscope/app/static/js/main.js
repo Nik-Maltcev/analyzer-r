@@ -16,6 +16,36 @@ function translateUi(value) {
 }
 window.translateUi = translateUi;
 
+const viewModeKey = 'meanx_view_mode';
+
+function getViewMode() {
+    try {
+        const saved = localStorage.getItem(viewModeKey);
+        return saved === 'pro' ? 'pro' : 'beginner';
+    } catch (_) {
+        return 'beginner';
+    }
+}
+
+function applyViewMode(mode = getViewMode()) {
+    const normalized = mode === 'pro' ? 'pro' : 'beginner';
+    document.documentElement.dataset.viewMode = normalized;
+    document.querySelectorAll('.view-mode-btn').forEach(button => {
+        button.classList.toggle('active', button.dataset.viewMode === normalized);
+    });
+}
+
+function setViewMode(mode) {
+    const normalized = mode === 'pro' ? 'pro' : 'beginner';
+    try {
+        localStorage.setItem(viewModeKey, normalized);
+    } catch (_) {}
+    applyViewMode(normalized);
+}
+
+window.setViewMode = setViewMode;
+applyViewMode();
+
 function switchMarket(market) {
     currentMarket = market;
     window.currentMarket = market;
@@ -114,6 +144,8 @@ document.body.addEventListener('htmx:configRequest', event => {
         }
     });
 });
+
+document.body.addEventListener('htmx:afterSwap', () => applyViewMode());
 
 // Passwordless authentication
 function openAuthModal() {
@@ -422,6 +454,7 @@ document.addEventListener('keydown', (event) => {
 });
 
 document.addEventListener('DOMContentLoaded', async () => {
+    applyViewMode();
     const authState = await refreshAuthStatus();
     const url = new URL(window.location.href);
     const authResult = url.searchParams.get('auth');

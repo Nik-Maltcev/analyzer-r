@@ -45,6 +45,44 @@
             <span>{{ t.risk_reason }}</span>
         </div>
         {% endif %}
+        <div class="beginner-action-card beginner-only">
+            <div>
+                <span class="beginner-action-label">Что открыть</span>
+                <div class="beginner-direction">
+                    {% if t.signal_type == 'long_a' %}
+                    <span class="beginner-side long">Лонг {{ t.ticker_a }}</span>
+                    <span class="beginner-arrow">+</span>
+                    <span class="beginner-side short">Шорт {{ t.ticker_b }}</span>
+                    {% elif t.signal_type == 'short_a' %}
+                    <span class="beginner-side short">Шорт {{ t.ticker_a }}</span>
+                    <span class="beginner-arrow">+</span>
+                    <span class="beginner-side long">Лонг {{ t.ticker_b }}</span>
+                    {% else %}
+                    <span class="beginner-side">Наблюдать</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="beginner-card-grid">
+                <div class="beginner-metric">
+                    <span>Вероятность</span>
+                    <strong>{{ t.win_rate }}%</strong>
+                    <small>{% if t.win_rate >= 60 %}выше среднего{% else %}умеренная{% endif %}</small>
+                </div>
+                <div class="beginner-metric">
+                    <span>План по времени</span>
+                    <strong>{% if t.signal_days_remaining is none %}—{% else %}≈ {{ t.signal_days_remaining }} дн.{% endif %}</strong>
+                    <small>до пересмотра</small>
+                </div>
+                <div class="beginner-metric">
+                    <span>Ожидание</span>
+                    <strong>+{{ t.avg_pnl_pct }}%</strong>
+                    <small>модельная оценка</small>
+                </div>
+            </div>
+            <p class="beginner-plain-note">
+                Это не приказ на вход, а идея с исторической проверкой. После добавления в портфель сервис будет показывать держать или закрывать.
+            </p>
+        </div>
         <div class="signal-timing {% if t.signal_is_expired %}is-overdue{% endif %}"
              title="Ориентировочный срок рассчитан по статистическому полупериоду пары">
             <div class="signal-timing-item">
@@ -64,7 +102,7 @@
                 </strong>
             </div>
         </div>
-        <div class="signal-stats">
+        <div class="signal-stats pro-only">
             <div class="signal-stat">
                 <div class="signal-stat-label">Z вход</div>
                 <div class="signal-stat-value">{{ t.z_now|default("—") }}</div>
@@ -114,7 +152,7 @@
                 <div class="signal-stat-value">{{ t.strength }}</div>
             </div>
         </div>
-        <div class="calc-block">
+        <div class="calc-block pro-only">
             <div class="calc-row">
                 <div class="calc-field">
                     <label>Позиция ($)</label>
@@ -135,7 +173,7 @@
 </div>
 
 <!-- Forecast table -->
-<div class="table-container" style="margin-top:16px">
+<div class="table-container pro-only" style="margin-top:16px">
     <table class="data-table">
         <thead>
             <tr>

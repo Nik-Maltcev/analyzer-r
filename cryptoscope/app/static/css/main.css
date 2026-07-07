@@ -804,7 +804,8 @@ body,
 /* Segmented controls */
 .mode-switcher,
 .market-selector-bar,
-.scanner-mode-bar {
+.scanner-mode-bar,
+.view-mode-switcher {
     display: inline-flex;
     gap: 2px;
     background: var(--surface-1);
@@ -815,7 +816,8 @@ body,
 
 .mode-btn,
 .market-btn,
-.scanner-btn {
+.scanner-btn,
+.view-mode-btn {
     padding: 7px 16px;
     border-radius: calc(var(--radius) - 4px);
     font-size: 13px;
@@ -829,18 +831,55 @@ body,
 
 .mode-btn:hover,
 .market-btn:hover,
-.scanner-btn:hover {
+.scanner-btn:hover,
+.view-mode-btn:hover {
     color: var(--text);
 }
 
 .mode-btn.active,
 .market-btn.active,
-.scanner-btn.active {
+.scanner-btn.active,
+.view-mode-btn.active {
     background: var(--surface-3);
     color: var(--blue-bright);
     box-shadow:
         0 1px 3px rgba(0, 0, 0, 0.3),
         inset 0 0 0 1px rgba(59, 130, 246, 0.2);
+}
+
+.beginner-only {
+    display: none !important;
+}
+
+html[data-view-mode='beginner'] .pro-only {
+    display: none !important;
+}
+
+html[data-view-mode='beginner'] .beginner-only {
+    display: block !important;
+}
+
+html[data-view-mode='pro'] .beginner-only {
+    display: none !important;
+}
+
+html[data-view-mode='beginner'] .calc-settings-bar,
+html[data-view-mode='beginner'] .mode-filters {
+    display: none !important;
+}
+
+.view-mode-switcher {
+    border-radius: 6px;
+    min-height: 34px;
+    padding: 2px;
+}
+
+.view-mode-btn {
+    border-radius: 4px;
+    font-size: 12px;
+    min-height: 28px;
+    padding: 0 10px;
+    white-space: nowrap;
 }
 
 /* ---------- 11. Data Tables ---------- */
@@ -1444,6 +1483,152 @@ body.modal-open {
     color: var(--text-bright);
 }
 
+.beginner-summary-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+html[data-view-mode='beginner'] .beginner-summary-strip {
+    display: grid !important;
+}
+
+html[data-view-mode='beginner'] .beginner-action-card,
+html[data-view-mode='beginner'] .position-simple {
+    display: grid !important;
+}
+
+.beginner-summary-item,
+.beginner-action-card,
+.beginner-metric,
+.position-simple-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent),
+        var(--surface-1);
+}
+
+.beginner-summary-item {
+    padding: 12px;
+}
+
+.beginner-summary-item span,
+.beginner-action-label,
+.beginner-metric span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.beginner-summary-item strong {
+    display: block;
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 22px;
+    line-height: 1.2;
+    margin-top: 4px;
+}
+
+.beginner-summary-item small,
+.beginner-action-card p,
+.beginner-metric small {
+    color: var(--text-dim);
+    display: block;
+    font-size: 12px;
+    line-height: 1.5;
+    margin-top: 4px;
+}
+
+.beginner-action-card {
+    display: grid;
+    gap: 12px;
+    margin: 12px 0;
+    padding: 14px;
+}
+
+.beginner-direction {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 5px;
+}
+
+.beginner-side {
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 800;
+    padding: 7px 9px;
+}
+
+.beginner-side.long {
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.38);
+    color: var(--green-bright);
+}
+
+.beginner-side.short {
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.38);
+    color: var(--orange-bright);
+}
+
+.beginner-arrow {
+    color: var(--text-muted);
+    font-size: 16px;
+}
+
+.beginner-card-grid,
+.position-simple-grid {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+html[data-view-mode='beginner'] .beginner-card-grid,
+html[data-view-mode='beginner'] .position-simple-grid {
+    display: grid !important;
+}
+
+.beginner-metric,
+.position-simple-card {
+    padding: 10px;
+}
+
+.position-simple-card span {
+    color: var(--text-muted);
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.beginner-metric strong,
+.position-simple-card strong {
+    color: var(--text-bright);
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 15px;
+    margin-top: 3px;
+}
+
+.beginner-plain-note {
+    border-left: 3px solid var(--teal);
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.55;
+    padding-left: 10px;
+}
+
+html[data-view-mode='beginner'] .signal-card {
+    padding: 16px;
+}
+
 .fav-btn {
     position: absolute;
     top: 12px;
@@ -1819,6 +2004,49 @@ body.modal-open {
     color: var(--text);
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+}
+
+.position-simple {
+    display: grid;
+    gap: 10px;
+    margin: 12px 0;
+}
+
+.position-simple-head {
+    align-items: flex-start;
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+}
+
+.position-simple-head strong {
+    color: var(--text-bright);
+    display: block;
+    font-size: 17px;
+}
+
+.position-simple-head span {
+    color: var(--text-dim);
+    display: block;
+    font-size: 12px;
+    line-height: 1.45;
+    margin-top: 3px;
+}
+
+.position-simple-result {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.position-simple-result.positive {
+    color: var(--green-bright);
+}
+
+.position-simple-result.negative {
+    color: var(--red-bright);
 }
 
 /* ---------- 22. Onboarding ---------- */
@@ -3299,6 +3527,13 @@ h3,
     gap: 12px;
 }
 
+html[data-view-mode='beginner'] .signals-page {
+    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-areas:
+        "market modes"
+        "content content";
+}
+
 .market-selector {
     grid-area: market;
 }
@@ -3911,7 +4146,10 @@ h3,
     .market-selector-bar,
     .calculator-settings .calc-row,
     .dashboard-banner,
-    .signals-dashboard {
+    .signals-dashboard,
+    .beginner-summary-strip,
+    .beginner-card-grid,
+    .position-simple-grid {
         grid-template-columns: 1fr;
     }
 
@@ -3930,6 +4168,14 @@ h3,
 
     .signals-mode-bar {
         overflow-x: auto;
+    }
+
+    html[data-view-mode='beginner'] .signals-page {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "market"
+            "modes"
+            "content";
     }
 
     .market-risk-banner {
