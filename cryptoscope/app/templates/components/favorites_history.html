@@ -9,12 +9,14 @@
                 <th>Сигнал</th>
                 <th>Вход</th>
                 <th>Выход</th>
-                <th>P&amp;L</th>
+                <th>Итог</th>
                 <th>HL</th>
             </tr>
         </thead>
         <tbody>
             {% for h in history %}
+            {% set hpnl = h.history_pnl_money if h.history_pnl_money is defined else none %}
+            {% set hpct = h.history_pnl_pct if h.history_pnl_pct is defined else h.exit_pnl_pct %}
             <tr>
                 <td><strong>{{ h.ticker_a }}/{{ h.ticker_b }}</strong></td>
                 <td>
@@ -24,8 +26,16 @@
                 </td>
                 <td>{{ h.entry_time[:16] if h.entry_time else '—' }}</td>
                 <td>{{ h.exit_time[:16] if h.exit_time else '—' }}</td>
-                <td class="text-mono {% if h.exit_pnl_pct and h.exit_pnl_pct >= 0 %}positive{% elif h.exit_pnl_pct and h.exit_pnl_pct < 0 %}negative{% endif %}">
-                    {% if h.exit_pnl_pct is not none %}{{ '%+.2f'|format(h.exit_pnl_pct) }}%{% else %}—{% endif %}
+                <td class="history-pnl-cell text-mono {% if hpnl is not none and hpnl >= 0 %}positive{% elif hpnl is not none and hpnl < 0 %}negative{% endif %}">
+                    {% if hpnl is not none %}
+                    <strong>${{ '%+.2f'|format(hpnl) }}</strong>
+                    <span>{{ '%+.2f'|format(hpct) }}%</span>
+                    {% if h.history_total_cost is defined and h.history_total_cost %}
+                    <small>расходы ${{ '%.2f'|format(h.history_total_cost) }}</small>
+                    {% endif %}
+                    {% else %}
+                    —
+                    {% endif %}
                 </td>
                 <td class="text-mono">{{ h.halflife if h.halflife else '—' }}</td>
             </tr>

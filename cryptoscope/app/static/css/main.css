@@ -967,6 +967,30 @@ html[data-view-mode='beginner'] .mode-filters {
     font-variant-numeric: tabular-nums;
 }
 
+.history-pnl-cell strong,
+.history-pnl-cell span,
+.history-pnl-cell small {
+    display: block;
+}
+
+.history-pnl-cell strong {
+    font-size: 13px;
+    line-height: 1.25;
+}
+
+.history-pnl-cell span {
+    margin-top: 2px;
+    color: currentColor;
+    font-size: 11px;
+    opacity: 0.9;
+}
+
+.history-pnl-cell small {
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
 /* Color-coded cells */
 .cell-positive {
     color: var(--green-bright);
@@ -1617,6 +1641,14 @@ html[data-view-mode='beginner'] .position-simple-grid {
     margin-top: 3px;
 }
 
+.position-simple-card small {
+    color: var(--text-dim);
+    display: block;
+    font-size: 11px;
+    line-height: 1.35;
+    margin-top: 5px;
+}
+
 .beginner-plain-note {
     border-left: 3px solid var(--teal);
     color: var(--text-dim);
@@ -2033,6 +2065,18 @@ html[data-view-mode='beginner'] .signal-card {
     margin-top: 3px;
 }
 
+.position-simple-status.status-green > strong {
+    color: var(--green-bright);
+}
+
+.position-simple-status.status-orange > strong {
+    color: var(--orange-bright);
+}
+
+.position-simple-status.status-red > strong {
+    color: var(--red-bright);
+}
+
 .position-simple-result {
     color: var(--text-bright);
     font-family: var(--font-mono);
@@ -2060,7 +2104,15 @@ html[data-view-mode='beginner'] .signal-card {
     color: var(--green-bright);
 }
 
+.position-simple-result.positive strong {
+    color: var(--green-bright);
+}
+
 .position-simple-result.negative {
+    color: var(--red-bright);
+}
+
+.position-simple-result.negative strong {
     color: var(--red-bright);
 }
 
@@ -3152,10 +3204,11 @@ button:focus-visible,
     text-align: center;
 }
 .position-pnl-display.positive {
-    color: var(--green);
+    color: var(--green-bright);
 }
+
 .position-pnl-display.negative {
-    color: var(--red);
+    color: var(--red-bright);
 }
 
 .position-pnl-breakdown {
@@ -3303,6 +3356,18 @@ button:focus-visible,
 .forecast-red {
     background: rgba(239, 68, 68, 0.08);
     border-color: rgba(239, 68, 68, 0.25);
+}
+
+.forecast-green .forecast-label strong {
+    color: var(--green-bright);
+}
+
+.forecast-orange .forecast-label strong {
+    color: var(--orange-bright);
+}
+
+.forecast-red .forecast-label strong {
+    color: var(--red-bright);
 }
 .forecast-label {
     display: flex;
@@ -3968,7 +4033,7 @@ html[data-view-mode='beginner'] .signals-page {
     font-family: var(--font-mono);
     font-size: 11px;
     font-variant-numeric: tabular-nums;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
 }
 
 .signal-timing-remaining strong {

@@ -96,6 +96,8 @@ def main():
         CREATE TABLE IF NOT EXISTS favorites (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             pair TEXT NOT NULL, market TEXT DEFAULT 'crypto',
+            position_kind TEXT DEFAULT 'pair',
+            source TEXT DEFAULT 'signal',
             ticker_a TEXT NOT NULL, ticker_b TEXT NOT NULL,
             signal TEXT, signal_type TEXT, z_at_entry REAL,
             hedge_ratio_entry REAL, spread_mean_entry REAL,
@@ -103,6 +105,9 @@ def main():
             price_a_entry REAL, price_b_entry REAL,
             entry_time TEXT, exit_time TEXT, exit_price_a REAL,
             exit_price_b REAL, exit_pnl_pct REAL,
+            exit_net_pnl REAL, exit_net_return_pct REAL,
+            exit_pair_move_pct REAL, exit_total_cost REAL,
+            close_capital REAL,
             status TEXT DEFAULT 'active', halflife INTEGER, corr REAL,
             user_id TEXT DEFAULT 'local', created_at TEXT DEFAULT (datetime('now'))
         )

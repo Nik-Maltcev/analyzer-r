@@ -348,6 +348,11 @@ MESSAGES = {
         "Funding hanya berlaku untuk CRYPTO dan merupakan estimasi.",
     ),
     "Движение пары": ("Pair movement", "Movimento do par", "Pergerakan pasangan"),
+    "Итог": ("Result", "Resultado", "Hasil"),
+    "След. проверка": ("Next check", "Próx. revisão", "Cek berikutnya"),
+    "проверить сегодня": ("check today", "revisar hoje", "cek hari ini"),
+    "проверить завтра": ("check tomorrow", "revisar amanhã", "cek besok"),
+    "после пересчёта": ("after recalculation", "após recálculo", "setelah hitung ulang"),
     "Расходы": ("Costs", "Custos", "Biaya"),
     "комиссия": ("fees", "taxas", "biaya"),
     "фандинг": ("funding", "funding", "funding"),
@@ -558,6 +563,16 @@ MESSAGES = {
         "Signal reversed",
         "O sinal se inverteu",
         "Sinyal berbalik",
+    ),
+    "Рекомендация закрыть": (
+        "Close recommended",
+        "Recomendação: encerrar",
+        "Direkomendasikan tutup",
+    ),
+    "Рекомендуется закрыть:": (
+        "Close recommended:",
+        "Recomendação: encerrar:",
+        "Direkomendasikan tutup:",
     ),
     "Текущее направление противоположно входу": (
         "The current direction is opposite to the entry",

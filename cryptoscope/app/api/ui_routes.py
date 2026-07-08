@@ -1,5 +1,7 @@
 """Tab routes — serve HTML partials for HTMX tab/content swaps with real data."""
 
+from datetime import UTC, datetime
+
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, Query, Request
@@ -46,6 +48,21 @@ def _finite_int(value, default=None):
 def _finite_bool(value) -> bool:
     f = _finite_float(value)
     return bool(f) if f is not None else False
+
+
+def _parse_datetime(value) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        timestamp = str(value).strip().replace(" ", "T")
+        if timestamp.endswith("Z"):
+            timestamp = f"{timestamp[:-1]}+00:00"
+        parsed = datetime.fromisoformat(timestamp)
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _is_validated_pair(row) -> bool:
@@ -273,8 +290,8 @@ def _single_scanner_status(
     if current_class == "wait":
         return {
             **result,
-            "status": "Закрыть?",
-            "status_color": "orange",
+            "status": "Рекомендация закрыть",
+            "status_color": "red",
             "status_detail": detail or "Сканер больше не подтверждает вход",
             "recommendation": "close_warn",
         }
@@ -282,8 +299,70 @@ def _single_scanner_status(
         **result,
         "status": "Сигнал развернулся",
         "status_color": "red",
-        "status_detail": detail or "Текущее направление противоположно входу",
+        "status_detail": (
+            f"Рекомендуется закрыть: {detail}"
+            if detail
+            else "Рекомендуется закрыть: текущее направление противоположно входу"
+        ),
         "recommendation": "close",
+    }
+
+
+def _single_scanner_plan(source, days_held, recommendation) -> dict:
+    """Return a practical review cadence for scanner-only positions."""
+    try:
+        held = max(0, int(days_held or 0))
+    except (TypeError, ValueError):
+        held = 0
+
+    if source == "scanner_momentum":
+        horizon_days = 5
+        interval_days = 1
+        plan_kind = "импульс"
+        cadence = "контроль каждый день"
+    elif source == "scanner_drawdown":
+        horizon_days = 10
+        interval_days = 2
+        plan_kind = "отскок"
+        cadence = "контроль раз в 2 дня"
+    else:
+        horizon_days = 3
+        interval_days = 1
+        plan_kind = "сигнал"
+        cadence = "контроль после пересчёта"
+
+    remaining = max(0, horizon_days - held)
+    if recommendation in {"close", "close_warn", "hold_warn"}:
+        next_days = 0
+    else:
+        remainder = held % interval_days
+        next_days = (
+            interval_days
+            if held == 0
+            else 0 if remainder == 0 else interval_days - remainder
+        )
+        if remaining == 0:
+            next_days = 0
+
+    if next_days <= 0:
+        label = "проверить сегодня"
+    elif next_days == 1:
+        label = "проверить завтра"
+    else:
+        label = f"проверить через {next_days} дн."
+
+    if remaining > 0:
+        detail = f"{plan_kind}: {cadence}, окно до {horizon_days} дн."
+    else:
+        detail = f"{plan_kind}: окно {horizon_days} дн. уже пройдено"
+
+    return {
+        "scanner_next_check_days": next_days,
+        "scanner_next_check_label": label,
+        "scanner_plan_detail": detail,
+        "scanner_horizon_days": horizon_days,
+        "scanner_days_remaining": remaining,
+        "scanner_check_interval_days": interval_days,
     }
 
 
@@ -992,6 +1071,13 @@ async def tab_favorites(
                     status_prices,
                     row["ticker_a"],
                 )
+                fc.update(
+                    _single_scanner_plan(
+                        source,
+                        days_held,
+                        fc.get("recommendation"),
+                    )
+                )
                 pair_risk = {}
                 signal_eligible = True
                 risk_reason = None
@@ -1106,7 +1192,14 @@ async def tab_favorites(
 
 
 @router.get("/favorites/history", response_class=HTMLResponse)
-async def tab_favorites_history(request: Request, limit: int = Query(10)):
+async def tab_favorites_history(
+    request: Request,
+    limit: int = Query(10),
+    capital: float = Query(1000.0, ge=10),
+    leverage: float = Query(1.0, ge=1, le=20),
+    taker_fee: float = Query(0.02, ge=0, le=1),
+    funding_rate: float = Query(0.01, ge=0, le=1),
+):
     user = await get_current_or_legacy_user(request)
     if user is None:
         return templates.TemplateResponse(request, "components/favorites_history.html", {
@@ -1117,6 +1210,103 @@ async def tab_favorites_history(request: Request, limit: int = Query(10)):
         async with get_connection() as conn:
             hist = await fetch_favorites_history(conn, user_id=user.id, limit=limit)
         history = hist.to_dict(orient="records") if not hist.empty else []
+        for row in history:
+            stored_pct = _finite_float(row.get("exit_net_return_pct"))
+            stored_money = _finite_float(row.get("exit_net_pnl"))
+            stored_move = _finite_float(row.get("exit_pair_move_pct"))
+            stored_cost = _finite_float(row.get("exit_total_cost"))
+            close_capital = _finite_float(row.get("close_capital"), capital)
+
+            if stored_pct is not None and stored_money is not None:
+                row["history_pnl_pct"] = round(stored_pct, 4)
+                row["history_pnl_money"] = round(stored_money, 2)
+                row["history_pair_move_pct"] = (
+                    round(stored_move, 4)
+                    if stored_move is not None
+                    else round(stored_pct, 4)
+                )
+                row["history_total_cost"] = (
+                    round(stored_cost, 2)
+                    if stored_cost is not None
+                    else None
+                )
+                row["history_capital"] = close_capital
+                continue
+
+            is_single = (row.get("position_kind") or "pair") == "single"
+            market = row.get("market") or "crypto"
+            entry_a = _finite_float(row.get("price_a_entry"))
+            entry_b = _finite_float(row.get("price_b_entry"))
+            exit_a = _finite_float(row.get("exit_price_a"))
+            exit_b = _finite_float(row.get("exit_price_b"))
+            exit_dt = _parse_datetime(row.get("exit_time"))
+            timing = estimate_signal_timing(
+                row.get("entry_time"),
+                _finite_int(row.get("halflife")),
+                now=exit_dt,
+            )
+
+            can_reprice = (
+                entry_a is not None
+                and exit_a is not None
+                and (is_single or (entry_b is not None and exit_b is not None))
+            )
+            performance = {"complete": False}
+            if can_reprice:
+                performance = (
+                    calc_single_performance(
+                        row.get("signal_type"),
+                        entry_a,
+                        exit_a,
+                        capital=capital,
+                        leverage=leverage,
+                        taker_fee_pct=taker_fee,
+                        funding_rate_8h_pct=(
+                            funding_rate if market == "crypto" else 0
+                        ),
+                        hold_days=timing["signal_days_elapsed"],
+                    )
+                    if is_single
+                    else calc_pair_performance(
+                        row.get("signal_type"),
+                        entry_a,
+                        entry_b,
+                        exit_a,
+                        exit_b,
+                        capital=capital,
+                        leverage=leverage,
+                        taker_fee_pct=taker_fee,
+                        funding_rate_8h_pct=(
+                            funding_rate if market == "crypto" else 0
+                        ),
+                        hold_days=timing["signal_days_elapsed"],
+                    )
+                )
+
+            if performance.get("complete"):
+                row["history_pnl_pct"] = _finite_float(
+                    performance.get("net_return_pct"),
+                    0.0,
+                )
+                row["history_pnl_money"] = _finite_float(
+                    performance.get("net_pnl"),
+                    0.0,
+                )
+                row["history_pair_move_pct"] = _finite_float(
+                    performance.get("pair_move_pct"),
+                    row["history_pnl_pct"],
+                )
+                row["history_total_cost"] = _finite_float(
+                    performance.get("total_cost"),
+                )
+                row["history_capital"] = capital
+            else:
+                fallback_pct = _finite_float(row.get("exit_pnl_pct"), 0.0)
+                row["history_pnl_pct"] = fallback_pct
+                row["history_pnl_money"] = round(capital * fallback_pct / 100, 2)
+                row["history_pair_move_pct"] = fallback_pct
+                row["history_total_cost"] = None
+                row["history_capital"] = capital
     except Exception as e:
         return templates.TemplateResponse(request, "components/favorites_history.html", {
             "request": request,

@@ -103,16 +103,22 @@ async def test_ru_favorite_uses_moex_market_prices(app, temp_db):
 
         close_response = await client.post("/api/favorites/close/1")
         assert close_response.status_code == 200
+        history_response = await client.get("/tab/favorites/history")
+        assert history_response.status_code == 200
+        assert "$+74.60" in history_response.text
+        assert "+7.46%" in history_response.text
 
     conn = sqlite3.connect(temp_db)
     closed = conn.execute(
         """
-        SELECT exit_price_a, exit_price_b, exit_pnl_pct, status
+        SELECT exit_price_a, exit_price_b, exit_pnl_pct, status,
+               exit_net_pnl, exit_net_return_pct, exit_pair_move_pct,
+               exit_total_cost, close_capital
         FROM favorites WHERE id = 1
         """
     ).fetchone()
     conn.close()
-    assert closed == (110, 190, 15.0, "closed")
+    assert closed == (110, 190, 15.0, "closed", 74.6, 7.46, 15.0, 0.4, 1000.0)
 
 
 @pytest.mark.asyncio
@@ -351,7 +357,8 @@ async def test_scanner_single_position_tracks_pnl_and_recommendation(
     conn = sqlite3.connect(temp_db)
     closed_row = conn.execute(
         """
-        SELECT status, exit_price_a, exit_price_b, exit_pnl_pct
+        SELECT status, exit_price_a, exit_price_b, exit_pnl_pct,
+               exit_net_pnl, exit_net_return_pct
         FROM favorites WHERE id = ?
         """,
         (favorite_id,),
@@ -361,6 +368,8 @@ async def test_scanner_single_position_tracks_pnl_and_recommendation(
     assert closed_row[1] == 140
     assert closed_row[2] == 0
     assert closed_row[3] == pytest.approx(10.1962)
+    assert closed_row[4] == pytest.approx(101.96)
+    assert closed_row[5] == pytest.approx(10.1962)
 
 
 @pytest.mark.asyncio

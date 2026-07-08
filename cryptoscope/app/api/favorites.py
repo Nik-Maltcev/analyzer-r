@@ -459,6 +459,8 @@ async def close_fav(
         if favorite:
             market = favorite["market"] or "crypto"
             is_single = (favorite["position_kind"] or "pair") == "single"
+            raw_pair_pnl = exit_pnl_pct
+            performance = {"complete": False}
             latest_prices = {}
             for ticker in (favorite["ticker_a"], favorite["ticker_b"]):
                 if not ticker:
@@ -483,56 +485,64 @@ async def close_fav(
                 exit_price_b = _get_current_price(
                     favorite["ticker_b"], latest_prices, market
                 )
-            if exit_pnl_pct == 0:
+            entry_a = _query_float(favorite["price_a_entry"], 0.0)
+            entry_b = _query_float(favorite["price_b_entry"], 0.0)
+            can_price_position = (
+                entry_a > 0
+                and exit_price_a > 0
+                and (is_single or (entry_b > 0 and exit_price_b > 0))
+            )
+            if can_price_position:
                 raw_pair_pnl = (
                     _single_pnl(
                         favorite["signal_type"],
-                        favorite["price_a_entry"],
+                        entry_a,
                         exit_price_a,
                     )
                     if is_single
                     else _pair_pnl(
                         favorite["signal_type"],
-                        favorite["price_a_entry"],
-                        favorite["price_b_entry"],
+                        entry_a,
+                        entry_b,
                         exit_price_a,
                         exit_price_b,
                     )
                 )
-                if use_net:
-                    timing = estimate_signal_timing(
-                        favorite["entry_time"],
-                        _query_int(favorite["halflife"]),
+                timing = estimate_signal_timing(
+                    favorite["entry_time"],
+                    _query_int(favorite["halflife"]),
+                )
+                performance = (
+                    calc_single_performance(
+                        favorite["signal_type"],
+                        entry_a,
+                        exit_price_a,
+                        capital=capital,
+                        leverage=leverage,
+                        taker_fee_pct=taker_fee,
+                        funding_rate_8h_pct=(
+                            funding_rate if market == "crypto" else 0
+                        ),
+                        hold_days=timing["signal_days_elapsed"],
                     )
-                    performance = (
-                        calc_single_performance(
-                            favorite["signal_type"],
-                            favorite["price_a_entry"],
-                            exit_price_a,
-                            capital=capital,
-                            leverage=leverage,
-                            taker_fee_pct=taker_fee,
-                            funding_rate_8h_pct=(
-                                funding_rate if market == "crypto" else 0
-                            ),
-                            hold_days=timing["signal_days_elapsed"],
-                        )
-                        if is_single
-                        else calc_pair_performance(
-                            favorite["signal_type"],
-                            favorite["price_a_entry"],
-                            favorite["price_b_entry"],
-                            exit_price_a,
-                            exit_price_b,
-                            capital=capital,
-                            leverage=leverage,
-                            taker_fee_pct=taker_fee,
-                            funding_rate_8h_pct=(
-                                funding_rate if market == "crypto" else 0
-                            ),
-                            hold_days=timing["signal_days_elapsed"],
-                        )
+                    if is_single
+                    else calc_pair_performance(
+                        favorite["signal_type"],
+                        entry_a,
+                        entry_b,
+                        exit_price_a,
+                        exit_price_b,
+                        capital=capital,
+                        leverage=leverage,
+                        taker_fee_pct=taker_fee,
+                        funding_rate_8h_pct=(
+                            funding_rate if market == "crypto" else 0
+                        ),
+                        hold_days=timing["signal_days_elapsed"],
                     )
+                )
+            if exit_pnl_pct == 0:
+                if use_net and performance.get("complete"):
                     exit_pnl_pct = performance.get(
                         "net_return_pct",
                         raw_pair_pnl,
@@ -540,6 +550,19 @@ async def close_fav(
                 else:
                     exit_pnl_pct = raw_pair_pnl
                 exit_pnl_pct = round(exit_pnl_pct, 4)
+            exit_pair_move_pct = _query_float(
+                performance.get("pair_move_pct"),
+                raw_pair_pnl,
+            )
+            exit_net_return_pct = _query_float(
+                performance.get("net_return_pct"),
+                exit_pnl_pct,
+            )
+            exit_net_pnl = _query_float(
+                performance.get("net_pnl"),
+                capital * exit_net_return_pct / 100,
+            )
+            exit_total_cost = _query_float(performance.get("total_cost"), 0.0)
         result = await close_favorite(
             conn,
             fav_id,
@@ -547,6 +570,11 @@ async def close_fav(
             exit_price_b,
             exit_pnl_pct,
             user_id=user.id,
+            exit_net_pnl=round(exit_net_pnl, 2),
+            exit_net_return_pct=round(exit_net_return_pct, 4),
+            exit_pair_move_pct=round(exit_pair_move_pct, 4),
+            exit_total_cost=round(exit_total_cost, 2),
+            close_capital=round(capital, 2),
         )
     return result
 

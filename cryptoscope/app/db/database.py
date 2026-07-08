@@ -419,20 +419,39 @@ async def toggle_favorite(conn: aiosqlite.Connection, pair: str, ticker_a: str, 
 
 async def close_favorite(conn: aiosqlite.Connection, fav_id: int, exit_price_a: float,
                          exit_price_b: float, exit_pnl_pct: float,
-                         user_id: str | None = None) -> dict[str, Any]:
+                         user_id: str | None = None,
+                         exit_net_pnl: float | None = None,
+                         exit_net_return_pct: float | None = None,
+                         exit_pair_move_pct: float | None = None,
+                         exit_total_cost: float | None = None,
+                         close_capital: float | None = None) -> dict[str, Any]:
     """Close an active favorite position."""
     if user_id is None:
         cursor = await conn.execute("""
             UPDATE favorites SET status = 'closed', exit_time = datetime('now'),
-                exit_price_a = ?, exit_price_b = ?, exit_pnl_pct = ?
+                exit_price_a = ?, exit_price_b = ?, exit_pnl_pct = ?,
+                exit_net_pnl = ?, exit_net_return_pct = ?,
+                exit_pair_move_pct = ?, exit_total_cost = ?,
+                close_capital = ?
             WHERE id = ?
-        """, (exit_price_a, exit_price_b, exit_pnl_pct, fav_id))
+        """, (
+            exit_price_a, exit_price_b, exit_pnl_pct,
+            exit_net_pnl, exit_net_return_pct, exit_pair_move_pct,
+            exit_total_cost, close_capital, fav_id,
+        ))
     else:
         cursor = await conn.execute("""
             UPDATE favorites SET status = 'closed', exit_time = datetime('now'),
-                exit_price_a = ?, exit_price_b = ?, exit_pnl_pct = ?
+                exit_price_a = ?, exit_price_b = ?, exit_pnl_pct = ?,
+                exit_net_pnl = ?, exit_net_return_pct = ?,
+                exit_pair_move_pct = ?, exit_total_cost = ?,
+                close_capital = ?
             WHERE id = ? AND user_id = ?
-        """, (exit_price_a, exit_price_b, exit_pnl_pct, fav_id, user_id))
+        """, (
+            exit_price_a, exit_price_b, exit_pnl_pct,
+            exit_net_pnl, exit_net_return_pct, exit_pair_move_pct,
+            exit_total_cost, close_capital, fav_id, user_id,
+        ))
     await conn.commit()
     return {"action": "closed", "id": fav_id, "updated": cursor.rowcount == 1}
 
