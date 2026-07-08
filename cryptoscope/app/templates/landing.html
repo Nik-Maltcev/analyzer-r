@@ -77,7 +77,7 @@
 
         <section class="proof-strip" aria-label="Ключевые преимущества">
             <div class="proof-item">
-                <strong>{{ enabled_markets|length }}</strong>
+                <strong>{{ product.enabled_markets|length }}</strong>
                 <span>рынков в одном терминале</span>
             </div>
             <div class="proof-item">
@@ -181,63 +181,63 @@
                     <p>Переключайтесь между рынками, не меняя привычный рабочий процесс.</p>
                 </div>
                 <div class="market-list">
-                    {% if "crypto" in enabled_markets %}
+                    {% if "crypto" in product.enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">CRYPTO</span>
                         <strong>Криптовалюты</strong>
                         <span>Live-цены Binance</span>
                     </div>
                     {% endif %}
-                    {% if "ru" in enabled_markets %}
+                    {% if "ru" in product.enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">RU</span>
                         <strong>Россия</strong>
                         <span>Акции Московской биржи</span>
                     </div>
                     {% endif %}
-                    {% if "stocks" in enabled_markets %}
+                    {% if "stocks" in product.enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">US</span>
                         <strong>США</strong>
                         <span>Ликвидные американские акции</span>
                     </div>
                     {% endif %}
-                    {% if "br" in enabled_markets %}
+                    {% if "br" in product.enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">BR</span>
                         <strong>Бразилия</strong>
                         <span>Акции B3</span>
                     </div>
                     {% endif %}
-                    {% if "id" in enabled_markets %}
+                    {% if "id" in product.enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">ID</span>
                         <strong>Индонезия</strong>
                         <span>Акции IDX</span>
                     </div>
                     {% endif %}
-                    {% if "au" in enabled_markets %}
+                    {% if "au" in product.enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">AU</span>
                         <strong>Австралия</strong>
                         <span>Акции ASX</span>
                     </div>
                     {% endif %}
-                    {% if "ca" in enabled_markets %}
+                    {% if "ca" in product.enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">CA</span>
                         <strong>Канада</strong>
                         <span>Акции TSX</span>
                     </div>
                     {% endif %}
-                    {% if "my" in enabled_markets %}
+                    {% if "my" in product.enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">MY</span>
                         <strong>Малайзия</strong>
                         <span>Акции Bursa</span>
                     </div>
                     {% endif %}
-                    {% if "za" in enabled_markets %}
+                    {% if "za" in product.enabled_markets %}
                     <div class="market-row">
                         <span class="market-code">ZA</span>
                         <strong>ЮАР</strong>
