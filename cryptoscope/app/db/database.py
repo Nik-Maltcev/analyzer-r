@@ -203,12 +203,31 @@ async def fetch_favorites(conn: aiosqlite.Connection, user_id: str = "local") ->
     return pd.DataFrame([dict(r) for r in rows])
 
 
-async def fetch_favorites_history(conn: aiosqlite.Connection, user_id: str = "local", limit: int = 10) -> pd.DataFrame:
+async def fetch_favorites_history(
+    conn: aiosqlite.Connection,
+    user_id: str = "local",
+    limit: int | None = None,
+) -> pd.DataFrame:
     """Fetch closed favorites history."""
-    cursor = await conn.execute(
-        "SELECT * FROM favorites WHERE user_id = ? AND status = 'closed' ORDER BY exit_time DESC LIMIT ?",
-        (user_id, limit)
-    )
+    if limit is not None and int(limit) > 0:
+        cursor = await conn.execute(
+            """
+            SELECT * FROM favorites
+            WHERE user_id = ? AND status = 'closed'
+            ORDER BY exit_time DESC
+            LIMIT ?
+            """,
+            (user_id, int(limit)),
+        )
+    else:
+        cursor = await conn.execute(
+            """
+            SELECT * FROM favorites
+            WHERE user_id = ? AND status = 'closed'
+            ORDER BY exit_time DESC
+            """,
+            (user_id,),
+        )
     rows = await cursor.fetchall()
     if not rows:
         return pd.DataFrame()

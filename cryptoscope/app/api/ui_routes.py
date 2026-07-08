@@ -1194,7 +1194,7 @@ async def tab_favorites(
 @router.get("/favorites/history", response_class=HTMLResponse)
 async def tab_favorites_history(
     request: Request,
-    limit: int = Query(10),
+    limit: int | None = Query(None, ge=1),
     capital: float = Query(1000.0, ge=10),
     leverage: float = Query(1.0, ge=1, le=20),
     taker_fee: float = Query(0.02, ge=0, le=1),

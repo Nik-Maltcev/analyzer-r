@@ -281,7 +281,7 @@ async def get_favorites(
 
 @router.get("/history")
 async def get_favorites_history(
-    limit: int = Query(10),
+    limit: int | None = Query(None, ge=1),
     user: AuthUser = Depends(require_current_or_legacy_user),
 ):
     """Get closed favorites history."""
