@@ -91,12 +91,13 @@ def calc_pair_performance(
     taker_fee_pct: float = 0.02,
     funding_rate_8h_pct: float = 0.01,
     hold_days: float = 0.0,
+    hedge_ratio: float = 1.0,
 ) -> Dict[str, Any]:
-    """Calculate equal-notional pair performance and estimated net P&L.
+    """Calculate hedge-ratio-weighted pair performance and net P&L.
 
     ``capital`` is the total capital allocated to the pair. Gross exposure is
-    split equally between both legs. Commission includes entry and estimated
-    exit fills for both legs.
+    divided between the legs using ``1 : abs(hedge_ratio)``. Commission covers
+    one complete entry and one complete exit of the gross pair exposure.
     """
     values = (entry_a, entry_b, price_a_now, price_b_now)
     complete = all(
@@ -113,6 +114,14 @@ def calc_pair_performance(
     taker_fee_pct = max(float(taker_fee_pct), 0.0)
     funding_rate_8h_pct = max(float(funding_rate_8h_pct), 0.0)
     hold_days = max(float(hold_days), 0.0)
+    hedge_ratio = (
+        abs(float(hedge_ratio))
+        if isinstance(hedge_ratio, (int, float))
+        and math.isfinite(float(hedge_ratio))
+        else 1.0
+    )
+    if hedge_ratio <= 0:
+        hedge_ratio = 1.0
 
     price_return_a = (float(price_a_now) / float(entry_a) - 1) * 100
     price_return_b = (float(price_b_now) / float(entry_b) - 1) * 100
@@ -129,8 +138,14 @@ def calc_pair_performance(
 
     pair_move_pct = leg_a_pnl + leg_b_pnl
     gross_exposure = capital * leverage
-    leg_notional = gross_exposure / 2
-    gross_pnl = leg_notional * (pair_move_pct / 100)
+    weight_a = 1.0 / (1.0 + hedge_ratio)
+    weight_b = hedge_ratio / (1.0 + hedge_ratio)
+    leg_a_notional = gross_exposure * weight_a
+    leg_b_notional = gross_exposure * weight_b
+    weighted_pair_return_pct = (
+        leg_a_pnl * weight_a + leg_b_pnl * weight_b
+    )
+    gross_pnl = gross_exposure * (weighted_pair_return_pct / 100)
     gross_return_pct = (
         gross_pnl / capital * 100
         if capital > 0
@@ -159,10 +174,14 @@ def calc_pair_performance(
         "leg_a_pnl_pct": round(leg_a_pnl, 4),
         "leg_b_pnl_pct": round(leg_b_pnl, 4),
         "pair_move_pct": round(pair_move_pct, 4),
+        "weighted_pair_return_pct": round(weighted_pair_return_pct, 4),
         "capital": round(capital, 2),
         "leverage": round(leverage, 2),
         "gross_exposure": round(gross_exposure, 2),
-        "leg_notional": round(leg_notional, 2),
+        "leg_notional": round(gross_exposure / 2, 2),
+        "leg_a_notional": round(leg_a_notional, 2),
+        "leg_b_notional": round(leg_b_notional, 2),
+        "hedge_ratio": round(hedge_ratio, 6),
         "gross_pnl": round(gross_pnl, 2),
         "gross_return_pct": round(gross_return_pct, 4),
         "commissions": round(commissions, 2),
@@ -202,25 +221,51 @@ def calc_signal_pnl(
     Returns:
         dict with position_size, commissions, funding, gross_tp, net_tp, etc.
     """
+    capital = max(float(capital), 0.0)
+    leverage = max(float(leverage), 0.0)
     position_size = capital * leverage
-    fills_per_position = 4  # 2 opens + 2 closes
-    
-    commissions = position_size * (taker_fee_pct / 100) * fills_per_position
+
+    # position_size is already the total exposure of both legs. It turns over
+    # once on entry and once on exit, so multiplying it by four double-counted
+    # commissions in the old calculator.
+    commissions = position_size * (taker_fee_pct / 100) * 2
     
     days = hold_days if hold_days is not None else (avg_hold if avg_hold is not None else 5)
     funding = position_size * (funding_rate_8h_pct / 100) * (days * 3)  # ~3 8h periods per day
     
-    z_move = avg_pnl_z if avg_pnl_z is not None else 2.0
-    spread_sd = signal_info.get("spread_sd_pct", 0.05)
-    gross_pnl_pct = abs(z_move) * spread_sd * 100
+    z_move = avg_pnl_z
+    if z_move is None and bool(signal_info.get("backtest_validated")):
+        z_move = signal_info.get("backtest_avg_pnl_sigma")
+    if z_move is None:
+        z_now = signal_info.get("z_now")
+        if isinstance(z_now, (int, float)) and math.isfinite(float(z_now)):
+            z_move = max(abs(float(z_now)) - 0.5, 0.0)
+    spread_sd = signal_info.get("spread_sd_pct")
+    if z_move is None or spread_sd is None:
+        return {
+            "complete": False,
+            "error": "Недостаточно данных о волатильности спреда",
+        }
+
+    hedge_ratio = signal_info.get("hedge_ratio", 1.0)
+    try:
+        hedge_ratio = abs(float(hedge_ratio))
+    except (TypeError, ValueError):
+        hedge_ratio = 1.0
+    if not math.isfinite(hedge_ratio) or hedge_ratio <= 0:
+        hedge_ratio = 1.0
+    spread_sd = abs(float(spread_sd))
+    portfolio_spread_sd = spread_sd / (1.0 + hedge_ratio)
+    gross_pnl_pct = float(z_move) * portfolio_spread_sd * 100
     gross_pnl = position_size * (gross_pnl_pct / 100)
     
     net_pnl = gross_pnl - commissions - funding
-    net_pnl_pct = (net_pnl / position_size) * 100
+    net_pnl_pct = (net_pnl / capital) * 100 if capital > 0 else 0.0
     
     risk_reward = abs(net_pnl / max(commissions + funding, 0.01))
     
     return {
+        "complete": True,
         "capital": round(float(capital), 2),
         "leverage": float(leverage),
         "position_size": round(float(position_size), 2),
@@ -229,10 +274,17 @@ def calc_signal_pnl(
         "total_cost": round(float(commissions + funding), 2),
         "gross_pnl": round(float(gross_pnl), 2),
         "gross_pnl_pct": round(float(gross_pnl_pct), 2),
+        "gross_return_pct": round(
+            float(gross_pnl / capital * 100 if capital > 0 else 0.0), 2
+        ),
         "net_pnl": round(float(net_pnl), 2),
         "net_pnl_pct": round(float(net_pnl_pct), 2),
+        "net_return_pct": round(float(net_pnl_pct), 2),
         "risk_reward": round(float(risk_reward), 2),
         "z_move": round(float(z_move), 4),
+        "spread_sd_pct": round(float(spread_sd), 8),
+        "portfolio_spread_sd_pct": round(float(portfolio_spread_sd), 8),
+        "hedge_ratio": round(float(hedge_ratio), 6),
         "hold_days": int(days),
         "taker_fee_pct": float(taker_fee_pct),
         "funding_rate_pct": float(funding_rate_8h_pct),
@@ -250,8 +302,7 @@ def compute_position_details(
 ) -> Dict[str, Any]:
     """Compute detailed position breakdown for a specific pair."""
     pos_size = capital * leverage
-    fills = 4
-    commission_total = pos_size * (taker_fee / 100) * fills
+    commission_total = pos_size * (taker_fee / 100) * 2
     
     avg_hold = pair.get("halflife", 30) if pair.get("halflife") else 30
     days = min(avg_hold, 30)

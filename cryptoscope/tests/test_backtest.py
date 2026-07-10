@@ -50,6 +50,23 @@ class TestRunBacktest:
         assert len(trades) >= 1
         assert trades.iloc[0]["type"] == "short"
 
+    def test_short_mean_reversion_is_profitable(self):
+        trades = run_backtest(np.array([0.0, 2.5, 0.3]))
+
+        assert trades.iloc[0]["pnl_sigma"] == 2.2
+
+    def test_long_mean_reversion_is_profitable(self):
+        trades = run_backtest(np.array([0.0, -2.5, -0.3]))
+
+        assert trades.iloc[0]["pnl_sigma"] == 2.2
+
+    def test_crossing_zero_keeps_directional_profit(self):
+        short = run_backtest(np.array([0.0, 2.5, -0.4]))
+        long = run_backtest(np.array([0.0, -2.5, 0.4]))
+
+        assert short.iloc[0]["pnl_sigma"] == 2.9
+        assert long.iloc[0]["pnl_sigma"] == 2.9
+
     def test_trades_dataframe_has_correct_columns(self):
         z = np.array([0.0, 2.5, 0.3])
         trades = run_backtest(z)
@@ -101,8 +118,8 @@ class TestSpreadSD:
         assert sd > 0
         assert isinstance(sd, float)
 
-    def test_short_series_returns_default(self):
+    def test_short_series_has_no_invented_default(self):
         pa = np.array([100.0] * 10)
         pb = np.array([50.0] * 10)
         sd = compute_spread_sd_pct(pa, pb, hedge_ratio=1.0)
-        assert sd == 0.05
+        assert sd is None

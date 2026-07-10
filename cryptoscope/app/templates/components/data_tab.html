@@ -1,26 +1,26 @@
 <div class="tab-page data-page">
     <div class="page-header">
-        <h2>📂 Данные и настройки</h2>
+        <h2><i class="page-title-icon" data-lucide="database"></i>Данные и настройки</h2>
         <p class="page-desc">Состояние хранилища, расписание обновлений и параметры калькулятора</p>
     </div>
 
     <div class="cards-grid">
         <div class="glass-card stat-card">
-            <div class="stat-icon">📊</div>
+            <div class="stat-icon"><i data-lucide="blocks"></i></div>
             <div class="stat-body">
                 <div class="stat-label">Инструментов</div>
                 <div class="stat-value">{{ status.n_tickers|default(0) }}</div>
             </div>
         </div>
         <div class="glass-card stat-card">
-            <div class="stat-icon">💿</div>
+            <div class="stat-icon"><i data-lucide="hard-drive"></i></div>
             <div class="stat-body">
                 <div class="stat-label">Записей</div>
                 <div class="stat-value">{{ status.n_rows|default(0) }}</div>
             </div>
         </div>
         <div class="glass-card stat-card">
-            <div class="stat-icon">📅</div>
+            <div class="stat-icon"><i data-lucide="calendar-range"></i></div>
             <div class="stat-body">
                 <div class="stat-label">Период</div>
                 <div class="stat-value stat-value-sm">
@@ -29,7 +29,7 @@
             </div>
         </div>
         <div class="glass-card stat-card">
-            <div class="stat-icon">🔗</div>
+            <div class="stat-icon"><i data-lucide="workflow"></i></div>
             <div class="stat-body">
                 <div class="stat-label">Пар проанализировано</div>
                 <div class="stat-value">{{ status.n_pairs|default(0) }}</div>

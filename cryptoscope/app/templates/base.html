@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#080b11">
+    <meta name="theme-color" content="#101214">
     <title>{{ product.name }} — Pairs Trading Terminal</title>
     <script>
         try {
@@ -16,11 +16,13 @@
     <link rel="icon" href="/static/img/meanx-mark.svg" type="image/svg+xml">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/main.css?v=20260705-paypal-orders1">
+    <link rel="stylesheet" href="/static/css/workbench.css?v=20260710-workbench1">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org/dist/ext/json-enc.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
     <script>
         window.CRYPTOSCOPE_INITIAL_MARKET = {{ market|default(product.default_market)|tojson }};
         window.CRYPTOSCOPE_TRANSLATIONS = {{ translations|tojson }};
@@ -41,25 +43,25 @@
 <body>
     <nav class="navbar">
         <div class="navbar-brand">
-            <span class="logo-icon">M</span>
+            <img class="logo-icon" src="/static/img/meanx-mark.svg" alt="">
             <span class="logo-text">{{ product.name }}</span>
-            <span class="logo-subtitle">market analytics</span>
+            <span class="logo-subtitle">pairs terminal</span>
         </div>
         <div class="navbar-tabs" id="nav-tabs">
             <a href="/app" class="nav-tab active" data-tab="signals">
-                <span class="tab-icon">🚦</span> Сигналы
+                <i class="tab-icon" data-lucide="activity"></i><span>Сигналы</span>
             </a>
             <a href="#" class="nav-tab" data-tab="polymarket" hx-get="/tab/polymarket" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">
-                <span class="tab-icon tab-icon-text">PM</span> Polymarket
+                <i class="tab-icon" data-lucide="chart-no-axes-column-increasing"></i><span>Polymarket</span>
             </a>
             <a href="#" class="nav-tab" data-tab="scanners" hx-get="/tab/scanners" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">
-                <span class="tab-icon">🔍</span> Сканеры
+                <i class="tab-icon" data-lucide="scan-search"></i><span>Сканеры</span>
             </a>
             <a href="#" class="nav-tab" data-tab="favorites" hx-get="/tab/favorites" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">
-                <span class="tab-icon">📊</span> Портфель
+                <i class="tab-icon" data-lucide="briefcase-business"></i><span>Портфель</span>
             </a>
             <a href="#" class="nav-tab" data-tab="data" hx-get="/tab/data" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">
-                <span class="tab-icon">📂</span> Данные
+                <i class="tab-icon" data-lucide="database"></i><span>Данные</span>
             </a>
         </div>
         <div class="navbar-end">
@@ -144,6 +146,14 @@ async function updateLiveStatus() {
 }
 updateLiveStatus();
 setInterval(updateLiveStatus, 10000);
+
+function renderLucideIcons() {
+    if (window.lucide) {
+        window.lucide.createIcons({attrs: {'aria-hidden': 'true'}});
+    }
+}
+renderLucideIcons();
+document.body.addEventListener('htmx:afterSwap', renderLucideIcons);
     </script>
 </body>
 </html>

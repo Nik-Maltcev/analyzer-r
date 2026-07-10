@@ -95,6 +95,9 @@ def test_ru_analysis_migrates_and_persists_risk_fields(tmp_path):
     assert "is_coint_stable" in columns
     assert "market_regime" in columns
     assert "risk_reason" in columns
+    assert "coint_pvalue" in columns
+    assert "spread_sd_pct" in columns
+    assert "backtest_validated" in columns
 
     row = conn.execute(
         """

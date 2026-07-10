@@ -24,6 +24,8 @@ class TestEngleGranger:
         
         assert "halflife" in result
         assert "t_stat" in result
+        assert "p_value" in result
+        assert "critical_5pct" in result
         assert "is_coint" in result
         assert "hedge_ratio" in result
         assert isinstance(result["is_coint"], bool)
@@ -40,7 +42,8 @@ class TestEngleGranger:
         result = engle_granger(pa, pb)
         
         if result["is_coint"] and result["t_stat"] is not None:
-            assert result["t_stat"] < -2.9
+            assert result["t_stat"] <= result["critical_5pct"]
+            assert result["p_value"] <= 0.05
 
     def test_non_cointegrated_pair(self, non_cointegrated_prices):
         pa, pb = non_cointegrated_prices

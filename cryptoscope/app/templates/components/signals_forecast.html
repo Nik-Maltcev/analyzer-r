@@ -21,7 +21,8 @@
 {% if trades is defined and trades %}
 <div class="section-header">
     <h3>
-        {% if is_short %}⚡ Быстрые сделки (&lt;7д){% else %}💎 Прогноз сделок{% endif %}
+        <i class="section-title-icon" data-lucide="{% if is_short %}timer{% else %}chart-spline{% endif %}"></i>
+        {% if is_short %}Быстрые сделки (&lt;7д){% else %}Прогноз сделок{% endif %}
         ({{ total }})
     </h3>
 </div>
@@ -65,8 +66,8 @@
             <div class="beginner-card-grid">
                 <div class="beginner-metric">
                     <span>Вероятность</span>
-                    <strong>{{ t.win_rate }}%</strong>
-                    <small>{% if t.win_rate >= 60 %}выше среднего{% else %}умеренная{% endif %}</small>
+                    <strong>{% if t.backtest_validated %}{{ t.win_rate }}%{% else %}—{% endif %}</strong>
+                    <small>{% if t.backtest_validated %}{{ t.n_similar }} сделок вне выборки{% else %}мало завершённых сделок{% endif %}</small>
                 </div>
                 <div class="beginner-metric">
                     <span>План по времени</span>
@@ -74,13 +75,13 @@
                     <small>до пересмотра</small>
                 </div>
                 <div class="beginner-metric">
-                    <span>Ожидание</span>
-                    <strong>+{{ t.avg_pnl_pct }}%</strong>
-                    <small>модельная оценка</small>
+                    <span>Исторический ход</span>
+                    <strong>{% if t.backtest_validated %}{{ "%+.2f"|format(t.avg_pnl_pct) }}%{% else %}—{% endif %}</strong>
+                    <small>{% if t.backtest_validated %}по отложенной истории{% else %}недостаточно истории{% endif %}</small>
                 </div>
             </div>
             <p class="beginner-plain-note">
-                Это не приказ на вход, а идея с исторической проверкой. После добавления в портфель сервис будет показывать держать или закрывать.
+                Это не приказ на вход, а статистическая идея. После добавления в портфель сервис будет показывать держать или закрывать.
             </p>
         </div>
         <div class="signal-timing {% if t.signal_is_expired %}is-overdue{% endif %}"
@@ -131,16 +132,18 @@
             </div>
             <div class="signal-stat">
                 <div class="signal-stat-label">Win Rate</div>
-                <div class="signal-stat-value">{{ t.win_rate }}%</div>
+                <div class="signal-stat-value">{% if t.backtest_validated %}{{ t.win_rate }}%{% else %}—{% endif %}</div>
             </div>
             <div class="signal-stat">
-                <div class="signal-stat-label">Ср. P&L</div>
-                <div class="signal-stat-value positive">+{{ t.avg_pnl_pct }}%</div>
+                <div class="signal-stat-label">Ср. ход пары</div>
+                <div class="signal-stat-value {% if t.backtest_validated and t.avg_pnl_pct >= 0 %}positive{% endif %}">
+                    {% if t.backtest_validated %}{{ "%+.2f"|format(t.avg_pnl_pct) }}%{% else %}—{% endif %}
+                </div>
             </div>
             <div class="signal-stat">
                 <div class="signal-stat-label">Дней удерж.</div>
-                <div class="signal-stat-value {% if is_short and t.avg_hold_days <= 3 %}text-orange{% elif is_short %}text-blue{% endif %}">
-                    {{ t.avg_hold_days }}
+                <div class="signal-stat-value {% if t.backtest_validated and is_short and t.avg_hold_days <= 3 %}text-orange{% elif t.backtest_validated and is_short %}text-blue{% endif %}">
+                    {% if t.backtest_validated %}{{ t.avg_hold_days }}{% else %}—{% endif %}
                 </div>
             </div>
             <div class="signal-stat">
@@ -159,12 +162,12 @@
                     <div class="calc-value">3,000</div>
                 </div>
                 <div class="calc-field">
-                    <label>Ожид. P&L</label>
-                    <div class="calc-value positive">+{{ t.avg_pnl_pct }}%</div>
+                    <label>Ср. ход пары</label>
+                    <div class="calc-value {% if t.backtest_validated and t.avg_pnl_pct >= 0 %}positive{% endif %}">{% if t.backtest_validated %}{{ "%+.2f"|format(t.avg_pnl_pct) }}%{% else %}—{% endif %}</div>
                 </div>
                 <div class="calc-field">
                     <label>Win Rate</label>
-                    <div class="calc-value">{{ t.win_rate }}%</div>
+                    <div class="calc-value">{% if t.backtest_validated %}{{ t.win_rate }}%{% else %}—{% endif %}</div>
                 </div>
             </div>
         </div>
@@ -182,7 +185,7 @@
                 <th>Z</th>
                 <th>Z завтра</th>
                 <th>Win %</th>
-                <th>P&L %</th>
+                <th>Ход пары %</th>
                 <th>Дней</th>
                 <th>Сила</th>
             </tr>
@@ -201,9 +204,9 @@
                     <span class="tomorrow-delta">{{ "%+.2f"|format(t.z_tomorrow_delta) }}</span>
                     {% else %}—{% endif %}
                 </td>
-                <td>{{ t.win_rate }}%</td>
-                <td class="positive">+{{ t.avg_pnl_pct }}%</td>
-                <td>{{ t.avg_hold_days }}</td>
+                <td>{% if t.backtest_validated %}{{ t.win_rate }}%{% else %}—{% endif %}</td>
+                <td class="{% if t.backtest_validated and t.avg_pnl_pct >= 0 %}positive{% endif %}">{% if t.backtest_validated %}{{ "%+.2f"|format(t.avg_pnl_pct) }}%{% else %}—{% endif %}</td>
+                <td>{% if t.backtest_validated %}{{ t.avg_hold_days }}{% else %}—{% endif %}</td>
                 <td>{{ t.strength }}</td>
             </tr>
             {% endfor %}
@@ -213,7 +216,7 @@
 
 {% else %}
 <div class="empty-state">
-    <span class="empty-icon">📊</span>
+    <span class="empty-icon"><i data-lucide="chart-no-axes-column"></i></span>
     <p>
         {% if is_short %}
         Нет коротких сигналов (&lt;7 дней удержания)

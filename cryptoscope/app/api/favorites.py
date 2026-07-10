@@ -215,6 +215,9 @@ async def get_favorites(
                     funding_rate if market == "crypto" else 0
                 ),
                 hold_days=days_held,
+                hedge_ratio=_query_float(
+                    row.get("hedge_ratio_entry"), 1.0
+                ),
             )
         )
         pair_risk = (
@@ -225,9 +228,9 @@ async def get_favorites(
                 {},
             )
         )
-        default_eligible = 1 if is_single else 0 if market == "ru" else 1
+        default_eligible = 1 if is_single else 0
         risk_reason = pair_risk.get("risk_reason")
-        if market == "ru" and not pair_risk:
+        if not is_single and not pair_risk:
             risk_reason = "Пара отсутствует в свежем анализе"
 
         active_positions.append({
@@ -539,6 +542,9 @@ async def close_fav(
                             funding_rate if market == "crypto" else 0
                         ),
                         hold_days=timing["signal_days_elapsed"],
+                        hedge_ratio=_query_float(
+                            favorite["hedge_ratio_entry"], 1.0
+                        ),
                     )
                 )
             if exit_pnl_pct == 0:

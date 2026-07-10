@@ -1,7 +1,7 @@
 <div class="tab-page favorites-page">
     <div class="page-header">
         <div>
-            <h2>📊 Портфель</h2>
+            <h2><i class="page-title-icon" data-lucide="briefcase-business"></i>Портфель</h2>
             <p class="page-desc">Активные позиции с движением пары, net P&L и прогнозом</p>
         </div>
     </div>
@@ -26,7 +26,7 @@
                 <button class="btn btn-outline ru-refresh-btn"
                         type="button"
                         onclick="refreshCryptoFavorites(this)">
-                    <span class="refresh-icon" aria-hidden="true">↻</span>
+                    <i data-lucide="refresh-cw"></i>
                     <span>Обновить котировки Crypto</span>
                 </button>
                 <span class="ru-refresh-time">
@@ -41,7 +41,7 @@
                 <button class="btn btn-outline ru-refresh-btn"
                         type="button"
                         onclick="refreshRuFavorites(this)">
-                    <span class="refresh-icon" aria-hidden="true">↻</span>
+                    <i data-lucide="refresh-cw"></i>
                     <span>Обновить котировки RU</span>
                 </button>
                 <span class="ru-refresh-time">
@@ -108,7 +108,7 @@
             </div>
             <button class="btn btn-outline" type="submit">Пересчитать</button>
             <span class="favorites-pnl-note">
-                Для пар капитал делится 50/50 между ногами. Комиссия включает вход и предполагаемый выход.
+                Для пар капитал распределяется между ногами по hedge ratio. Комиссия включает вход и предполагаемый выход.
                 Фандинг применяется только к CRYPTO и является оценкой.
             </span>
         </form>
@@ -125,7 +125,7 @@
                     <div class="position-badges">
                         <span class="badge badge-gray">{{ f.market|upper }}</span>
                         {% if f.is_expired %}
-                        <span class="badge badge-red" title="Сигнал держится дольше полупериода">⚠ Просрочен</span>
+                        <span class="badge badge-red" title="Сигнал держится дольше полупериода">Просрочен</span>
                         {% endif %}
                         <span class="badge {% if f.signal_type == 'short_a' %}badge-orange{% elif f.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
                             {% if f.signal_type == 'short_a' %}Шорт{% if not f.is_single %} A{% endif %}
@@ -273,14 +273,12 @@
                 <div class="forecast-status pro-only forecast-{{ f.status_color }}">
                     <div class="forecast-label">
                         <span class="forecast-icon">
-                        {% if f.status == 'Цель достигнута' %}✅
-                        {% elif f.status == 'Просрочен' %}⏰
-                        {% elif f.status == 'Стоп-лосс' %}🛑
-                        {% elif f.status == 'Отклонение' %}⚠️
-                        {% elif f.status == 'Рекомендация закрыть' %}⚠️
-                        {% elif f.status == 'Сигнал развернулся' %}⚠️
-                        {% elif f.status == 'Скоро закрытие' %}⏳
-                        {% else %}📊{% endif %}
+                        {% if f.status == 'Цель достигнута' %}<i data-lucide="circle-check"></i>
+                        {% elif f.status == 'Просрочен' %}<i data-lucide="clock-alert"></i>
+                        {% elif f.status == 'Стоп-лосс' %}<i data-lucide="octagon-x"></i>
+                        {% elif f.status in ['Отклонение', 'Рекомендация закрыть', 'Сигнал развернулся'] %}<i data-lucide="triangle-alert"></i>
+                        {% elif f.status == 'Скоро закрытие' %}<i data-lucide="hourglass"></i>
+                        {% else %}<i data-lucide="activity"></i>{% endif %}
                         </span>
                         <strong>{{ f.status }}</strong>
                     </div>
@@ -372,7 +370,7 @@
                     {% if f.recommendation == 'close' %}
                     <button class="btn btn-sm btn-danger" onclick="closeFavorite({{ f.id }})">✕ Закрыть</button>
                     {% elif f.recommendation == 'close_warn' %}
-                    <button class="btn btn-sm btn-danger" onclick="closeFavorite({{ f.id }})">⚠ Закрыть</button>
+                    <button class="btn btn-sm btn-danger" onclick="closeFavorite({{ f.id }})"><i data-lucide="x"></i>Закрыть</button>
                     {% else %}
                     <button class="btn btn-sm btn-danger" onclick="closeFavorite({{ f.id }})">✕ Закрыть</button>
                     {% endif %}
@@ -382,7 +380,7 @@
         </div>
         {% else %}
         <div class="empty-state">
-            <span class="empty-icon">⭐</span>
+            <span class="empty-icon"><i data-lucide="star"></i></span>
             <p>Нет активных позиций</p>
             <p class="text-dim">Добавьте позицию из раздела Сигналы или Сканеры</p>
         </div>

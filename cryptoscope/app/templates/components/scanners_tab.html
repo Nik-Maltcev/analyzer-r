@@ -1,6 +1,6 @@
 <div class="tab-page scanners-page">
     <div class="page-header">
-        <h2>🔍 Сканеры рынка</h2>
+        <h2><i class="page-title-icon" data-lucide="scan-search"></i>Сканеры рынка</h2>
         <p class="page-desc">Поиск аномалий: корреляции, моментум, просадки</p>
     </div>
 
@@ -9,7 +9,7 @@
                 hx-get="/tab/scanner/corrbreak" hx-target="#scanner-content" hx-swap="innerHTML"
                 hx-vals='js:{market: currentMarket}'
                 onclick="document.querySelectorAll('.scanner-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
-            <span class="scanner-icon">🔗</span>
+            <span class="scanner-icon"><i data-lucide="unlink"></i></span>
             <div>
                 <div class="scanner-name">Corr Breakdown</div>
                 <div class="scanner-desc">Слом корреляции</div>
@@ -19,7 +19,7 @@
                 hx-get="/tab/scanner/momentum" hx-target="#scanner-content" hx-swap="innerHTML"
                 hx-vals='js:{market: currentMarket}'
                 onclick="document.querySelectorAll('.scanner-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
-            <span class="scanner-icon">🚀</span>
+            <span class="scanner-icon"><i data-lucide="trending-up"></i></span>
             <div>
                 <div class="scanner-name">Momentum</div>
                 <div class="scanner-desc">Импульс движения</div>
@@ -29,7 +29,7 @@
                 hx-get="/tab/scanner/drawdown" hx-target="#scanner-content" hx-swap="innerHTML"
                 hx-vals='js:{market: currentMarket}'
                 onclick="document.querySelectorAll('.scanner-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
-            <span class="scanner-icon">📉</span>
+            <span class="scanner-icon"><i data-lucide="chart-no-axes-column-decreasing"></i></span>
             <div>
                 <div class="scanner-name">Drawdown</div>
                 <div class="scanner-desc">Просадки активов</div>

@@ -13,8 +13,18 @@ class PairAnalysis(BaseModel):
     corr: Optional[float] = None
     halflife: Optional[int] = None
     t_stat: Optional[float] = None
+    coint_pvalue: Optional[float] = None
+    coint_critical_5pct: Optional[float] = None
     is_coint: bool = False
     hedge_ratio: Optional[float] = None
+    ar_phi: Optional[float] = None
+    spread_sd_pct: Optional[float] = None
+    backtest_trades: int = 0
+    backtest_win_rate: Optional[float] = None
+    backtest_avg_pnl_pct: Optional[float] = None
+    backtest_avg_pnl_sigma: Optional[float] = None
+    backtest_avg_hold_days: Optional[float] = None
+    backtest_validated: bool = False
     score: Optional[float] = None
     z_now: Optional[float] = None
     z_forecast: Optional[float] = None
@@ -117,6 +127,7 @@ class ForecastTrade(BaseModel):
     z_now: Optional[float] = None
     win_rate: Optional[float] = None
     n_similar: int = 0
+    backtest_validated: bool = False
     avg_pnl_pct: Optional[float] = None
     avg_hold_days: Optional[float] = None
     expected_exit_date: Optional[str] = None

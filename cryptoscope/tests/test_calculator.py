@@ -79,6 +79,8 @@ class TestSinglePerformance:
 
 
 class TestCalcSignalPnl:
+    signal_info = {"spread_sd_pct": 0.05, "z_now": 2.5, "hedge_ratio": 1.0}
+
     def test_basic_calculation(self):
         result = calc_signal_pnl(
             signal_info={"spread_sd_pct": 0.05},
@@ -95,22 +97,23 @@ class TestCalcSignalPnl:
         assert "net_pnl" in result
 
     def test_position_size_scales_with_leverage(self):
-        r1 = calc_signal_pnl({"spread_sd_pct": 0.05}, capital=1000, leverage=1)
-        r2 = calc_signal_pnl({"spread_sd_pct": 0.05}, capital=1000, leverage=10)
+        r1 = calc_signal_pnl(self.signal_info, capital=1000, leverage=1)
+        r2 = calc_signal_pnl(self.signal_info, capital=1000, leverage=10)
         assert r2["position_size"] == 10 * r1["position_size"]
 
     def test_commissions_scale_with_fee(self):
-        r1 = calc_signal_pnl({"spread_sd_pct": 0.05}, capital=1000, leverage=3, taker_fee_pct=0.02)
-        r2 = calc_signal_pnl({"spread_sd_pct": 0.05}, capital=1000, leverage=3, taker_fee_pct=0.04)
+        r1 = calc_signal_pnl(self.signal_info, capital=1000, leverage=3, taker_fee_pct=0.02)
+        r2 = calc_signal_pnl(self.signal_info, capital=1000, leverage=3, taker_fee_pct=0.04)
         assert r2["commissions"] == 2 * r1["commissions"]
+        assert r1["commissions"] == 1.2
 
     def test_funding_scales_with_days(self):
-        r1 = calc_signal_pnl({"spread_sd_pct": 0.05}, capital=1000, leverage=3, hold_days=5)
-        r2 = calc_signal_pnl({"spread_sd_pct": 0.05}, capital=1000, leverage=3, hold_days=10)
+        r1 = calc_signal_pnl(self.signal_info, capital=1000, leverage=3, hold_days=5)
+        r2 = calc_signal_pnl(self.signal_info, capital=1000, leverage=3, hold_days=10)
         assert r2["funding_cost"] == 2 * r1["funding_cost"]
 
     def test_output_types(self):
-        result = calc_signal_pnl({"spread_sd_pct": 0.05})
+        result = calc_signal_pnl(self.signal_info)
         assert isinstance(result["capital"], float)
         assert isinstance(result["position_size"], float)
         assert isinstance(result["commissions"], float)
@@ -118,18 +121,56 @@ class TestCalcSignalPnl:
         assert isinstance(result["risk_reward"], float)
 
     def test_zero_fee_no_commission(self):
-        result = calc_signal_pnl({"spread_sd_pct": 0.05}, taker_fee_pct=0, funding_rate_8h_pct=0)
+        result = calc_signal_pnl(self.signal_info, taker_fee_pct=0, funding_rate_8h_pct=0)
         assert result["commissions"] == 0
         assert result["funding_cost"] == 0
 
     def test_risk_reward_is_positive(self):
-        result = calc_signal_pnl({"spread_sd_pct": 0.05}, avg_pnl_z=3.0)
+        result = calc_signal_pnl(self.signal_info, avg_pnl_z=3.0)
         assert result["risk_reward"] > 0
 
     def test_higher_z_move_gives_higher_gross_pnl(self):
-        r1 = calc_signal_pnl({"spread_sd_pct": 0.05}, avg_pnl_z=1.0)
-        r2 = calc_signal_pnl({"spread_sd_pct": 0.05}, avg_pnl_z=3.0)
+        r1 = calc_signal_pnl(self.signal_info, avg_pnl_z=1.0)
+        r2 = calc_signal_pnl(self.signal_info, avg_pnl_z=3.0)
         assert r2["gross_pnl"] > r1["gross_pnl"]
+
+    def test_missing_spread_volatility_is_not_invented(self):
+        result = calc_signal_pnl({"z_now": 2.5})
+
+        assert result["complete"] is False
+
+    def test_negative_backtest_expectancy_stays_negative(self):
+        result = calc_signal_pnl(
+            {
+                "spread_sd_pct": 0.05,
+                "hedge_ratio": 1.0,
+                "backtest_avg_pnl_sigma": -0.5,
+                "backtest_validated": 1,
+            },
+            taker_fee_pct=0,
+            funding_rate_8h_pct=0,
+        )
+
+        assert result["gross_pnl"] < 0
+
+
+def test_pair_performance_uses_hedge_ratio_for_leg_notionals():
+    result = calc_pair_performance(
+        "long_a",
+        entry_a=100,
+        entry_b=100,
+        price_a_now=110,
+        price_b_now=100,
+        capital=1000,
+        leverage=1,
+        taker_fee_pct=0,
+        funding_rate_8h_pct=0,
+        hedge_ratio=3,
+    )
+
+    assert result["leg_a_notional"] == 250
+    assert result["leg_b_notional"] == 750
+    assert result["gross_pnl"] == 25
 
 
 class TestComputePositionDetails:

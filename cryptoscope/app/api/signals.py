@@ -31,10 +31,9 @@ def _finite_bool(value) -> bool:
 
 
 def _is_validated_pair(row) -> bool:
-    stability = _finite_float(row.get("is_coint_stable"))
-    if stability is None:
-        return _finite_bool(row.get("is_coint"))
-    return bool(stability)
+    if "is_coint_stable" in row:
+        return _finite_bool(row.get("is_coint_stable"))
+    return _finite_bool(row.get("is_coint"))
 
 
 def _project_tomorrow_move(z_now, halflife):
@@ -58,6 +57,34 @@ def _project_tomorrow_move(z_now, halflife):
     }
 
 
+def _backtest_metrics(row) -> dict:
+    """Return only statistically usable out-of-sample metrics."""
+    n_trades = _finite_int(row.get("backtest_trades"), 0)
+    win_rate = _finite_float(row.get("backtest_win_rate"))
+    avg_pnl_pct = _finite_float(row.get("backtest_avg_pnl_pct"))
+    avg_hold_days = _finite_float(row.get("backtest_avg_hold_days"))
+    validated = bool(
+        _finite_bool(row.get("backtest_validated"))
+        and n_trades >= 5
+        and win_rate is not None
+        and avg_pnl_pct is not None
+        and avg_hold_days is not None
+    )
+    return {
+        "backtest_validated": validated,
+        "n_similar": n_trades,
+        "win_rate": (
+            win_rate if validated else None
+        ),
+        "avg_pnl_pct": (
+            avg_pnl_pct if validated else None
+        ),
+        "avg_hold_days": (
+            avg_hold_days if validated else None
+        ),
+    }
+
+
 @router.get("")
 async def get_signals(
     market: str = Query("crypto", description="Market: crypto, stocks, ru, br, id"),
@@ -76,13 +103,13 @@ async def get_signals(
     if min_coint:
         coint_column = (
             "is_coint_stable"
-            if market == "ru" and "is_coint_stable" in pairs.columns
+            if "is_coint_stable" in pairs.columns
             else "is_coint"
         )
         pairs = pairs[pairs[coint_column] == 1]
 
     # Filter by half-life (fast signals)
-    pairs = pairs[(pairs["halflife"].isna()) | (pairs["halflife"] <= max_days)]
+    pairs = pairs[pairs["halflife"].notna() & (pairs["halflife"] <= max_days)]
 
     # Convert to dict records
     signals = []
@@ -165,6 +192,10 @@ async def get_forecast_trades(
 
     # Filter active signals
     active = pairs[pairs["signal_type"] != "wait"].copy()
+    active = active[
+        active["halflife"].notna()
+        & (active["halflife"] <= max_days)
+    ]
     if active.empty:
         return {"trades": [], "total": 0}
 
@@ -177,7 +208,7 @@ async def get_forecast_trades(
             continue
         z_now = _finite_float(row.get("z_now"), 0.0)
         hl = _finite_int(row.get("halflife"), 30)
-        avg_hold = min(hl, max_days)
+        backtest = _backtest_metrics(row)
         tomorrow_move = _project_tomorrow_move(z_now, hl)
         timing = estimate_signal_timing(
             row.get("signal_started_at"),
@@ -185,10 +216,6 @@ async def get_forecast_trades(
             fallback_started_at=row.get("computed_at"),
         )
 
-        # Estimate P&L based on Z-score move
-        pnl_est = abs(z_now) - 0.5  # expected move back to ±0.5
-        pnl_pct = max(0, round(float(pnl_est), 2))
-        win_rate = 65 if _finite_bool(row.get("is_coint")) else 50
         z_forecast = _finite_float(row.get("z_forecast"))
         zf_low = _finite_float(row.get("z_forecast_low"))
         zf_high = _finite_float(row.get("z_forecast_high"))
@@ -213,12 +240,9 @@ async def get_forecast_trades(
             "risk_reason": row.get("risk_reason"),
             **tomorrow_move,
             **timing,
-            "win_rate": round(float(win_rate), 1),
-            "n_similar": 0,
-            "avg_pnl_pct": round(float(pnl_pct), 2),
-            "avg_hold_days": round(float(avg_hold), 1),
-            "best_pnl": round(float(pnl_pct * 1.5), 2),
-            "worst_pnl": round(float(-pnl_pct), 2),
+            **backtest,
+            "best_pnl": None,
+            "worst_pnl": None,
         })
 
     trades.sort(key=lambda x: abs(x.get("z_now", 0) or 0), reverse=True)
@@ -308,16 +332,47 @@ async def get_dashboard(
 
 @router.get("/pnl")
 async def calculate_pnl(
+    market: str = Query("crypto"),
+    ticker_a: str | None = Query(None),
+    ticker_b: str | None = Query(None),
     capital: float = Query(1000.0, ge=10),
     leverage: float = Query(3.0, ge=1, le=20),
     taker_fee: float = Query(0.02),
     funding_rate: float = Query(0.01),
     hold_days: int = Query(5, ge=1),
-    z_move: float = Query(2.0, ge=0.1, le=5),
-    spread_sd: float = Query(0.05),
+    z_move: float | None = Query(None, ge=0.0, le=10),
+    spread_sd: float | None = Query(None, ge=0.0),
 ):
-    """P&L calculator endpoint."""
-    signal_info = {"spread_sd_pct": spread_sd, "signal": "Manual", "signal_type": "manual"}
+    """Calculate expected P&L from the pair's stored statistical model."""
+    signal_info = {
+        "spread_sd_pct": spread_sd,
+        "signal": "Manual",
+        "signal_type": "manual",
+    }
+    if ticker_a and ticker_b:
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT * FROM pairs
+                WHERE market = ? AND ticker_a = ? AND ticker_b = ?
+                LIMIT 1
+                """,
+                (market, ticker_a, ticker_b),
+            )
+            row = await cursor.fetchone()
+        if row:
+            signal_info.update(dict(row))
+        else:
+            return {
+                "complete": False,
+                "error": "Пара отсутствует в свежем анализе",
+            }
+
+    if spread_sd is not None:
+        signal_info["spread_sd_pct"] = spread_sd
+
+    if market != "crypto":
+        funding_rate = 0.0
     result = calc_signal_pnl(
         signal_info,
         capital=capital,

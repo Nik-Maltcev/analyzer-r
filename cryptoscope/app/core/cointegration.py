@@ -1,8 +1,21 @@
 """Engle-Granger cointegration, Z-score, AR(1) forecast engine."""
 
+from typing import Optional
+
 import numpy as np
-from scipy import stats
-from typing import Tuple, Optional
+from statsmodels.tsa.stattools import coint
+
+
+def _empty_cointegration_result() -> dict:
+    return {
+        "halflife": None,
+        "t_stat": None,
+        "p_value": None,
+        "critical_5pct": None,
+        "is_coint": False,
+        "hedge_ratio": None,
+        "ar_phi": None,
+    }
 
 
 def engle_granger(pa: np.ndarray, pb: np.ndarray, min_obs: int = 60) -> dict:
@@ -18,44 +31,69 @@ def engle_granger(pa: np.ndarray, pb: np.ndarray, min_obs: int = 60) -> dict:
         dict with halflife, t_stat, is_coint, hedge_ratio
     """
     try:
-        ok = (~np.isnan(pa)) & (~np.isnan(pb)) & (pa > 0) & (pb > 0)
+        pa = np.asarray(pa, dtype=float)
+        pb = np.asarray(pb, dtype=float)
+        ok = np.isfinite(pa) & np.isfinite(pb) & (pa > 0) & (pb > 0)
         la = np.log(pa[ok])
         lb = np.log(pb[ok])
-        
+
         if len(la) < min_obs:
-            return {"halflife": None, "t_stat": None, "is_coint": False, "hedge_ratio": None}
-        
+            return _empty_cointegration_result()
+
         X = np.column_stack([np.ones(len(lb)), lb])
         beta = np.linalg.lstsq(X, la, rcond=None)[0]
-        hedge_ratio = beta[1]
+        hedge_ratio = float(beta[1])
         resid = la - (beta[0] + beta[1] * lb)
-        
-        n = len(resid)
-        y = np.diff(resid)           # Δ resid_t
-        x = resid[:-1]               # resid_{t-1}
-        ar_fit = np.linalg.lstsq(np.column_stack([np.ones(len(x)), x]), y, rcond=None)[0]
-        
-        b_ar = ar_fit[1]
-        
-        residuals_ar = y - (ar_fit[0] + b_ar * x)
-        se_b = np.sqrt(np.sum(residuals_ar ** 2) / (n - 2) / np.sum((x - x.mean()) ** 2))
-        
-        if se_b == 0 or np.isnan(se_b):
-            return {"halflife": None, "t_stat": None, "is_coint": False, "hedge_ratio": hedge_ratio}
-        
-        t_stat = b_ar / se_b
-        is_coint = bool(t_stat < -2.9)
-        
-        halflife = -np.log(2) / b_ar if b_ar < 0 else None
-        
+
+        maxlag = max(0, min(5, len(la) // 50))
+        t_stat, p_value, critical_values = coint(
+            la,
+            lb,
+            trend="c",
+            maxlag=maxlag,
+            autolag="aic" if maxlag else None,
+        )
+        critical_5pct = float(critical_values[1])
+        is_coint = bool(
+            np.isfinite(t_stat)
+            and np.isfinite(p_value)
+            and float(p_value) <= 0.05
+            and float(t_stat) <= critical_5pct
+        )
+
+        y = resid[1:]
+        x = resid[:-1]
+        ar_fit = np.linalg.lstsq(
+            np.column_stack([np.ones(len(x)), x]),
+            y,
+            rcond=None,
+        )[0]
+        ar_phi = float(ar_fit[1])
+        halflife = None
+        if np.isfinite(ar_phi) and abs(ar_phi) < 1:
+            if abs(ar_phi) < 1e-8:
+                halflife = 1.0
+            else:
+                halflife = -np.log(2) / np.log(abs(ar_phi))
+
         return {
-            "halflife": round(halflife) if halflife is not None and halflife > 0 else None,
+            "halflife": (
+                max(1, round(halflife))
+                if halflife is not None and halflife > 0
+                else None
+            ),
             "t_stat": float(t_stat),
+            "p_value": float(p_value),
+            "critical_5pct": critical_5pct,
             "is_coint": is_coint,
-            "hedge_ratio": float(hedge_ratio),
+            "hedge_ratio": hedge_ratio,
+            "ar_phi": ar_phi,
         }
+    # statsmodels can raise several data-dependent exception classes (for
+    # example on constant or near-collinear series). One bad pair must not
+    # abort the analysis of its entire market.
     except Exception:
-        return {"halflife": None, "t_stat": None, "is_coint": False, "hedge_ratio": None}
+        return _empty_cointegration_result()
 
 
 def compute_zscore(pa: np.ndarray, pb: np.ndarray, hedge_ratio: Optional[float] = None, min_obs: int = 30) -> dict:

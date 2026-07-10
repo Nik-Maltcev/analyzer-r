@@ -14,7 +14,7 @@
                 <td>{{ p.ticker_a }}</td>
                 <td>{{ p.ticker_b }}</td>
                 <td>{{ "%.0f"|format(p.corr * 100) if p.corr else "—" }}%</td>
-                <td>{% if p.is_coint %}✅{% else %}—{% endif %}</td>
+                <td>{% if p.is_coint %}<i class="table-status-icon positive" data-lucide="check"></i>{% else %}—{% endif %}</td>
                 <td>{{ p.halflife|default("—") }}</td>
                 <td class="text-mono">{{ "%.2f"|format(p.z_now) if p.z_now else "—" }}</td>
                 <td><span class="badge badge-gray">{{ (p.signal or '')[:14] }}</span></td>

@@ -15,19 +15,19 @@
                     hx-get="/tab/signals?mode=all" hx-target="#signals-content" hx-swap="innerHTML"
                     hx-vals='js:{market: currentMarket}'
                     onclick="document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
-                🚦 Все сигналы
+                <i data-lucide="list-filter"></i><span>Все сигналы</span>
             </button>
             <button class="mode-btn" data-mode="forecast"
                     hx-get="/tab/signals?mode=forecast" hx-target="#signals-content" hx-swap="innerHTML"
                     hx-vals='js:{market: currentMarket}'
                     onclick="document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
-                💎 Прогноз
+                <i data-lucide="chart-spline"></i><span>Прогноз</span>
             </button>
             <button class="mode-btn" data-mode="short"
                     hx-get="/tab/signals?mode=short" hx-target="#signals-content" hx-swap="innerHTML"
                     hx-vals='js:{market: currentMarket}'
                     onclick="document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
-                ⚡ Быстрые (&lt;7д)
+                <i data-lucide="timer"></i><span>Быстрые (&lt;7д)</span>
             </button>
         </div>
         <div class="mode-filters" id="mode-filters">

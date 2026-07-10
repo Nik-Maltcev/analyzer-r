@@ -34,7 +34,7 @@
     <div class="glass-card stat-card">
         <div class="stat-card-top">
             <span class="stat-card-label">Активных сигналов</span>
-            <span class="stat-card-icon">🚦</span>
+            <span class="stat-card-icon"><i data-lucide="activity"></i></span>
         </div>
         <div class="stat-card-value">{{ active|length if active is defined else 0 }} / {{ total|default(0) }}</div>
         <div class="stat-card-sub">из всех отобранных пар</div>
@@ -42,7 +42,7 @@
     <div class="glass-card stat-card">
         <div class="stat-card-top">
             <span class="stat-card-label">Лучший сигнал</span>
-            <span class="stat-card-icon">⭐</span>
+            <span class="stat-card-icon"><i data-lucide="star"></i></span>
         </div>
         <div class="stat-card-value" id="best-signal-name">—</div>
         <div class="stat-card-sub" id="best-signal-meta">—</div>
@@ -50,7 +50,7 @@
     <div class="glass-card stat-card">
         <div class="stat-card-top">
             <span class="stat-card-label">Мин. корр. / Дней</span>
-            <span class="stat-card-icon">⚙</span>
+            <span class="stat-card-icon"><i data-lucide="sliders-horizontal"></i></span>
         </div>
         <div class="stat-card-value">{{ min_corr|default(0.5) }} / {{ max_days|default(30) }}</div>
         <div class="stat-card-sub">параметры сканера</div>
@@ -61,7 +61,7 @@
 
 <!-- ============================== ACTIVE SIGNAL CARDS ============================== -->
 <div class="section-header">
-    <h3>🚦 Активные сигналы ({{ active|length }})</h3>
+    <h3 class="section-title-with-icon"><i class="section-title-icon" data-lucide="activity"></i>Активные сигналы ({{ active|length }})</h3>
 </div>
 <div class="beginner-summary-strip beginner-only">
     <div class="beginner-summary-item">
@@ -75,9 +75,9 @@
         <small>{% if market_regime == "stress" %}стрессовый режим{% elif market_regime == "elevated" %}повышенная волатильность{% else %}обычный режим{% endif %}</small>
     </div>
     <div class="beginner-summary-item">
-        <span>Фокус</span>
-        <strong>{% if active[0] %}{{ active[0].ticker_a }}{% else %}—{% endif %}</strong>
-        <small>{% if active[0] %}первая идея в списке{% else %}нет идей{% endif %}</small>
+        <span>Горизонт</span>
+        <strong>до {{ max_days|default(30) }} дн.</strong>
+        <small>ограничение по полупериоду пары</small>
     </div>
 </div>
 <div class="cards-grid">
@@ -241,6 +241,7 @@
              data-pair-id="{{ s.pair_id }}"
              data-ticker-a="{{ s.ticker_a }}"
              data-ticker-b="{{ s.ticker_b }}"
+             data-market="{{ market }}"
              data-signal-type="{{ s.signal_type }}"
              data-z-now="{{ s.z_now|default('') }}"
              data-halflife="{{ s.halflife|default('') }}">
@@ -270,7 +271,7 @@
 
 <!-- ============================== ALL PAIRS TABLE ============================== -->
 <div class="section-header pro-only">
-    <h3>📋 Все пары ({{ total }})</h3>
+    <h3 class="section-title-with-icon"><i class="section-title-icon" data-lucide="table-properties"></i>Все пары ({{ total }})</h3>
 </div>
 <div class="table-container pro-only">
     <table class="data-table signals-table">
@@ -412,18 +413,33 @@
         ctx.stroke();
     }
 
-    document.querySelectorAll('.sparkline').forEach(canvas => {
-        const ta = canvas.dataset.tickerA;
-        const tb = canvas.dataset.tickerB;
-        if (!ta || !tb) return;
-        fetch(`/api/charts/sparkline/${encodeURIComponent(ta)}/${encodeURIComponent(tb)}?market=${encodeURIComponent(signalMarket)}`)
-            .then(r => r.json())
+    const sparklineCanvases = Array.from(document.querySelectorAll('.sparkline'));
+    const sparklinePairs = sparklineCanvases
+        .map(canvas => ({
+            ticker_a: canvas.dataset.tickerA,
+            ticker_b: canvas.dataset.tickerB
+        }))
+        .filter(pair => pair.ticker_a && pair.ticker_b);
+    if (sparklinePairs.length) {
+        fetch('/api/charts/sparklines', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({market: signalMarket, pairs: sparklinePairs})
+        })
+            .then(r => r.ok ? r.json() : Promise.reject(new Error('chart load failed')))
             .then(data => {
-                const vals = (data && (data.values || data.zscores)) || [];
-                if (vals.length > 0) drawSparkline(canvas, vals);
+                const byPair = new Map((data.items || []).map(item => [
+                    `${item.ticker_a}\u0000${item.ticker_b}`,
+                    item.values || []
+                ]));
+                sparklineCanvases.forEach(canvas => {
+                    const key = `${canvas.dataset.tickerA}\u0000${canvas.dataset.tickerB}`;
+                    const values = byPair.get(key) || [];
+                    if (values.length) drawSparkline(canvas, values);
+                });
             })
             .catch(() => {});
-    });
+    }
 
     /* ---------- Per-card PnL calculator (real fetch) ---------- */
     function fmtMoney(v) {
@@ -449,6 +465,7 @@
         const funding = fundingInput ? (parseFloat(fundingInput.value) || 0.01) : 0.01;
 
         const params = new URLSearchParams({
+            market: block.dataset.market || signalMarket,
             ticker_a: block.dataset.tickerA,
             ticker_b: block.dataset.tickerB,
             signal_type: block.dataset.signalType,
@@ -457,7 +474,7 @@
             leverage: String(leverage),
             taker_fee: String(taker),
             funding_rate: String(funding),
-            halflife: block.dataset.halflife || ''
+            hold_days: block.dataset.halflife || '5'
         });
 
         const setPlaceholder = (txt) => {
@@ -476,12 +493,15 @@
                 const fnd = block.querySelector('[data-field="funding"]');
                 const pnl = block.querySelector('[data-field="pnl"]');
 
+                if (!data.complete) {
+                    setPlaceholder('—');
+                    return;
+                }
                 if (pos) pos.textContent = fmtUsd(data.position_size || data.capital || capital);
-                if (fee) fee.textContent = fmtUsd(data.fee || 0);
-                if (fnd) fnd.textContent = fmtUsd(data.funding || 0);
+                if (fee) fee.textContent = fmtUsd(data.commissions || 0);
+                if (fnd) fnd.textContent = fmtUsd(data.funding_cost || 0);
 
-                const pnlValue = data.pnl !== undefined ? data.pnl
-                    : (data.expected_pnl !== undefined ? data.expected_pnl : null);
+                const pnlValue = data.net_pnl !== undefined ? data.net_pnl : null;
                 if (pnl) {
                     pnl.textContent = fmtMoney(pnlValue);
                     pnl.classList.remove('positive', 'negative');
@@ -551,7 +571,7 @@
 
 {% else %}
 <div class="empty-state">
-    <span class="empty-icon">⏳</span>
+    <span class="empty-icon"><i data-lucide="hourglass"></i></span>
     <p>Данные рынка загружаются или ещё не прошли первый расчёт.</p>
     <p class="text-dim">{{ market|upper }} · обновите страницу через несколько минут</p>
     <button class="btn btn-outline" type="button"

@@ -1,6 +1,6 @@
 <div class="tab-page portfolio-page">
     <div class="page-header">
-        <h2>📊 Портфель — Pairs Trading</h2>
+        <h2><i class="page-title-icon" data-lucide="briefcase-business"></i>Портфель — Pairs Trading</h2>
         <p class="page-desc">Коинтегрированных пар: {{ n_coint }} из {{ total }}</p>
     </div>
 
@@ -103,10 +103,12 @@ function loadSpreadChart() {
     const tb = document.getElementById('spread-b').value;
     if (ta === tb) { showToast('Выберите разные тикеры', 'error'); return; }
     
-    const taEnc = ta.replace('/', '.');
-    const tbEnc = tb.replace('/', '.');
-    
-    fetch(`/api/charts/spread/${taEnc}/${tbEnc}?market=${encodeURIComponent(portfolioMarket)}`)
+    const params = new URLSearchParams({
+        market: portfolioMarket,
+        ticker_a: ta,
+        ticker_b: tb
+    });
+    fetch(`/api/charts/spread?${params.toString()}`)
         .then(r => r.json())
         .then(data => renderSpreadChart(data))
         .catch(e => showToast('Ошибка загрузки графика', 'error'));

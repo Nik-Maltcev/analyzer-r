@@ -66,10 +66,9 @@ def _parse_datetime(value) -> datetime | None:
 
 
 def _is_validated_pair(row) -> bool:
-    stability = _finite_float(row.get("is_coint_stable"))
-    if stability is None:
-        return _finite_bool(row.get("is_coint"))
-    return bool(stability)
+    if "is_coint_stable" in row:
+        return _finite_bool(row.get("is_coint_stable"))
+    return _finite_bool(row.get("is_coint"))
 
 
 def _project_tomorrow_move(z_now, halflife):
@@ -90,6 +89,34 @@ def _project_tomorrow_move(z_now, halflife):
         "z_tomorrow": round(z_tomorrow, 2),
         "z_tomorrow_delta": round(delta, 2),
         "z_tomorrow_reversion_pct": round((1.0 - decay) * 100, 1),
+    }
+
+
+def _backtest_metrics(row) -> dict:
+    """Expose out-of-sample metrics only after enough completed trades."""
+    n_trades = _finite_int(row.get("backtest_trades"), 0)
+    win_rate = _finite_float(row.get("backtest_win_rate"))
+    avg_pnl_pct = _finite_float(row.get("backtest_avg_pnl_pct"))
+    avg_hold_days = _finite_float(row.get("backtest_avg_hold_days"))
+    validated = bool(
+        _finite_bool(row.get("backtest_validated"))
+        and n_trades >= 5
+        and win_rate is not None
+        and avg_pnl_pct is not None
+        and avg_hold_days is not None
+    )
+    return {
+        "backtest_validated": validated,
+        "n_similar": n_trades,
+        "win_rate": (
+            win_rate if validated else None
+        ),
+        "avg_pnl_pct": (
+            avg_pnl_pct if validated else None
+        ),
+        "avg_hold_days": (
+            avg_hold_days if validated else None
+        ),
     }
 
 
@@ -175,9 +202,7 @@ def _make_forecast_trades(pairs, fav_pairs=None):
             continue
         z_now = _finite_float(row.get("z_now"), 0.0)
         hl = _finite_int(row.get("halflife"), 30)
-        pnl_est = abs(z_now) - 0.5
-        pnl_pct = max(0, round(float(pnl_est), 2))
-        win_rate = 65 if _finite_bool(row.get("is_coint")) else 50
+        backtest = _backtest_metrics(row)
         corr_val = _finite_float(row.get("corr"))
         z_forecast = _finite_float(row.get("z_forecast"))
         zf_low = _finite_float(row.get("z_forecast_low"))
@@ -213,9 +238,7 @@ def _make_forecast_trades(pairs, fav_pairs=None):
             "risk_reason": row.get("risk_reason"),
             **tomorrow_move,
             **timing,
-            "win_rate": round(float(win_rate), 1),
-            "avg_pnl_pct": round(float(pnl_pct), 2),
-            "avg_hold_days": round(float(min(hl, 30)), 1),
+            **backtest,
             "is_favorite": pair_id in fav_set,
         })
 
@@ -434,13 +457,13 @@ async def tab_signals(
         if min_coint:
             coint_column = (
                 "is_coint_stable"
-                if market == "ru" and "is_coint_stable" in pairs.columns
+                if "is_coint_stable" in pairs.columns
                 else "is_coint"
             )
             pairs = pairs[pairs[coint_column] == 1]
 
         # Filter by half-life
-        pairs = pairs[(pairs["halflife"].isna()) | (pairs["halflife"] <= max_days)]
+        pairs = pairs[pairs["halflife"].notna() & (pairs["halflife"] <= max_days)]
 
         # Fetch existing favorite pair IDs to render star state
         # Wrapped in try/except so favorites query failure doesn't kill signals
@@ -485,7 +508,10 @@ async def tab_signals(
 
         if mode == "short":
             active_pairs = pairs[pairs["signal_type"] != "wait"]
-            active_pairs = active_pairs[(active_pairs["halflife"].isna()) | (active_pairs["halflife"] <= 7)]
+            active_pairs = active_pairs[
+                active_pairs["halflife"].notna()
+                & (active_pairs["halflife"] <= 7)
+            ]
             if active_pairs.empty:
                 return templates.TemplateResponse(request, "components/signals_forecast.html", {
                     **ctx, "trades": [], "total": 0, "is_short": True,
@@ -1015,6 +1041,9 @@ async def tab_favorites(
                         funding_rate if market == "crypto" else 0
                     ),
                     hold_days=days_held,
+                    hedge_ratio=_finite_float(
+                        row.get("hedge_ratio_entry"), 1.0
+                    ),
                 )
             )
 
@@ -1101,13 +1130,13 @@ async def tab_favorites(
                 signal_eligible = _finite_bool(
                     pair_risk.get(
                         "signal_eligible",
-                        0 if market == "ru" else 1,
+                        0,
                     )
                 )
                 risk_reason = pair_risk.get("risk_reason")
-                if market == "ru" and not pair_risk:
+                if not pair_risk:
                     risk_reason = "Пара отсутствует в свежем анализе"
-                if market == "ru" and not signal_eligible:
+                if not signal_eligible:
                     fc.update({
                         "status": "Перепроверить",
                         "status_color": "orange",
@@ -1280,6 +1309,9 @@ async def tab_favorites_history(
                             funding_rate if market == "crypto" else 0
                         ),
                         hold_days=timing["signal_days_elapsed"],
+                        hedge_ratio=_finite_float(
+                            row.get("hedge_ratio_entry"), 1.0
+                        ),
                     )
                 )
 

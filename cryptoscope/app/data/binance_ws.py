@@ -13,7 +13,7 @@ from collections import defaultdict
 
 import httpx
 
-BINANCE_WS_URL = "wss://stream.binance.com:9443/ws"
+BINANCE_WS_URL = "wss://stream.binance.com:9443/stream"
 BINANCE_REST_URL = "https://api.binance.com/api/v3"
 CRYPTO_LIVE_CACHE_SECONDS = 30
 
@@ -169,9 +169,14 @@ def build_ticker_map(tickers: list, all_symbols: set) -> Dict[str, list]:
         if sym in all_symbols:
             result[ticker] = [sym]
         else:
-            # Try alternatives (some coins trade against different quotes)
+            # Try only known USD-like quote assets. Prefix matching could map
+            # a ticker to another asset with a similar symbol.
             base = ticker.split("/")[0].upper()
-            alternatives = [s for s in all_symbols if s.startswith(base) and s in all_symbols]
+            alternatives = [
+                f"{base}{quote}"
+                for quote in ("USDT", "USDC", "FDUSD")
+                if f"{base}{quote}" in all_symbols
+            ]
             if alternatives:
                 result[ticker] = alternatives[:3]  # Max 3 alternatives
     return result
@@ -207,67 +212,85 @@ async def connect_binance_ws(tickers: Optional[list] = None):
         _last_update[sym] = time.time()
     print(f"[Binance] Loaded {len(initial)} initial prices via REST")
 
-    # Build stream string: btcusdt@miniTicker/ethusdt@miniTicker/...
+    # Subscribe after connecting instead of putting every stream in the URL.
+    # This avoids invalid/oversized combined-stream endpoints.
     stream_names = [f"{s.lower()}@miniTicker" for s in all_syms]
-    streams = "/".join(stream_names)
-    ws_endpoint = f"{BINANCE_WS_URL}/{streams}"
 
     print(f"[Binance] Connecting to {len(stream_names)} streams...")
-    _connected = True
-
-    # Use httpx for WebSocket (Python 3.11+ has ws support via httpx)
-    # Fall back to websockets library approach
     try:
         import websockets
-        async with websockets.connect(ws_endpoint, ping_interval=30, ping_timeout=10) as ws:
-            print(f"[Binance] Connected! Streaming prices...")
-
-            # Track last reconnect
-            last_reconnect = time.time()
-
-            async for message in ws:
-                try:
-                    data = json.loads(message)
-                except json.JSONDecodeError:
-                    continue
-
-                if isinstance(data, dict) and "s" in data:
-                    symbol = data["s"]
-                    price = float(data["c"])  # Last price (miniTicker)
-                    live_prices[symbol] = price
-                    _last_update[symbol] = time.time()
-
-                # Periodic reconnection (every 23h to avoid stale streams)
-                if time.time() - last_reconnect > 82800:  # 23 hours
-                    print("[Binance] Periodic reconnect...")
-                    break
-
     except ImportError:
         print("[Binance] websockets library not installed, using REST polling fallback")
-        # Fallback: poll REST every 5 seconds
-        while _connected:
+        while True:
             try:
                 batch_size = 50
                 for i in range(0, len(all_syms), batch_size):
-                    batch = all_syms[i:i + batch_size]
-                    prices = await fetch_latest_prices(batch)
+                    prices = await fetch_latest_prices(all_syms[i:i + batch_size])
+                    now = time.time()
                     for sym, price in prices.items():
                         live_prices[sym] = price
-                        _last_update[sym] = time.time()
+                        _last_update[sym] = now
+                _connected = bool(all_syms)
                 await asyncio.sleep(5)
-            except Exception as e:
-                print(f"[Binance] Poll error: {e}")
+            except asyncio.CancelledError:
+                _connected = False
+                raise
+            except Exception as exc:
+                _connected = False
+                print(f"[Binance] Poll error: {exc}")
                 await asyncio.sleep(10)
 
-    except Exception as e:
-        print(f"[Binance] WebSocket error: {e}, reconnecting in 5s...")
-        _connected = False
-        await asyncio.sleep(5)
+    reconnect_delay = 2
+    while True:
+        try:
+            async with websockets.connect(
+                BINANCE_WS_URL,
+                ping_interval=20,
+                ping_timeout=20,
+                close_timeout=10,
+            ) as ws:
+                await ws.send(json.dumps({
+                    "method": "SUBSCRIBE",
+                    "params": stream_names,
+                    "id": 1,
+                }))
+                _connected = True
+                reconnect_delay = 2
+                connected_at = time.monotonic()
+                print("[Binance] Connected! Streaming prices...")
 
-    # Reconnect loop
-    _connected = False
-    await asyncio.sleep(2)
-    asyncio.create_task(connect_binance_ws(tickers))
+                async for message in ws:
+                    if time.monotonic() - connected_at > 82800:
+                        print("[Binance] Periodic reconnect...")
+                        break
+                    try:
+                        envelope = json.loads(message)
+                    except json.JSONDecodeError:
+                        continue
+                    data = envelope.get("data", envelope)
+                    if not isinstance(data, dict) or "s" not in data:
+                        continue
+                    try:
+                        symbol = data["s"]
+                        price = float(data["c"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    if price > 0:
+                        live_prices[symbol] = price
+                        _last_update[symbol] = time.time()
+        except asyncio.CancelledError:
+            _connected = False
+            raise
+        except Exception as exc:
+            print(
+                f"[Binance] WebSocket error: {exc}; "
+                f"reconnecting in {reconnect_delay}s"
+            )
+        finally:
+            _connected = False
+
+        await asyncio.sleep(reconnect_delay)
+        reconnect_delay = min(reconnect_delay * 2, 60)
 
 
 def get_live_price(ticker: str) -> Optional[float]:

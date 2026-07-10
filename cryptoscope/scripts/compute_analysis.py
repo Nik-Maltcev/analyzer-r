@@ -12,6 +12,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.cointegration import compute_zscore, engle_granger, forecast_zscore
+from app.core.backtest import compute_spread_sd_pct, out_of_sample_backtest
 from app.core.risk import (
     assess_cointegration_stability,
     assess_market_regime,
@@ -108,8 +109,19 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
             model_pa = pa[-252:] if market_name == "ru" else pa
             model_pb = pb[-252:] if market_name == "ru" else pb
             cg = engle_granger(model_pa, model_pb)
-            if market_name == "ru":
+            if cg["is_coint"]:
                 stability = assess_cointegration_stability(pa, pb)
+            else:
+                stability = {
+                    "is_coint_stable": False,
+                    "coint_stability": 0,
+                    "coint_windows": '{"model":false}',
+                    "coint_stability_reason": (
+                        "Коинтеграция не подтверждена на полном окне"
+                    ),
+                }
+
+            if market_name == "ru":
                 event_gap = detect_recent_event_gap(
                     pa,
                     pb,
@@ -118,19 +130,6 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
                     ticker_b=tb,
                 )
             else:
-                is_coint = bool(cg["is_coint"])
-                stability = {
-                    "is_coint_stable": is_coint,
-                    "coint_stability": 100 if is_coint else 0,
-                    "coint_windows": (
-                        '{"model":true}' if is_coint else '{"model":false}'
-                    ),
-                    "coint_stability_reason": (
-                        "Коинтеграция подтверждена моделью"
-                        if is_coint
-                        else "Коинтеграция не подтверждена моделью"
-                    ),
-                }
                 event_gap = {
                     "event_risk": False,
                     "event_risk_reason": None,
@@ -139,6 +138,19 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
             # Z-score
             zres = compute_zscore(model_pa, model_pb, cg["hedge_ratio"])
             z_now_val = zres["z_now"]
+            spread_sd_pct = (
+                compute_spread_sd_pct(model_pa, model_pb, cg["hedge_ratio"])
+                if cg["hedge_ratio"] is not None
+                else None
+            )
+            backtest = (
+                out_of_sample_backtest(pa, pb)
+                if stability["is_coint_stable"]
+                else {"n_trades": 0, "validated": False}
+            )
+            backtest_validated = bool(
+                backtest.get("validated") and backtest.get("model_is_coint")
+            )
 
             # AR(1) forecast
             z_forecast_val = None
@@ -155,11 +167,7 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
 
             # Signal
             sig = determine_signal(z_now_val, z_forecast_val, ta, tb)
-            coint_for_strength = (
-                stability["is_coint_stable"]
-                if market_name == "ru"
-                else cg["is_coint"]
-            )
+            coint_for_strength = stability["is_coint_stable"]
             strength = determine_strength(coint_for_strength, z_now_val, z_forecast_val)
             guarded = guard_signal(
                 market_name,
@@ -183,7 +191,6 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
                 risk_reason = event_gap["event_risk_reason"]
             if (
                 risk_reason is None
-                and market_name == "ru"
                 and not stability["is_coint_stable"]
             ):
                 risk_reason = stability["coint_stability_reason"]
@@ -200,8 +207,18 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
                 "corr": round(corr_val, 4),
                 "halflife": cg["halflife"],
                 "t_stat": round(cg["t_stat"], 4) if cg["t_stat"] is not None else None,
+                "coint_pvalue": round(cg["p_value"], 6) if cg["p_value"] is not None else None,
+                "coint_critical_5pct": round(cg["critical_5pct"], 4) if cg["critical_5pct"] is not None else None,
                 "is_coint": int(cg["is_coint"]),
                 "hedge_ratio": round(cg["hedge_ratio"], 4) if cg["hedge_ratio"] is not None else None,
+                "ar_phi": round(cg["ar_phi"], 6) if cg["ar_phi"] is not None else None,
+                "spread_sd_pct": round(spread_sd_pct, 8) if spread_sd_pct is not None else None,
+                "backtest_trades": int(backtest.get("n_trades", 0)),
+                "backtest_win_rate": backtest.get("win_rate"),
+                "backtest_avg_pnl_pct": backtest.get("avg_pnl_pct"),
+                "backtest_avg_pnl_sigma": backtest.get("avg_pnl_sigma"),
+                "backtest_avg_hold_days": backtest.get("avg_hold"),
+                "backtest_validated": int(backtest_validated),
                 "score": round(float(score), 4),
                 "z_now": round(z_now_val, 4) if z_now_val is not None else None,
                 "z_forecast": round(z_forecast_val, 4) if z_forecast_val is not None else None,
