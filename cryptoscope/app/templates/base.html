@@ -18,7 +18,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/main.css?v=20260705-paypal-orders1">
-    <link rel="stylesheet" href="/static/css/workbench.css?v=20260710-workbench1">
+    <link rel="stylesheet" href="/static/css/workbench.css?v=20260710-scanner-tabs1">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org/dist/ext/json-enc.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -38,7 +38,7 @@
             displayCurrencyAtCheckout: {{ pricing.checkout_uses_display_currency|tojson }}
         };
     </script>
-    <script src="/static/js/main.js?v=20260707-view-mode1" defer></script>
+    <script src="/static/js/main.js?v=20260710-scanner-tabs1" defer></script>
 </head>
 <body>
     <nav class="navbar">
@@ -53,9 +53,6 @@
             </a>
             <a href="#" class="nav-tab" data-tab="polymarket" hx-get="/tab/polymarket" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">
                 <i class="tab-icon" data-lucide="chart-no-axes-column-increasing"></i><span>Polymarket</span>
-            </a>
-            <a href="#" class="nav-tab" data-tab="scanners" hx-get="/tab/scanners" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">
-                <i class="tab-icon" data-lucide="scan-search"></i><span>Сканеры</span>
             </a>
             <a href="#" class="nav-tab" data-tab="favorites" hx-get="/tab/favorites" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML">
                 <i class="tab-icon" data-lucide="briefcase-business"></i><span>Портфель</span>

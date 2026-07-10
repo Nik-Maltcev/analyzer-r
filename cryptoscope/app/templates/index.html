@@ -14,20 +14,23 @@
             <button class="mode-btn active" data-mode="all"
                     hx-get="/tab/signals?mode=all" hx-target="#signals-content" hx-swap="innerHTML"
                     hx-vals='js:{market: currentMarket}'
-                    onclick="document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
+                    onclick="selectSignalsWorkspace(this)">
                 <i data-lucide="list-filter"></i><span>Все сигналы</span>
             </button>
-            <button class="mode-btn" data-mode="forecast"
-                    hx-get="/tab/signals?mode=forecast" hx-target="#signals-content" hx-swap="innerHTML"
-                    hx-vals='js:{market: currentMarket}'
-                    onclick="document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
-                <i data-lucide="chart-spline"></i><span>Прогноз</span>
+            <button class="mode-btn" data-scanner="corrbreak"
+                    hx-get="/tab/scanner/corrbreak" hx-target="#signals-content" hx-swap="innerHTML"
+                    onclick="selectSignalsWorkspace(this)">
+                <i data-lucide="unlink"></i><span>Corr Breakdown</span>
             </button>
-            <button class="mode-btn" data-mode="short"
-                    hx-get="/tab/signals?mode=short" hx-target="#signals-content" hx-swap="innerHTML"
-                    hx-vals='js:{market: currentMarket}'
-                    onclick="document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
-                <i data-lucide="timer"></i><span>Быстрые (&lt;7д)</span>
+            <button class="mode-btn" data-scanner="momentum"
+                    hx-get="/tab/scanner/momentum" hx-target="#signals-content" hx-swap="innerHTML"
+                    onclick="selectSignalsWorkspace(this)">
+                <i data-lucide="trending-up"></i><span>Momentum</span>
+            </button>
+            <button class="mode-btn" data-scanner="drawdown"
+                    hx-get="/tab/scanner/drawdown" hx-target="#signals-content" hx-swap="innerHTML"
+                    onclick="selectSignalsWorkspace(this)">
+                <i data-lucide="chart-no-axes-column-decreasing"></i><span>Drawdown</span>
             </button>
         </div>
         <div class="mode-filters" id="mode-filters">

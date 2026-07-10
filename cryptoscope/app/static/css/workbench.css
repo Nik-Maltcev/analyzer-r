@@ -623,6 +623,10 @@ html[data-view-mode='beginner'] .signals-page {
     margin: 0;
 }
 
+.mode-filters[hidden] {
+    display: none !important;
+}
+
 .signal-filters {
     display: flex;
     align-items: center;
@@ -1690,7 +1694,7 @@ html[data-view-mode='beginner'] .signals-page {
         left: 0;
         z-index: 1100;
         display: grid;
-        grid-template-columns: repeat(5, 1fr);
+        grid-template-columns: repeat(4, 1fr);
         height: 60px;
         padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
         background: #101214;
@@ -1744,7 +1748,7 @@ html[data-view-mode='beginner'] .signals-page {
 
     .mode-switcher {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         width: 100%;
     }
 

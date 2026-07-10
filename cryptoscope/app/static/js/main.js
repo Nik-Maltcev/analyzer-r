@@ -52,12 +52,24 @@ function switchMarket(market) {
     document.querySelectorAll('.market-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.market === market);
     });
-    // Signals response owns its dashboard, so one swap keeps the page atomic.
     const activeMode = document.querySelector('.mode-btn.active');
-    const mode = activeMode ? activeMode.dataset.mode : 'all';
-    htmx.ajax('GET', '/tab/signals?mode=' + mode + '&market=' + market, {target: '#signals-content', swap: 'innerHTML'});
+    const scanner = activeMode?.dataset.scanner;
+    const path = scanner
+        ? `/tab/scanner/${encodeURIComponent(scanner)}?market=${encodeURIComponent(market)}`
+        : `/tab/signals?mode=${encodeURIComponent(activeMode?.dataset.mode || 'all')}&market=${encodeURIComponent(market)}`;
+    htmx.ajax('GET', path, {target: '#signals-content', swap: 'innerHTML'});
 }
 window.switchMarket = switchMarket;
+
+function selectSignalsWorkspace(button) {
+    if (!button) return;
+    document.querySelectorAll('.mode-btn').forEach(item => {
+        item.classList.toggle('active', item === button);
+    });
+    const filters = document.getElementById('mode-filters');
+    if (filters) filters.hidden = Boolean(button.dataset.scanner);
+}
+window.selectSignalsWorkspace = selectSignalsWorkspace;
 
 function filterPolymarket(category, button) {
     document.querySelectorAll('.poly-filter-btn').forEach(item => {
@@ -133,7 +145,9 @@ document.body.addEventListener('htmx:configRequest', event => {
     if (event.detail.target?.id === 'signals-content') {
         const activeMode = document.querySelector('.mode-btn.active');
         event.detail.parameters.market = window.currentMarket || 'crypto';
-        event.detail.parameters.mode = activeMode?.dataset.mode || 'all';
+        if (!activeMode?.dataset.scanner) {
+            event.detail.parameters.mode = activeMode?.dataset.mode || 'all';
+        }
     }
 
     if (event.detail.elt?.dataset?.tab !== 'favorites') return;
