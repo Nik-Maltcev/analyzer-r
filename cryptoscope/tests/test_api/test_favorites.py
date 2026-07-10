@@ -99,6 +99,8 @@ async def test_ru_favorite_uses_moex_market_prices(app, temp_db):
         assert tab_response.status_code == 200
         assert "Обновить котировки RU" in tab_response.text
         assert "Движение пары" in tab_response.text
+        assert "Доходность" in tab_response.text
+        assert "+7.46%" in tab_response.text
         assert "$+74.60" in tab_response.text
 
         close_response = await client.post("/api/favorites/close/1")

@@ -182,9 +182,10 @@
                             <strong>{{ f.status }}</strong>
                             <span>{{ f.status_detail }}</span>
                         </div>
-                        <div class="position-simple-result {% if pair_move >= 0 %}positive{% else %}negative{% endif %}">
-                            <small>Движение</small>
-                            <strong>{{ '%+.2f'|format(pair_move) }}%</strong>
+                        {% set account_return = f.net_return_pct if f.complete and f.net_return_pct is defined else none %}
+                        <div class="position-simple-result {% if account_return is not none and account_return >= 0 %}positive{% elif account_return is not none %}negative{% endif %}">
+                            <small>Доходность</small>
+                            <strong>{% if account_return is not none %}{{ '%+.2f'|format(account_return) }}%{% else %}—{% endif %}</strong>
                         </div>
                     </div>
                     <div class="position-simple-grid">

@@ -348,6 +348,7 @@ MESSAGES = {
         "Funding hanya berlaku untuk CRYPTO dan merupakan estimasi.",
     ),
     "Движение пары": ("Pair movement", "Movimento do par", "Pergerakan pasangan"),
+    "Доходность": ("Return", "Retorno", "Imbal hasil"),
     "Итог": ("Result", "Resultado", "Hasil"),
     "След. проверка": ("Next check", "Próx. revisão", "Cek berikutnya"),
     "проверить сегодня": ("check today", "revisar hoje", "cek hari ini"),
