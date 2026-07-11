@@ -197,9 +197,11 @@ async def test_checkout_creates_user_bound_signed_order(app, temp_db):
     )
     assert parameters["MNT_AMOUNT"] == "990.00"
     assert parameters["MNT_SUBSCRIBER_ID"] == "user-1"
-    assert parameters["MNT_SUCCESS_URL"] == (
-        "https://www.meanx.pro/payment/success"
+    assert parameters["MNT_SUCCESS_URL"].startswith(
+        "https://www.meanx.pro/payment/success?transaction_id=meanx-"
     )
+    assert parameters["MNT_INPROGRESS_URL"] == parameters["MNT_SUCCESS_URL"]
+    assert parameters["paymentSystem.unitId"] == "card"
     assert parameters["MNT_SIGNATURE"] == payanyway_checkout_signature(
         parameters,
         "test-secret",
@@ -382,6 +384,40 @@ async def test_payanyway_notification_is_verified_and_idempotent(
         - datetime.now(UTC)
     ).days
     assert 32 <= remaining <= 33
+
+
+@pytest.mark.asyncio
+async def test_payanyway_notification_without_subscriber_activates_order(
+    app,
+    temp_db,
+):
+    _seed_order(temp_db)
+    parameters = _notification()
+    parameters.pop("MNT_SUBSCRIBER_ID")
+    parameters.pop("MNT_SIGNATURE")
+    parameters["MNT_SIGNATURE"] = payanyway_notification_signature(
+        parameters,
+        "test-secret",
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/payments/payanyway/notify",
+            data=parameters,
+        )
+
+    assert response.status_code == 200
+    assert response.text == "SUCCESS"
+    with closing(get_sync_connection(temp_db)) as conn:
+        order = conn.execute(
+            "SELECT status FROM payment_orders WHERE transaction_id = 'order-1'"
+        ).fetchone()
+        subscription = conn.execute(
+            "SELECT status FROM user_subscriptions WHERE user_id = 'user-1'"
+        ).fetchone()
+    assert order["status"] == "paid"
+    assert subscription["status"] == "active"
 
 
 @pytest.mark.asyncio

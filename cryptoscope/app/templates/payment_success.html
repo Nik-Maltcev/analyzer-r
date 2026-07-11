@@ -38,7 +38,8 @@
     <script>
         const paymentParams = new URLSearchParams(location.search);
         const expectedTransaction = (
-            paymentParams.get('MNT_TRANSACTION_ID')
+            paymentParams.get('transaction_id')
+            || paymentParams.get('MNT_TRANSACTION_ID')
             || paymentParams.get('paypal_order_id')
         );
         let paymentChecks = 0;

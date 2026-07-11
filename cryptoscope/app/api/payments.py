@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from hashlib import md5
@@ -29,6 +30,7 @@ from app.product import get_product_profile
 from app.ui.templates import templates
 
 router = APIRouter(tags=["payments"])
+logger = logging.getLogger(__name__)
 PAYANYWAY_ASSISTANT_URL = "https://www.payanyway.ru/assistant.htm"
 PAYMENT_PLANS = {
     "test7": {
@@ -219,7 +221,8 @@ def _validate_order_notification(
         raise ValueError("Unexpected payment amount")
     if parameters["MNT_CURRENCY_CODE"] != str(order["currency"]):
         raise ValueError("Unexpected payment currency")
-    if parameters.get("MNT_SUBSCRIBER_ID", "") != str(order["user_id"]):
+    subscriber_id = parameters.get("MNT_SUBSCRIBER_ID", "")
+    if subscriber_id and subscriber_id != str(order["user_id"]):
         raise ValueError("Unexpected payment subscriber")
     if test_mode != int(order["test_mode"]):
         raise ValueError("Unexpected payment mode")
@@ -564,6 +567,9 @@ async def payanyway_checkout(request: Request, plan: str):
     transaction_id = f"meanx-{uuid4().hex}"
     test_mode = "1" if settings.payanyway_test_mode else "0"
     base_url = _public_base_url(request)
+    status_url = (
+        f"{base_url}/payment/success?transaction_id={transaction_id}"
+    )
     parameters = {
         "MNT_ID": account_id,
         "MNT_TRANSACTION_ID": transaction_id,
@@ -572,9 +578,11 @@ async def payanyway_checkout(request: Request, plan: str):
         "MNT_SUBSCRIBER_ID": user.id,
         "MNT_TEST_MODE": test_mode,
         "MNT_DESCRIPTION": str(plan_config["description"]),
-        "MNT_SUCCESS_URL": f"{base_url}/payment/success",
+        "MNT_SUCCESS_URL": status_url,
+        "MNT_INPROGRESS_URL": status_url,
         "MNT_FAIL_URL": f"{base_url}/app?payment=failed",
         "MNT_RETURN_URL": f"{base_url}/#pricing",
+        "paymentSystem.unitId": "card",
     }
     parameters["MNT_SIGNATURE"] = payanyway_checkout_signature(
         parameters,
@@ -621,6 +629,7 @@ async def payanyway_notify(request: Request):
     ):
         return PlainTextResponse("FAIL", status_code=503)
 
+    parameters: dict[str, str] = {}
     try:
         parameters = await _request_parameters(request)
         required = (
@@ -713,7 +722,13 @@ async def payanyway_notify(request: Request):
             )
             await _activate_subscription(conn, order, operation_id)
             await conn.commit()
-    except (UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValueError) as exc:
+        logger.warning(
+            "PayAnyWay notification rejected transaction=%s operation=%s: %s",
+            parameters.get("MNT_TRANSACTION_ID", ""),
+            parameters.get("MNT_OPERATION_ID", ""),
+            exc,
+        )
         return PlainTextResponse("FAIL", status_code=400)
 
     return PlainTextResponse("SUCCESS")
@@ -933,7 +948,8 @@ async def payment_success(request: Request):
     user = await get_current_user(request)
     access = (await get_access_state(user)).as_dict()
     transaction_id = (
-        request.query_params.get("MNT_TRANSACTION_ID", "")
+        request.query_params.get("transaction_id", "")
+        or request.query_params.get("MNT_TRANSACTION_ID", "")
         or request.query_params.get("paypal_order_id", "")
     )
     payment_confirmed = False
