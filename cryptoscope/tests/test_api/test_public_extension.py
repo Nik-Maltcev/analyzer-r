@@ -23,6 +23,21 @@ def app(temp_db, monkeypatch):
     with sqlite3.connect(temp_db) as conn:
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS scanner_signal_periods (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                market TEXT NOT NULL, scanner TEXT NOT NULL,
+                signal_key TEXT NOT NULL, ticker_a TEXT NOT NULL,
+                ticker_b TEXT DEFAULT '', direction TEXT NOT NULL,
+                first_seen_date TEXT NOT NULL, last_seen_date TEXT NOT NULL,
+                observation_count INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'active', ended_date TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.execute(
+            """
             INSERT INTO pairs (
                 market, ticker_a, ticker_b, corr, halflife, t_stat,
                 is_coint, score, z_now, signal, signal_type, strength,
@@ -62,6 +77,35 @@ async def test_public_feed_rejects_market_outside_edition(app):
         response = await client.get("/api/public/extension/feed?market=ru")
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_public_feed_falls_back_to_active_scanner_signals(app, temp_db):
+    with sqlite3.connect(temp_db) as conn:
+        conn.execute("DELETE FROM pairs WHERE market = 'br'")
+        conn.execute(
+            """
+            INSERT INTO scanner_signal_periods (
+                market, scanner, signal_key, ticker_a, direction,
+                first_seen_date, last_seen_date, observation_count
+            ) VALUES (
+                'br', 'momentum', 'WEGE3.SA', 'WEGE3.SA', 'long',
+                date('now', '-2 days'), date('now'), 3
+            )
+            """
+        )
+        conn.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/public/extension/feed?market=br")
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["source"] == "momentum"
+    assert item["recommendation"] == "Considerar comprar WEGE3.SA"
+    assert item["signal_days"] == 3
+    assert item["review_in_days"] == 2
 
 
 @pytest.mark.asyncio

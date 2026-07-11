@@ -57,6 +57,7 @@ def _present_pair(row, market: str) -> dict:
 
     return {
         "id": f"{market}:{ticker_a}:{ticker_b}",
+        "source": "pair",
         "market": market,
         "market_label": MARKET_LABELS.get(market, market.upper()),
         "ticker_a": ticker_a,
@@ -74,6 +75,38 @@ def _present_pair(row, market: str) -> dict:
         "signal_days": timing["signal_days_elapsed"],
         "review_in_days": timing["signal_days_remaining"],
         "started_at": timing["signal_started_at"],
+        "primary_metric": f"Z {_finite_float(row.get('z_now'), 0.0):.2f}",
+        "secondary_metric": f"corr. {round(_finite_float(row.get('corr'), 0.0) * 100)}%",
+    }
+
+
+def _present_scanner(row, market: str) -> dict:
+    ticker = str(row["ticker_a"])
+    scanner = str(row["scanner"])
+    direction = str(row["direction"])
+    age = max(1, _finite_int(row["observation_count"], 1))
+    horizon = 5 if scanner == "momentum" else 10
+    source_label = "Momentum" if scanner == "momentum" else "Drawdown"
+    action = "Comprar" if direction == "long" else "Vender"
+
+    return {
+        "id": f"{market}:scanner:{scanner}:{ticker}:{direction}",
+        "source": scanner,
+        "market": market,
+        "market_label": MARKET_LABELS.get(market, market.upper()),
+        "ticker_a": ticker,
+        "ticker_b": "",
+        "pair": _clean_ticker(ticker),
+        "direction": direction,
+        "recommendation": f"Considerar {action.lower()} {_clean_ticker(ticker)}",
+        "z_score": None,
+        "correlation_pct": None,
+        "estimated_days": horizon,
+        "signal_days": age,
+        "review_in_days": max(0, horizon - age),
+        "started_at": row["first_seen_date"],
+        "primary_metric": source_label,
+        "secondary_metric": f"janela {horizon}d",
     }
 
 
@@ -88,6 +121,21 @@ async def extension_feed(
 
     async with get_connection() as conn:
         pairs = await fetch_pairs(conn, selected_market, min_corr=0.5)
+        cursor = await conn.execute(
+            """
+            SELECT scanner, ticker_a, direction, first_seen_date,
+                   observation_count, last_seen_date
+            FROM scanner_signal_periods
+            WHERE market = ?
+              AND scanner IN ('momentum', 'drawdown')
+              AND direction IN ('long', 'short')
+              AND status = 'active'
+            ORDER BY observation_count DESC, updated_at DESC
+            LIMIT 4
+            """,
+            (selected_market,),
+        )
+        scanner_rows = [dict(row) for row in await cursor.fetchall()]
 
     items = []
     if not pairs.empty:
@@ -113,6 +161,9 @@ async def extension_feed(
             reverse=True,
         )
         items = [_present_pair(row, selected_market) for row in candidates[:4]]
+
+    if not items:
+        items = [_present_scanner(row, selected_market) for row in scanner_rows]
 
     response.headers["Cache-Control"] = "public, max-age=300"
     return {

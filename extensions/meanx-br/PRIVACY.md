@@ -10,7 +10,7 @@ Os sinais marcados como salvos ficam somente no armazenamento local do navegador
 por meio da API `chrome.storage.local`. Eles não são enviados ao servidor pela
 extensão.
 
-Ao escolher abrir a análise completa, uma nova aba de `br.meanx.pro` é aberta. O
+Ao escolher abrir a análise completa, uma nova aba de `www.br.meanx.pro` é aberta. O
 uso do site passa a seguir a política de privacidade publicada pelo serviço.
 
-Contato: use o canal de suporte informado em `br.meanx.pro`.
+Contato: use o canal de suporte informado em `www.br.meanx.pro`.

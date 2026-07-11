@@ -3,9 +3,9 @@
   "name": "MEANX - Sinais de Ações B3",
   "version": "0.1.0",
   "description": "Sinais de ações, momentum e oportunidades da B3 direto no navegador.",
-  "homepage_url": "https://br.meanx.pro",
+  "homepage_url": "https://www.br.meanx.pro",
   "permissions": ["storage"],
-  "host_permissions": ["https://br.meanx.pro/*"],
+  "host_permissions": ["https://www.br.meanx.pro/*"],
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",

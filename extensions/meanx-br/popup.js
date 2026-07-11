@@ -1,4 +1,4 @@
-const API_ROOT = "https://br.meanx.pro";
+const API_ROOT = "https://www.br.meanx.pro";
 const MARKETS = {
   br: "B3",
   stocks: "Ações EUA",
@@ -58,8 +58,8 @@ function renderSignals(items) {
     node.querySelector(".pair").textContent = signal.pair;
     node.querySelector(".recommendation").textContent = signal.recommendation;
     node.querySelector(".timing").textContent = signalTiming(signal);
-    node.querySelector(".z-score").textContent = `Z ${Number(signal.z_score).toFixed(2)}`;
-    node.querySelector(".correlation").textContent = `corr. ${signal.correlation_pct}%`;
+    node.querySelector(".z-score").textContent = signal.primary_metric || `Z ${Number(signal.z_score).toFixed(2)}`;
+    node.querySelector(".correlation").textContent = signal.secondary_metric || `corr. ${signal.correlation_pct}%`;
 
     const saveButton = node.querySelector(".save-button");
     const saved = state.saved.has(signal.id);
