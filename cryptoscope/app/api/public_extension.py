@@ -165,7 +165,11 @@ async def extension_feed(
     if not items:
         items = [_present_scanner(row, selected_market) for row in scanner_rows]
 
-    response.headers["Cache-Control"] = "public, max-age=300"
+    response.headers["Cache-Control"] = (
+        "public, max-age=300"
+        if items
+        else "no-store"
+    )
     return {
         "market": selected_market,
         "market_label": MARKET_LABELS.get(selected_market, selected_market.upper()),

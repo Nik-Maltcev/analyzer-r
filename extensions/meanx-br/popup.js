@@ -114,7 +114,10 @@ async function loadFeed(force = false) {
   refreshButton.classList.add("is-loading");
   setStatus("Buscando sinais...", true);
   try {
-    const response = await fetch(`${API_ROOT}/api/public/extension/feed?market=${state.market}`);
+    const response = await fetch(
+      `${API_ROOT}/api/public/extension/feed?market=${state.market}`,
+      { cache: "no-store" }
+    );
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     state.feeds[state.market] = await response.json();
     renderCurrent();

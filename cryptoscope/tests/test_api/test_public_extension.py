@@ -80,6 +80,17 @@ async def test_public_feed_rejects_market_outside_edition(app):
 
 
 @pytest.mark.asyncio
+async def test_empty_public_feed_is_not_cached(app):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/public/extension/feed?market=stocks")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.asyncio
 async def test_public_feed_falls_back_to_active_scanner_signals(app, temp_db):
     with sqlite3.connect(temp_db) as conn:
         conn.execute("DELETE FROM pairs WHERE market = 'br'")
