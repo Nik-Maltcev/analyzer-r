@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MEANX - Sinais de Ações B3",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Sinais de ações, momentum e oportunidades da B3 direto no navegador.",
   "homepage_url": "https://www.br.meanx.pro",
   "permissions": ["storage"],
