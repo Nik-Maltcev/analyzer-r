@@ -21,6 +21,7 @@ from app.api.payments import router as payments_router
 from app.api.portfolio import router as portfolio_router
 from app.api.polymarket import api_router as polymarket_api_router
 from app.api.polymarket import ui_router as polymarket_ui_router
+from app.api.public_extension import router as public_extension_router
 from app.api.scanners import router as scanners_router
 from app.api.signals import router as signals_router
 from app.api.ui_routes import router as ui_router
@@ -88,6 +89,7 @@ async def enforce_subscription_access(request: Request, call_next):
                 "/api/auth/",
                 "/api/locale",
                 "/api/payments/",
+                "/api/public/",
             ))
         )
     )
@@ -164,6 +166,7 @@ app.include_router(favorites_router, prefix="/api")
 app.include_router(data_router, prefix="/api")
 app.include_router(charts_router, prefix="/api")
 app.include_router(locale_router, prefix="/api")
+app.include_router(public_extension_router, prefix="/api")
 app.include_router(payments_router)
 app.include_router(ui_router)
 app.include_router(polymarket_api_router)
@@ -214,6 +217,14 @@ async def _get_dashboard_context(market: str = "crypto"):
 async def landing(request: Request):
     """Public product landing page."""
     return templates.TemplateResponse(request, "landing.html", {
+        "request": request,
+    })
+
+
+@app.get("/privacy/extension", response_class=HTMLResponse)
+async def extension_privacy(request: Request):
+    """Public privacy policy for the Brazil browser extension."""
+    return templates.TemplateResponse(request, "extension_privacy.html", {
         "request": request,
     })
 

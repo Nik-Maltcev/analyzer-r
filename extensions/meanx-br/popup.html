@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MEANX</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">M</span>
+        <span>
+          <strong>MEANX</strong>
+          <small>Sinais de mercado</small>
+        </span>
+      </div>
+      <button class="icon-button" id="refresh-button" type="button" title="Atualizar sinais" aria-label="Atualizar sinais">
+        <span aria-hidden="true">&#8635;</span>
+      </button>
+    </header>
+
+    <nav class="market-tabs" aria-label="Mercado">
+      <button class="market-tab is-active" type="button" data-market="br">B3</button>
+      <button class="market-tab" type="button" data-market="stocks">EUA</button>
+      <button class="market-tab" type="button" data-market="crypto">Cripto</button>
+      <button class="market-tab" type="button" data-market="saved">Salvos</button>
+    </nav>
+
+    <main>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow" id="market-label">B3</p>
+          <h1>Oportunidades agora</h1>
+        </div>
+        <time id="updated-at" datetime="">Carregando</time>
+      </div>
+
+      <section id="status" class="status" aria-live="polite">
+        <span class="loader" aria-hidden="true"></span>
+        Buscando sinais...
+      </section>
+      <section id="signals" class="signal-list" aria-live="polite"></section>
+    </main>
+
+    <footer>
+      <button id="open-app" class="primary-button" type="button">
+        Abrir análise completa <span aria-hidden="true">&#8599;</span>
+      </button>
+      <p>Dados analíticos. Não é recomendação financeira.</p>
+    </footer>
+
+    <template id="signal-template">
+      <article class="signal-row">
+        <div class="signal-main">
+          <div class="pair-line">
+            <span class="market-badge"></span>
+            <strong class="pair"></strong>
+          </div>
+          <p class="recommendation"></p>
+          <p class="timing"></p>
+        </div>
+        <div class="signal-meta">
+          <button class="save-button" type="button" aria-label="Salvar sinal" title="Salvar sinal">&#9734;</button>
+          <strong class="z-score"></strong>
+          <span class="correlation"></span>
+        </div>
+      </article>
+    </template>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

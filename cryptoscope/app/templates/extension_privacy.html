@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Política de privacidade da extensão - MEANX</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #0b0f12; color: #eaf1ed; }
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      header { height: 64px; border-bottom: 1px solid #29343a; }
+      header div, main { width: min(720px, calc(100% - 40px)); margin: 0 auto; }
+      header div { display: flex; height: 100%; align-items: center; justify-content: space-between; }
+      header a { color: #43d7a2; font-weight: 800; text-decoration: none; }
+      header span { color: #738087; font-size: 13px; }
+      main { padding: 64px 0 80px; }
+      h1 { max-width: 620px; margin: 0 0 14px; font-size: 36px; line-height: 1.15; letter-spacing: 0; }
+      .updated { margin: 0 0 44px; color: #738087; font-size: 13px; }
+      section { padding: 24px 0; border-top: 1px solid #253038; }
+      h2 { margin: 0 0 10px; font-size: 17px; letter-spacing: 0; }
+      p { margin: 0; color: #aab6b0; font-size: 15px; line-height: 1.75; }
+      code { color: #62dfb3; }
+      @media (max-width: 540px) { main { padding-top: 42px; } h1 { font-size: 29px; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <a href="/">MEANX</a>
+        <span>Extensão para Chrome</span>
+      </div>
+    </header>
+    <main>
+      <h1>Política de privacidade da extensão</h1>
+      <p class="updated">Última atualização: 11 de julho de 2026</p>
+
+      <section>
+        <h2>Dados consultados</h2>
+        <p>A extensão consulta somente um feed público e limitado de sinais de mercado da MEANX. Ela não lê o conteúdo das páginas visitadas, não coleta histórico de navegação e não solicita dados de login.</p>
+      </section>
+      <section>
+        <h2>Sinais salvos</h2>
+        <p>Os sinais marcados como salvos ficam no próprio navegador por meio de <code>chrome.storage.local</code>. A extensão não envia essa lista ao servidor.</p>
+      </section>
+      <section>
+        <h2>Site MEANX</h2>
+        <p>Ao abrir a análise completa, a extensão cria uma nova aba em <code>br.meanx.pro</code>. A autenticação e o uso do terminal acontecem no site, separados do armazenamento da extensão.</p>
+      </section>
+      <section>
+        <h2>Contato</h2>
+        <p>Para dúvidas sobre privacidade, use o canal de suporte informado no site MEANX.</p>
+      </section>
+    </main>
+  </body>
+</html>
