@@ -94,6 +94,16 @@ async def test_empty_public_feed_is_not_cached(app):
 async def test_public_feed_falls_back_to_active_scanner_signals(app, temp_db):
     with sqlite3.connect(temp_db) as conn:
         conn.execute("DELETE FROM pairs WHERE market = 'br'")
+        for index in range(15):
+            day = f"2026-01-{index + 1:02d}"
+            conn.execute(
+                "INSERT INTO prices (ticker, date, close, market) VALUES (?, ?, ?, 'br')",
+                ("WEGE3.SA", day, 100 * (1.03 ** index)),
+            )
+            conn.execute(
+                "INSERT INTO prices (ticker, date, close, market) VALUES (?, ?, ?, 'br')",
+                ("SLOW3.SA", day, 100 * (1.005 ** index)),
+            )
         conn.execute(
             """
             INSERT INTO scanner_signal_periods (
@@ -112,11 +122,15 @@ async def test_public_feed_falls_back_to_active_scanner_signals(app, temp_db):
         response = await client.get("/api/public/extension/feed?market=br")
 
     assert response.status_code == 200
-    item = response.json()["items"][0]
+    payload = response.json()
+    assert payload["total"] == 1
+    item = payload["items"][0]
     assert item["source"] == "momentum"
     assert item["recommendation"] == "Considerar comprar WEGE3.SA"
     assert item["signal_days"] == 3
     assert item["review_in_days"] == 2
+    assert item["confidence"] == "high"
+    assert "SLOW3.SA" not in {entry["ticker_a"] for entry in payload["items"]}
 
 
 @pytest.mark.asyncio
