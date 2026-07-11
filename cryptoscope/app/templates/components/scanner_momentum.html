@@ -12,8 +12,8 @@
     </div>
 
     {% if results %}
-    <div class="table-container">
-        <table class="data-table">
+    <div class="table-container scanner-action-container">
+        <table class="data-table scanner-action-table scanner-momentum-table">
             <thead>
                 <tr>
                     <th>Актив</th>
@@ -81,7 +81,7 @@
     {% else %}
     <div class="empty-state">
         <span class="empty-icon"><i data-lucide="trending-up"></i></span>
-        <p>Выраженного импульса сейчас не найдено.</p>
+        <p>Подтверждённых рекомендаций лонг или шорт сейчас нет.</p>
     </div>
     {% endif %}
 </div>

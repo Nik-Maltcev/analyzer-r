@@ -389,6 +389,16 @@ MESSAGES = {
     "Уверенность": ("Confidence", "Confiança", "Keyakinan"),
     "Рассмотреть лонг": ("Consider long", "Considerar long", "Pertimbangkan long"),
     "Рассмотреть шорт": ("Consider short", "Considerar short", "Pertimbangkan short"),
+    "Подтверждённых рекомендаций лонг или шорт сейчас нет.": (
+        "There are no confirmed long or short recommendations now.",
+        "Não há recomendações confirmadas de long ou short agora.",
+        "Belum ada rekomendasi long atau short yang terkonfirmasi.",
+    ),
+    "Подтверждённых рекомендаций лонг по текущему фильтру нет.": (
+        "There are no confirmed long recommendations for this filter.",
+        "Não há recomendações confirmadas de long para este filtro.",
+        "Belum ada rekomendasi long terkonfirmasi untuk filter ini.",
+    ),
     "Ждать подтверждения": ("Wait for confirmation", "Aguardar confirmação", "Tunggu konfirmasi"),
     "Не входить": ("Do not enter", "Não entrar", "Jangan masuk"),
     "Не открывать пару": ("Do not open the pair", "Não abrir o par", "Jangan buka pasangan"),

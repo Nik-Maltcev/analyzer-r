@@ -762,9 +762,15 @@ async def tab_scanner_content(
             )
 
         if scanner_type == "momentum":
+            if not df.empty:
+                df = df[df["recommendation_class"].isin({"long", "short"})]
             results = _df_records(df, limit)
         elif scanner_type == "drawdown":
-            df = df[df["drawdown_pct"] >= min_drawdown] if not df.empty else df
+            if not df.empty:
+                df = df[
+                    (df["drawdown_pct"] >= min_drawdown)
+                    & (df["recommendation_class"] == "long")
+                ]
             results = _df_records(df)
         else:
             df = df[df["deviation"] >= min_deviation] if not df.empty else df

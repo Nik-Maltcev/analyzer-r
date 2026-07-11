@@ -1718,6 +1718,55 @@ html[data-view-mode='beginner'] .signals-page {
         padding-bottom: calc(var(--mobile-nav-h) + 12px);
     }
 
+    .scanner-action-table {
+        width: 100%;
+        min-width: 0;
+        table-layout: fixed;
+    }
+
+    .scanner-action-container {
+        overflow-x: hidden;
+    }
+
+    .scanner-action-table th,
+    .scanner-action-table td {
+        display: none;
+    }
+
+    .scanner-action-table th:first-child,
+    .scanner-action-table td:first-child,
+    .scanner-momentum-table th:nth-child(7),
+    .scanner-momentum-table td:nth-child(7),
+    .scanner-drawdown-table th:nth-child(7),
+    .scanner-drawdown-table td:nth-child(7) {
+        display: table-cell;
+    }
+
+    .scanner-action-table th:first-child,
+    .scanner-action-table td:first-child {
+        width: 40%;
+        overflow-wrap: anywhere;
+    }
+
+    .scanner-action-table .scanner-recommendation {
+        display: flex;
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .scanner-action-table .scanner-reason,
+    .scanner-action-table .scanner-risk-note,
+    .scanner-action-table .scanner-signal-age,
+    .scanner-action-table .scanner-signal-period {
+        display: none !important;
+    }
+
+    .scanner-action-table .badge {
+        max-width: 100%;
+        white-space: normal;
+    }
+
     .navbar {
         position: sticky;
         height: var(--navbar-h);

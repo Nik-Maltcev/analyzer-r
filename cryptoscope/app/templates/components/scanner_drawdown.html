@@ -12,8 +12,8 @@
     </div>
 
     {% if results %}
-    <div class="table-container">
-        <table class="data-table">
+    <div class="table-container scanner-action-container">
+        <table class="data-table scanner-action-table scanner-drawdown-table">
             <thead>
                 <tr>
                     <th>Актив</th>
@@ -81,7 +81,7 @@
     {% else %}
     <div class="empty-state">
         <span class="empty-icon"><i data-lucide="chart-no-axes-column-decreasing"></i></span>
-        <p>Сильных просадок по текущему фильтру не найдено.</p>
+        <p>Подтверждённых рекомендаций лонг по текущему фильтру нет.</p>
     </div>
     {% endif %}
 </div>
