@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MEANX</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">M</span>
+        <span>
+          <strong>MEANX</strong>
+          <small>Sinyal pasar</small>
+        </span>
+      </div>
+      <button class="icon-button" id="refresh-button" type="button" title="Perbarui sinyal" aria-label="Perbarui sinyal">
+        <span aria-hidden="true">&#8635;</span>
+      </button>
+    </header>
+
+    <nav class="market-tabs" aria-label="Pasar">
+      <button class="market-tab is-active" type="button" data-market="id">IDX</button>
+      <button class="market-tab" type="button" data-market="stocks">AS</button>
+      <button class="market-tab" type="button" data-market="crypto">Kripto</button>
+      <button class="market-tab" type="button" data-market="saved">Tersimpan</button>
+    </nav>
+
+    <main>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow" id="market-label">IDX</p>
+          <h1>Peluang saat ini</h1>
+        </div>
+        <time id="updated-at" datetime="">Memuat</time>
+      </div>
+
+      <section id="status" class="status" aria-live="polite">
+        <span class="loader" aria-hidden="true"></span>
+        Memuat sinyal...
+      </section>
+      <section id="signals" class="signal-list" aria-live="polite"></section>
+    </main>
+
+    <footer>
+      <button id="open-app" class="primary-button" type="button">
+        Buka analisis lengkap <span aria-hidden="true">&#8599;</span>
+      </button>
+      <p>Data analitik. Bukan rekomendasi keuangan.</p>
+    </footer>
+
+    <template id="signal-template">
+      <article class="signal-row">
+        <div class="signal-main">
+          <div class="pair-line">
+            <span class="market-badge"></span>
+            <strong class="pair"></strong>
+          </div>
+          <p class="recommendation"></p>
+          <p class="timing"></p>
+        </div>
+        <div class="signal-meta">
+          <button class="save-button" type="button" aria-label="Simpan sinyal" title="Simpan sinyal">&#9734;</button>
+          <strong class="z-score"></strong>
+          <span class="correlation"></span>
+        </div>
+      </article>
+    </template>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

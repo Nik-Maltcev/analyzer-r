@@ -141,3 +141,16 @@ async def test_extension_privacy_page_is_public(app):
 
     assert response.status_code == 200
     assert "Política de privacidade da extensão" in response.text
+
+
+@pytest.mark.asyncio
+async def test_extension_privacy_page_is_localized_for_indonesia(app, monkeypatch):
+    monkeypatch.setattr(get_settings(), "app_variant", "id")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/privacy/extension")
+
+    assert response.status_code == 200
+    assert 'lang="id"' in response.text
+    assert "Kebijakan privasi ekstensi" in response.text
+    assert "www.id.meanx.pro" in response.text

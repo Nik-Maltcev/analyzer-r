@@ -1,9 +1,10 @@
+{% set is_indonesia = profile.variant == "id" %}
 <!doctype html>
-<html lang="pt-BR">
+<html lang="{{ 'id' if is_indonesia else 'pt-BR' }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Política de privacidade da extensão - MEANX</title>
+    <title>{% if is_indonesia %}Kebijakan privasi ekstensi{% else %}Política de privacidade da extensão{% endif %} - MEANX</title>
     <style>
       :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #0b0f12; color: #eaf1ed; }
       * { box-sizing: border-box; }
@@ -27,13 +28,32 @@
     <header>
       <div>
         <a href="/">MEANX</a>
-        <span>Extensão para Chrome</span>
+        <span>{% if is_indonesia %}Ekstensi Chrome{% else %}Extensão para Chrome{% endif %}</span>
       </div>
     </header>
     <main>
+      {% if is_indonesia %}
+      <h1>Kebijakan privasi ekstensi</h1>
+      <p class="updated">Terakhir diperbarui: 11 Juli 2026</p>
+      <section>
+        <h2>Data yang diakses</h2>
+        <p>Ekstensi hanya mengakses feed publik terbatas berisi sinyal pasar MEANX. Ekstensi tidak membaca isi halaman yang dikunjungi, tidak mengumpulkan riwayat penelusuran, dan tidak meminta data masuk.</p>
+      </section>
+      <section>
+        <h2>Sinyal tersimpan</h2>
+        <p>Sinyal yang disimpan tetap berada di browser melalui <code>chrome.storage.local</code>. Ekstensi tidak mengirim daftar ini ke server.</p>
+      </section>
+      <section>
+        <h2>Situs MEANX</h2>
+        <p>Saat analisis lengkap dibuka, ekstensi membuat tab baru di <code>www.id.meanx.pro</code>. Autentikasi dan penggunaan terminal berlangsung di situs, terpisah dari penyimpanan ekstensi.</p>
+      </section>
+      <section>
+        <h2>Kontak</h2>
+        <p>Untuk pertanyaan privasi, gunakan kanal dukungan yang tercantum di situs MEANX.</p>
+      </section>
+      {% else %}
       <h1>Política de privacidade da extensão</h1>
       <p class="updated">Última atualização: 11 de julho de 2026</p>
-
       <section>
         <h2>Dados consultados</h2>
         <p>A extensão consulta somente um feed público e limitado de sinais de mercado da MEANX. Ela não lê o conteúdo das páginas visitadas, não coleta histórico de navegação e não solicita dados de login.</p>
@@ -50,6 +70,7 @@
         <h2>Contato</h2>
         <p>Para dúvidas sobre privacidade, use o canal de suporte informado no site MEANX.</p>
       </section>
+      {% endif %}
     </main>
   </body>
 </html>

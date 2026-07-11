@@ -223,9 +223,10 @@ async def landing(request: Request):
 
 @app.get("/privacy/extension", response_class=HTMLResponse)
 async def extension_privacy(request: Request):
-    """Public privacy policy for the Brazil browser extension."""
+    """Public localized privacy policy for regional browser extensions."""
     return templates.TemplateResponse(request, "extension_privacy.html", {
         "request": request,
+        "profile": get_product_profile(),
     })
 
 
