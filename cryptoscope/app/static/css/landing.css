@@ -485,15 +485,6 @@ a {
     max-width: 900px;
 }
 
-.pricing-grid-three {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    max-width: 1200px;
-}
-
-.price-card-test {
-    border-color: rgba(255, 255, 255, 0.18);
-}
-
 .paypal-checkout {
     align-items: center;
     border-bottom: 1px solid var(--landing-line);

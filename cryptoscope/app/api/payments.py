@@ -50,6 +50,7 @@ PAYMENT_PLANS = {
     },
 }
 PAYPAL_PLANS = {"month", "year"}
+PUBLIC_PAYANYWAY_PLANS = {"month", "year"}
 
 
 class PayPalOrderRequest(BaseModel):
@@ -519,7 +520,7 @@ async def payanyway_checkout(request: Request, plan: str):
     settings = get_settings()
     if get_product_profile(settings).variant != "global":
         raise HTTPException(status_code=404, detail="Payment is not available")
-    if plan not in PAYMENT_PLANS:
+    if plan not in PUBLIC_PAYANYWAY_PLANS:
         raise HTTPException(status_code=404, detail="Unknown payment plan")
 
     user = await get_current_user(request)
@@ -538,32 +539,6 @@ async def payanyway_checkout(request: Request, plan: str):
         )
 
     plan_config = PAYMENT_PLANS[plan]
-    if plan == "test7":
-        async with get_connection() as conn:
-            cursor = await conn.execute(
-                """
-                SELECT 1
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM payment_orders
-                    WHERE user_id = ?
-                      AND plan = 'test7'
-                      AND status = 'paid'
-                ) OR EXISTS (
-                    SELECT 1
-                    FROM user_subscriptions
-                    WHERE user_id = ?
-                      AND status = 'active'
-                      AND datetime(access_until) > datetime('now')
-                )
-                """,
-                (user.id, user.id),
-            )
-            if await cursor.fetchone():
-                raise HTTPException(
-                    status_code=409,
-                    detail="Test plan is not available for this account",
-                )
     transaction_id = f"meanx-{uuid4().hex}"
     test_mode = "1" if settings.payanyway_test_mode else "0"
     base_url = _public_base_url(request)

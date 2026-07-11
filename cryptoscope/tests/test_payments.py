@@ -220,7 +220,7 @@ async def test_checkout_creates_user_bound_signed_order(app, temp_db):
 
 
 @pytest.mark.asyncio
-async def test_test_checkout_creates_one_ruble_seven_day_order(
+async def test_test_checkout_is_no_longer_available(
     app,
     temp_db,
 ):
@@ -256,26 +256,7 @@ async def test_test_checkout_creates_one_ruble_seven_day_order(
             "/api/payments/payanyway/checkout?plan=test7"
         )
 
-    assert response.status_code == 303
-    redirect = urlsplit(response.headers["location"])
-    parameters = {
-        key: values[0]
-        for key, values in parse_qs(redirect.query).items()
-    }
-    assert parameters["MNT_AMOUNT"] == "1.00"
-    assert parameters["MNT_DESCRIPTION"] == "MEANX test access: 7 days"
-    assert parameters["MNT_SUBSCRIBER_ID"] == "user-1"
-
-    with closing(get_sync_connection(temp_db)) as conn:
-        order = conn.execute(
-            """
-            SELECT user_id, plan, amount, status
-            FROM payment_orders
-            WHERE transaction_id = ?
-            """,
-            (parameters["MNT_TRANSACTION_ID"],),
-        ).fetchone()
-    assert tuple(order) == ("user-1", "test7", "1.00", "pending")
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -307,7 +288,7 @@ async def test_test_payment_activates_seven_days(app, temp_db):
         success_response = await client.get(
             "/payment/success?MNT_TRANSACTION_ID=order-1"
         )
-        repeated_checkout = await client.get(
+        removed_checkout = await client.get(
             "/api/payments/payanyway/checkout?plan=test7"
         )
 
@@ -317,7 +298,7 @@ async def test_test_payment_activates_seven_days(app, temp_db):
     assert status_response.json()["payment_confirmed"] is True
     assert status_response.json()["transaction_id"] == "order-1"
     assert "Оплата подтверждена" in success_response.text
-    assert repeated_checkout.status_code == 409
+    assert removed_checkout.status_code == 404
     with closing(get_sync_connection(temp_db)) as conn:
         subscription = conn.execute(
             """
