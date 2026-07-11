@@ -484,7 +484,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         openAuthModal();
         setAuthMessage('Ссылка недействительна или уже использована', 'error');
     }
-    if (checkoutPlan === 'month' || checkoutPlan === 'year') {
+    const checkoutPlans = window.MEANX_PRODUCT_VARIANT === 'global'
+        ? ['test7', 'month', 'year']
+        : ['month', 'year'];
+    if (checkoutPlans.includes(checkoutPlan)) {
         if (!authenticated) {
             openAuthModal();
             setAuthMessage(

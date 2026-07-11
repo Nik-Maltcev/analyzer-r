@@ -46,14 +46,17 @@
             if (!expectedTransaction || paymentChecks >= 15) return;
             paymentChecks += 1;
             try {
-                const response = await fetch('/api/payments/status', {
+                const response = await fetch(
+                    `/api/payments/status?transaction_id=${encodeURIComponent(expectedTransaction)}`,
+                    {
                     credentials: 'same-origin'
-                });
-                const access = await response.json();
+                    }
+                );
+                const payment = await response.json();
                 if (
                     response.ok
-                    && access.status === 'subscription'
-                    && access.last_transaction_id === expectedTransaction
+                    && payment.payment_confirmed === true
+                    && payment.transaction_id === expectedTransaction
                 ) {
                     document.getElementById('payment-title').textContent =
                         'Оплата подтверждена';

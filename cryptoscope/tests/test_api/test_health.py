@@ -103,6 +103,8 @@ async def test_landing_page(app):
         assert "MEANX" in response.text
         assert "990 ₽" in response.text
         assert "7 900 ₽" in response.text
+        assert "Тестовый доступ" in response.text
+        assert 'href="/app?checkout=test7"' in response.text
         assert response.text.count('href="/app"') >= 3
         assert 'href="/app?checkout=month"' in response.text
         assert 'href="/app?checkout=year"' in response.text

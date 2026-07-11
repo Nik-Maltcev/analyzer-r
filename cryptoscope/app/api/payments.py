@@ -31,9 +31,23 @@ from app.ui.templates import templates
 router = APIRouter(tags=["payments"])
 PAYANYWAY_ASSISTANT_URL = "https://www.payanyway.ru/assistant.htm"
 PAYMENT_PLANS = {
-    "month": {"amount": "990.00", "days": 30},
-    "year": {"amount": "7900.00", "days": 365},
+    "test7": {
+        "amount": "1.00",
+        "days": 7,
+        "description": "MEANX test access: 7 days",
+    },
+    "month": {
+        "amount": "990.00",
+        "days": 30,
+        "description": "MEANX subscription: 1 month",
+    },
+    "year": {
+        "amount": "7900.00",
+        "days": 365,
+        "description": "MEANX subscription: 1 year",
+    },
 }
+PAYPAL_PLANS = {"month", "year"}
 
 
 class PayPalOrderRequest(BaseModel):
@@ -171,6 +185,26 @@ async def _load_order(conn, transaction_id: str):
     return await cursor.fetchone()
 
 
+async def _load_user_order_status(
+    conn,
+    transaction_id: str,
+    user_id: str,
+):
+    cursor = await conn.execute(
+        """
+        SELECT orders.transaction_id, orders.plan, orders.status,
+               subscriptions.access_until
+        FROM payment_orders AS orders
+        LEFT JOIN user_subscriptions AS subscriptions
+          ON subscriptions.user_id = orders.user_id
+        WHERE orders.transaction_id = ? AND orders.user_id = ?
+        LIMIT 1
+        """,
+        (transaction_id, user_id),
+    )
+    return await cursor.fetchone()
+
+
 def _validate_order_notification(
     order,
     parameters: dict[str, str],
@@ -233,10 +267,14 @@ async def _activate_subscription(
         if user_row
         else None
     )
-    base = max(
-        value
-        for value in (now, current_until, trial_until)
-        if value is not None
+    base = (
+        now
+        if plan == "test7"
+        else max(
+            value
+            for value in (now, current_until, trial_until)
+            if value is not None
+        )
     )
     access_until = base + timedelta(days=int(plan_config["days"]))
 
@@ -285,6 +323,8 @@ def _paypal_base_url() -> str:
 
 
 def _paypal_plan(plan: str) -> dict[str, str | int]:
+    if plan not in PAYPAL_PLANS:
+        raise HTTPException(status_code=404, detail="Unknown payment plan")
     base = PAYMENT_PLANS.get(plan)
     if not base:
         raise HTTPException(status_code=404, detail="Unknown payment plan")
@@ -495,6 +535,32 @@ async def payanyway_checkout(request: Request, plan: str):
         )
 
     plan_config = PAYMENT_PLANS[plan]
+    if plan == "test7":
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT 1
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM payment_orders
+                    WHERE user_id = ?
+                      AND plan = 'test7'
+                      AND status = 'paid'
+                ) OR EXISTS (
+                    SELECT 1
+                    FROM user_subscriptions
+                    WHERE user_id = ?
+                      AND status = 'active'
+                      AND datetime(access_until) > datetime('now')
+                )
+                """,
+                (user.id, user.id),
+            )
+            if await cursor.fetchone():
+                raise HTTPException(
+                    status_code=409,
+                    detail="Test plan is not available for this account",
+                )
     transaction_id = f"meanx-{uuid4().hex}"
     test_mode = "1" if settings.payanyway_test_mode else "0"
     base_url = _public_base_url(request)
@@ -505,11 +571,7 @@ async def payanyway_checkout(request: Request, plan: str):
         "MNT_CURRENCY_CODE": "RUB",
         "MNT_SUBSCRIBER_ID": user.id,
         "MNT_TEST_MODE": test_mode,
-        "MNT_DESCRIPTION": (
-            "MEANX subscription: 1 month"
-            if plan == "month"
-            else "MEANX subscription: 1 year"
-        ),
+        "MNT_DESCRIPTION": str(plan_config["description"]),
         "MNT_SUCCESS_URL": f"{base_url}/payment/success",
         "MNT_FAIL_URL": f"{base_url}/app?payment=failed",
         "MNT_RETURN_URL": f"{base_url}/#pricing",
@@ -840,7 +902,30 @@ async def payment_status(request: Request):
             status_code=401,
             content={"detail": "Authentication required"},
         )
-    return (await get_access_state(user)).as_dict()
+    access = (await get_access_state(user)).as_dict()
+    transaction_id = request.query_params.get("transaction_id", "").strip()
+    if not transaction_id:
+        return access
+
+    async with get_connection() as conn:
+        order = await _load_user_order_status(
+            conn,
+            transaction_id,
+            user.id,
+        )
+    if not order:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Payment order not found"},
+        )
+    return {
+        **access,
+        "transaction_id": str(order["transaction_id"]),
+        "plan": str(order["plan"]),
+        "payment_status": str(order["status"]),
+        "payment_confirmed": order["status"] == "paid",
+        "subscription_access_until": order["access_until"],
+    }
 
 
 @router.get("/payment/success", response_class=HTMLResponse)
@@ -851,15 +936,21 @@ async def payment_success(request: Request):
         request.query_params.get("MNT_TRANSACTION_ID", "")
         or request.query_params.get("paypal_order_id", "")
     )
+    payment_confirmed = False
+    if user is not None and transaction_id:
+        async with get_connection() as conn:
+            order = await _load_user_order_status(
+                conn,
+                transaction_id,
+                user.id,
+            )
+        payment_confirmed = bool(order and order["status"] == "paid")
     return templates.TemplateResponse(
         request,
         "payment_success.html",
         {
             "request": request,
             "access": access,
-            "payment_confirmed": bool(
-                transaction_id
-                and access.get("last_transaction_id") == transaction_id
-            ),
+            "payment_confirmed": payment_confirmed,
         },
     )
