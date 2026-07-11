@@ -12,6 +12,12 @@ from app.auth import get_current_or_legacy_user
 from app.core.calculator import calc_pair_performance, calc_single_performance
 from app.core.cointegration import compute_fixed_zscore, compute_zscore, engle_granger
 from app.core.scanners import corr_breakdown_scan, drawdown_scan, momentum_scan
+from app.core.scanner_history import (
+    annotate_scanner_results,
+    build_scanner_snapshot,
+    format_scanner_date,
+    sync_scanner_periods,
+)
 from app.core.signals import estimate_signal_timing, is_actionable_signal
 from app.data.binance_ws import get_crypto_live_snapshot
 from app.data.moex import get_ru_live_snapshot
@@ -733,6 +739,7 @@ async def tab_scanner_content(
         "market": market,
         "results": [],
         "total": 0,
+        "scanner_data_date": None,
     }
 
     try:
@@ -743,23 +750,27 @@ async def tab_scanner_content(
             return templates.TemplateResponse(request, template, ctx)
 
         wide = prices_df.pivot(index="date", columns="ticker", values="close")
-        tickers_list = list(wide.columns)
+        data_date = str(max(wide.index))[:10]
+        df, active_snapshot = build_scanner_snapshot(wide, scanner_type)
+        async with get_connection() as conn:
+            periods = await sync_scanner_periods(
+                conn,
+                market,
+                scanner_type,
+                data_date,
+                active_snapshot,
+            )
 
         if scanner_type == "momentum":
-            dates_list = list(wide.index.astype(str))
-            df = momentum_scan(wide.values, tickers_list, dates_list)
             results = _df_records(df, limit)
         elif scanner_type == "drawdown":
-            df = drawdown_scan(wide.values, tickers_list)
             df = df[df["drawdown_pct"] >= min_drawdown] if not df.empty else df
             results = _df_records(df)
         else:
-            if len(tickers_list) < 2:
-                df = pd.DataFrame()
-            else:
-                df = corr_breakdown_scan(wide, tickers_list)
-                df = df[df["deviation"] >= min_deviation] if not df.empty else df
+            df = df[df["deviation"] >= min_deviation] if not df.empty else df
             results = _df_records(df)
+
+        results = annotate_scanner_results(results, scanner_type, periods)
 
         if scanner_type in {"momentum", "drawdown"} and results:
             favorite_pairs = set()
@@ -791,6 +802,7 @@ async def tab_scanner_content(
             **ctx,
             "results": results,
             "total": len(results),
+            "scanner_data_date": format_scanner_date(data_date),
         })
     except Exception as e:
         return templates.TemplateResponse(request, template, {

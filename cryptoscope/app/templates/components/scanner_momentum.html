@@ -5,7 +5,10 @@
 
     <div class="section-header">
         <h3>Momentum ({{ total }})</h3>
-        <span class="text-dim">Рынок: {{ market }}</span>
+        <div class="scanner-snapshot-meta">
+            <span class="text-dim">Рынок: {{ market }}</span>
+            <span class="scanner-data-date">Данные на {{ scanner_data_date or "—" }}</span>
+        </div>
     </div>
 
     {% if results %}
@@ -57,6 +60,15 @@
                             <span class="scanner-reason">{{ r.recommendation_reason }}</span>
                             {% if r.risk_note %}
                             <span class="scanner-risk-note">{{ r.risk_note }}</span>
+                            {% endif %}
+                            {% if r.signal_age_days is defined %}
+                            <span class="scanner-signal-age beginner-only">
+                                Сигнал действует {{ r.signal_age_days }} дн. ·
+                                {% if r.signal_remaining_days > 0 %}проверить через ≈{{ r.signal_remaining_days }} дн.{% else %}перепроверить сегодня{% endif %}
+                            </span>
+                            <span class="scanner-signal-period pro-only">
+                                Сигнал активен {{ r.signal_age_days }} дн. · Впервые обнаружен {{ r.signal_first_seen_date }} · окно до {{ r.signal_horizon_days }} дн.
+                            </span>
                             {% endif %}
                         </div>
                     </td>

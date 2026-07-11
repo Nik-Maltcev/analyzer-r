@@ -129,6 +129,38 @@ CREATE TABLE IF NOT EXISTS update_log (
 )
 """
 
+CREATE_SCANNER_SIGNAL_PERIODS = """
+CREATE TABLE IF NOT EXISTS scanner_signal_periods (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    market            TEXT NOT NULL,
+    scanner           TEXT NOT NULL,
+    signal_key        TEXT NOT NULL,
+    ticker_a          TEXT NOT NULL,
+    ticker_b          TEXT DEFAULT '',
+    direction         TEXT NOT NULL,
+    first_seen_date   TEXT NOT NULL,
+    last_seen_date    TEXT NOT NULL,
+    observation_count INTEGER NOT NULL DEFAULT 1,
+    status            TEXT NOT NULL DEFAULT 'active',
+    ended_date        TEXT,
+    created_at        TEXT DEFAULT (datetime('now')),
+    updated_at        TEXT DEFAULT (datetime('now')),
+    UNIQUE (market, scanner, signal_key, direction, first_seen_date)
+)
+"""
+
+CREATE_SCANNER_SIGNAL_INDICES = [
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_scanner_signal_active
+    ON scanner_signal_periods(market, scanner, signal_key)
+    WHERE status = 'active'
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_scanner_signal_history
+    ON scanner_signal_periods(market, scanner, signal_key, first_seen_date)
+    """,
+]
+
 CREATE_HOURLY_PRICES = """
 CREATE TABLE IF NOT EXISTS hourly_prices (
     ticker    TEXT NOT NULL,
@@ -280,6 +312,7 @@ ALL_TABLES_SQL = [
     CREATE_PAIRS,
     CREATE_SIGNALS,
     CREATE_UPDATE_LOG,
+    CREATE_SCANNER_SIGNAL_PERIODS,
     CREATE_HOURLY_PRICES,
     CREATE_FAVORITES,
     CREATE_AUTH_USERS,
@@ -293,6 +326,7 @@ ALL_TABLES_SQL = [
 ALL_INDICES_SQL = (
     CREATE_PRICES_INDICES
     + CREATE_PAIRS_INDICES
+    + CREATE_SCANNER_SIGNAL_INDICES
     + CREATE_HOURLY_INDICES
     + CREATE_AUTH_INDICES
 )

@@ -1226,6 +1226,36 @@ html[data-view-mode='beginner'] .signals-page {
     font-size: 10px;
 }
 
+.scanner-snapshot-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px 14px;
+}
+
+.scanner-data-date,
+.scanner-signal-age,
+.scanner-signal-period {
+    color: var(--text-muted);
+    font-size: 10px;
+    line-height: 1.45;
+}
+
+.scanner-data-date,
+.scanner-signal-period {
+    font-family: var(--font-mono);
+}
+
+.scanner-signal-age,
+.scanner-signal-period {
+    grid-column: 1 / -1;
+}
+
+.scanner-signal-age {
+    color: var(--accent);
+}
+
 /* Scanner tabs */
 .scanner-mode-bar {
     display: inline-flex;

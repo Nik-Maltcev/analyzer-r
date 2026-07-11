@@ -37,6 +37,7 @@ from app.data.tickers import (
     RU_TICKERS,
     STOCK_TICKERS,
 )
+from app.core.scanner_history import sync_all_scanner_states
 
 DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
 API_KEY = os.environ.get("TWELVEDATA_API_KEY", "")
@@ -294,6 +295,12 @@ def main():
     conn.close()
 
     print(f"\nTotal inserted or refreshed rows: {total}")
+
+    try:
+        asyncio.run(sync_all_scanner_states(DB_PATH, ENABLED_MARKETS))
+        print("Scanner signal history updated")
+    except Exception as exc:
+        print(f"Scanner signal history update failed: {exc}")
 
     # Recompute analysis
     if total > 0:
