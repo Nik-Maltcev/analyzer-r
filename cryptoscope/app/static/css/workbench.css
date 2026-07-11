@@ -1757,9 +1757,12 @@ html[data-view-mode='beginner'] .signals-page {
 
     .scanner-action-table .scanner-reason,
     .scanner-action-table .scanner-risk-note,
-    .scanner-action-table .scanner-signal-age,
     .scanner-action-table .scanner-signal-period {
         display: none !important;
+    }
+
+    .scanner-action-table .scanner-signal-age {
+        display: block !important;
     }
 
     .scanner-action-table .badge {
