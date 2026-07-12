@@ -267,6 +267,14 @@
     </div>
     {% endfor %}
 </div>
+{% else %}
+<div class="empty-state beginner-only actionable-signals-empty">
+    <span class="empty-icon"><i data-lucide="shield-check"></i></span>
+    <p>Сейчас нет пар, прошедших контроль риска.</p>
+    <p class="text-dim">
+        Расчёт выполнен: рынок {{ market|upper }} проверен, но подтверждённых сигналов пока нет.
+    </p>
+</div>
 {% endif %}
 
 <!-- ============================== ALL PAIRS TABLE ============================== -->
