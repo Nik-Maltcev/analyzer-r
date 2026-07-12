@@ -587,6 +587,20 @@ async def db_status(conn: aiosqlite.Connection) -> dict[str, Any]:
         for row in await cursor.fetchall()
     }
 
+    cursor = await conn.execute(
+        """
+        SELECT market, COALESCE(coint_windows, 'null') AS pattern, COUNT(*) AS n
+        FROM pairs
+        WHERE is_coint = 1
+        GROUP BY market, COALESCE(coint_windows, 'null')
+        ORDER BY market, n DESC
+        """
+    )
+    stability_patterns: dict[str, dict[str, int]] = {}
+    for row in await cursor.fetchall():
+        stability_patterns.setdefault(row["market"], {})[row["pattern"]] = row["n"]
+    status["stability_patterns_by_market"] = stability_patterns
+
     cursor = await conn.execute("SELECT MAX(computed_at) as last_analysis FROM pairs")
     row = await cursor.fetchone()
     status["last_analysis"] = row["last_analysis"]

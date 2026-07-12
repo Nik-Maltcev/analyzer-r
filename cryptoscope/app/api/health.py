@@ -56,6 +56,13 @@ async def health_check():
                     ].items()
                     if market in ALL_MARKETS
                 }
+                status["stability_patterns_by_market"] = {
+                    market: details
+                    for market, details in db[
+                        "stability_patterns_by_market"
+                    ].items()
+                    if market in ALL_MARKETS
+                }
         except Exception as e:
             status["db_error"] = str(e)
     
