@@ -5,6 +5,7 @@ import os
 from fastapi import APIRouter, HTTPException
 from app.db.database import get_connection, db_status, DB_PATH
 from app.config import get_settings
+from app.product import ALL_MARKETS
 import httpx
 import asyncio
 
@@ -41,10 +42,20 @@ async def health_check():
                 status["db_rows"] = db["n_rows"]
                 status["db_pairs"] = db["n_pairs"]
                 status["last_analysis"] = db["last_analysis"]
-                status["active_signals"] = db["n_active_signals"]
-                status["active_signals_by_market"] = db[
-                    "active_signals_by_market"
-                ]
+                active_by_market = {
+                    market: count
+                    for market, count in db["active_signals_by_market"].items()
+                    if market in ALL_MARKETS
+                }
+                status["active_signals"] = sum(active_by_market.values())
+                status["active_signals_by_market"] = active_by_market
+                status["pair_diagnostics_by_market"] = {
+                    market: details
+                    for market, details in db[
+                        "pair_diagnostics_by_market"
+                    ].items()
+                    if market in ALL_MARKETS
+                }
         except Exception as e:
             status["db_error"] = str(e)
     

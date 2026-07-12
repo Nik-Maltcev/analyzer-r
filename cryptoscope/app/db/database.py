@@ -556,6 +556,37 @@ async def db_status(conn: aiosqlite.Connection) -> dict[str, Any]:
         row["market"]: row["n"] for row in await cursor.fetchall()
     }
 
+    cursor = await conn.execute(
+        """
+        SELECT market,
+               COUNT(*) AS pairs,
+               SUM(CASE WHEN is_coint = 1 THEN 1 ELSE 0 END) AS coint,
+               SUM(CASE WHEN is_coint_stable = 1 THEN 1 ELSE 0 END) AS stable,
+               SUM(CASE WHEN ABS(COALESCE(z_now, 0)) >= 2 THEN 1 ELSE 0 END) AS deviated,
+               SUM(CASE
+                   WHEN is_coint_stable = 1 AND ABS(COALESCE(z_now, 0)) >= 2
+                   THEN 1 ELSE 0
+               END) AS stable_deviated,
+               SUM(CASE WHEN signal_type != 'wait' THEN 1 ELSE 0 END) AS active,
+               MAX(computed_at) AS computed_at
+        FROM pairs
+        GROUP BY market
+        ORDER BY market
+        """
+    )
+    status["pair_diagnostics_by_market"] = {
+        row["market"]: {
+            "pairs": row["pairs"],
+            "coint": row["coint"],
+            "stable": row["stable"],
+            "deviated": row["deviated"],
+            "stable_deviated": row["stable_deviated"],
+            "active": row["active"],
+            "computed_at": row["computed_at"],
+        }
+        for row in await cursor.fetchall()
+    }
+
     cursor = await conn.execute("SELECT MAX(computed_at) as last_analysis FROM pairs")
     row = await cursor.fetchone()
     status["last_analysis"] = row["last_analysis"]
