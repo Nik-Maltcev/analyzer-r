@@ -42,6 +42,9 @@ async def health_check():
                 status["db_pairs"] = db["n_pairs"]
                 status["last_analysis"] = db["last_analysis"]
                 status["active_signals"] = db["n_active_signals"]
+                status["active_signals_by_market"] = db[
+                    "active_signals_by_market"
+                ]
         except Exception as e:
             status["db_error"] = str(e)
     

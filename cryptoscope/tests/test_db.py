@@ -10,6 +10,7 @@ from app.core.cointegration import compute_fixed_zscore
 from app.db.database import (
     db_status,
     ensure_favorite_z_model,
+    fetch_active_pairs,
     fetch_favorites,
     fetch_pairs,
     fetch_prices,
@@ -35,6 +36,27 @@ async def test_fetch_pairs(temp_db):
         assert len(df) >= 1
         assert "ticker_a" in df.columns
         assert "corr" in df.columns
+
+
+@pytest.mark.asyncio
+async def test_fetch_active_pairs_ignores_candidate_thresholds(temp_db):
+    async with get_connection(temp_db) as conn:
+        await conn.execute(
+            """
+            INSERT INTO pairs (
+                market, ticker_a, ticker_b, corr, halflife, score,
+                signal, signal_type, strength
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "crypto", "LOW/USD", "LONG/USD", 0.2, 90, 0.4,
+                "Long LOW / Short LONG", "long_a", "Strong",
+            ),
+        )
+        await conn.commit()
+        active = await fetch_active_pairs(conn, "crypto")
+
+    assert {"BTC/USD", "LOW/USD"}.issubset(set(active["ticker_a"]))
 
 
 @pytest.mark.asyncio

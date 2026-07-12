@@ -1,11 +1,12 @@
 """Signals API endpoints."""
 
 import numpy as np
+import pandas as pd
 from fastapi import APIRouter, Query
 
 from app.core.calculator import calc_signal_pnl
 from app.core.signals import estimate_signal_timing, is_actionable_signal
-from app.db.database import fetch_pairs, fetch_prices, get_connection
+from app.db.database import fetch_active_pairs, fetch_pairs, fetch_prices, get_connection
 
 router = APIRouter(prefix="/signals", tags=["signals"])
 
@@ -95,6 +96,15 @@ async def get_signals(
     """Get active trading signals."""
     async with get_connection() as conn:
         pairs = await fetch_pairs(conn, market, min_corr)
+        active_pairs = await fetch_active_pairs(conn, market)
+
+    if pairs.empty:
+        pairs = active_pairs.copy()
+    elif not active_pairs.empty:
+        pairs = pd.concat([active_pairs, pairs], ignore_index=True).drop_duplicates(
+            subset=["market", "ticker_a", "ticker_b"],
+            keep="first",
+        )
 
     if pairs.empty:
         return {"signals": [], "total": 0, "active": 0}
@@ -108,8 +118,11 @@ async def get_signals(
         )
         pairs = pairs[pairs[coint_column] == 1]
 
-    # Filter by half-life (fast signals)
-    pairs = pairs[pairs["halflife"].notna() & (pairs["halflife"] <= max_days)]
+    # Keep stored active signals visible even when their correlation or horizon
+    # lies outside optional candidate filters.
+    stored_active = pairs["signal_type"] != "wait"
+    within_horizon = pairs["halflife"].notna() & (pairs["halflife"] <= max_days)
+    pairs = pairs[stored_active | within_horizon]
 
     # Convert to dict records
     signals = []

@@ -191,6 +191,25 @@ async def fetch_pairs(conn: aiosqlite.Connection, market: str | None = None, min
     return pd.DataFrame([dict(r) for r in rows])
 
 
+async def fetch_active_pairs(
+    conn: aiosqlite.Connection,
+    market: str,
+) -> pd.DataFrame:
+    """Fetch stored active signals without applying UI candidate filters."""
+    cursor = await conn.execute(
+        """
+        SELECT * FROM pairs
+        WHERE market = ? AND signal_type != 'wait'
+        ORDER BY score DESC
+        """,
+        (market,),
+    )
+    rows = await cursor.fetchall()
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame([dict(row) for row in rows])
+
+
 async def fetch_favorites(conn: aiosqlite.Connection, user_id: str = "local") -> pd.DataFrame:
     """Fetch user's favorites."""
     cursor = await conn.execute(
@@ -523,6 +542,19 @@ async def db_status(conn: aiosqlite.Connection) -> dict[str, Any]:
     cursor = await conn.execute("SELECT COUNT(*) as n FROM pairs WHERE signal_type != 'wait'")
     row = await cursor.fetchone()
     status["n_active_signals"] = row["n"] if row else 0
+
+    cursor = await conn.execute(
+        """
+        SELECT market, COUNT(*) AS n
+        FROM pairs
+        WHERE signal_type != 'wait'
+        GROUP BY market
+        ORDER BY market
+        """
+    )
+    status["active_signals_by_market"] = {
+        row["market"]: row["n"] for row in await cursor.fetchall()
+    }
 
     cursor = await conn.execute("SELECT MAX(computed_at) as last_analysis FROM pairs")
     row = await cursor.fetchone()

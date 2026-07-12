@@ -24,6 +24,7 @@ from app.data.moex import get_ru_live_snapshot
 from app.db.database import (
     db_status,
     ensure_favorite_z_model,
+    fetch_active_pairs,
     fetch_favorites,
     fetch_favorites_history,
     fetch_pairs,
@@ -194,6 +195,19 @@ def _make_signal_cards(pairs, market="crypto", fav_pairs=None):
             "is_favorite": pair_id in fav_set,
         })
     return signals
+
+
+def _include_active_pairs(filtered_pairs, active_pairs):
+    """Keep computed signals even when they sit outside UI candidate filters."""
+    if filtered_pairs.empty:
+        return active_pairs.copy()
+    if active_pairs.empty:
+        return filtered_pairs.copy()
+    combined = pd.concat([active_pairs, filtered_pairs], ignore_index=True)
+    return combined.drop_duplicates(
+        subset=["market", "ticker_a", "ticker_b"],
+        keep="first",
+    )
 
 
 def _make_forecast_trades(pairs, fav_pairs=None):
@@ -454,6 +468,9 @@ async def tab_signals(
     try:
         async with get_connection() as conn:
             pairs = await fetch_pairs(conn, market, min_corr)
+            active_pairs = await fetch_active_pairs(conn, market)
+
+        pairs = _include_active_pairs(pairs, active_pairs)
 
         if pairs.empty:
             return templates.TemplateResponse(request, "components/signals_all.html", {
@@ -468,8 +485,11 @@ async def tab_signals(
             )
             pairs = pairs[pairs[coint_column] == 1]
 
-        # Filter by half-life
-        pairs = pairs[pairs["halflife"].notna() & (pairs["halflife"] <= max_days)]
+        # Candidate rows respect the selected horizon. Stored active signals have
+        # already passed analysis and must remain visible in "All signals".
+        stored_active = pairs["signal_type"] != "wait"
+        within_horizon = pairs["halflife"].notna() & (pairs["halflife"] <= max_days)
+        pairs = pairs[stored_active | within_horizon]
 
         # Fetch existing favorite pair IDs to render star state
         # Wrapped in try/except so favorites query failure doesn't kill signals

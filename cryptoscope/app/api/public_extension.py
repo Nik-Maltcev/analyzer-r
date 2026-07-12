@@ -8,7 +8,7 @@ from fastapi import APIRouter, Query, Response
 
 from app.core.scanners import drawdown_scan, momentum_scan
 from app.core.signals import estimate_signal_timing, is_actionable_signal
-from app.db.database import fetch_pairs, fetch_prices, get_connection
+from app.db.database import fetch_active_pairs, fetch_prices, get_connection
 from app.product import get_product_profile, require_market_enabled
 
 router = APIRouter(prefix="/public/extension", tags=["public-extension"])
@@ -198,7 +198,7 @@ async def extension_feed(
     selected_market = require_market_enabled(market or profile.default_market, profile)
 
     async with get_connection() as conn:
-        pairs = await fetch_pairs(conn, selected_market, min_corr=0.5)
+        pairs = await fetch_active_pairs(conn, selected_market)
         cursor = await conn.execute(
             """
             SELECT scanner, ticker_a, direction, first_seen_date,
@@ -234,13 +234,9 @@ async def extension_feed(
         candidates = []
         for _, row in pairs.iterrows():
             signal_type = row.get("signal_type")
-            halflife = _finite_int(row.get("halflife"))
             validated = _is_validated(row)
             if (
-                halflife is None
-                or halflife <= 0
-                or halflife > 30
-                or not is_actionable_signal(signal_type, validated)
+                not is_actionable_signal(signal_type, validated)
             ):
                 continue
             candidates.append(row)
