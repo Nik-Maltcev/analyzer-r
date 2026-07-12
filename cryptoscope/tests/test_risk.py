@@ -45,6 +45,31 @@ def test_cointegration_stability_rejects_recent_break():
     assert json.loads(result["coint_windows"])["60"] is False
 
 
+def test_equity_stability_accepts_one_medium_term_confirmation(monkeypatch):
+    outcomes = iter([False, True])
+
+    def fake_engle_granger(*args, **kwargs):
+        return {
+            "is_coint": next(outcomes),
+            "hedge_ratio": 1.0,
+            "t_stat": -3.0,
+        }
+
+    monkeypatch.setattr("app.core.risk.engle_granger", fake_engle_granger)
+    prices = np.linspace(100, 120, 300)
+    result = assess_cointegration_stability(
+        prices,
+        prices,
+        windows=(120, 252),
+        minimum_passed=1,
+        require_recent=False,
+        enforce_ratio_stability=False,
+    )
+
+    assert result["is_coint_stable"] is True
+    assert result["coint_windows_passed"] == 1
+
+
 def test_market_regime_detects_broad_stress_move():
     prices = np.full((40, 8), 100.0)
     prices *= np.exp(np.arange(40)[:, None] * 0.001)

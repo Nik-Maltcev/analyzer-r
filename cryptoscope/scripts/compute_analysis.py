@@ -110,7 +110,19 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
             model_pb = pb[-252:] if market_name == "ru" else pb
             cg = engle_granger(model_pa, model_pb)
             if cg["is_coint"]:
-                stability = assess_cointegration_stability(pa, pb)
+                if market_name in {"crypto", "ru"}:
+                    stability = assess_cointegration_stability(pa, pb)
+                else:
+                    # Daily equities need a medium-term confirmation. Requiring
+                    # the 60-day test as well eliminated every equity signal.
+                    stability = assess_cointegration_stability(
+                        pa,
+                        pb,
+                        windows=(120, 252),
+                        minimum_passed=1,
+                        require_recent=False,
+                        enforce_ratio_stability=False,
+                    )
             else:
                 stability = {
                     "is_coint_stable": False,

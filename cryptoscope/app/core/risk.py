@@ -23,6 +23,10 @@ def assess_cointegration_stability(
     pa: np.ndarray,
     pb: np.ndarray,
     windows: Sequence[int] = COINT_WINDOWS,
+    *,
+    minimum_passed: int = 2,
+    require_recent: bool = True,
+    enforce_ratio_stability: bool = True,
 ) -> dict:
     """Require cointegration to survive both recent and medium-term windows."""
     a, b = _aligned_prices(pa, pb)
@@ -60,24 +64,24 @@ def assess_cointegration_stability(
 
     pass_ratio = len(passed) / len(available) if available else 0.0
     stability_pct = round(pass_ratio * 100)
-    if not ratio_stable:
+    if enforce_ratio_stability and not ratio_stable:
         stability_pct = min(stability_pct, 40)
 
+    recent_ok = bool(recent and recent["is_coint"])
     is_stable = bool(
-        len(available) >= 2
-        and recent
-        and recent["is_coint"]
-        and len(passed) >= 2
-        and ratio_stable
+        len(available) >= minimum_passed
+        and (recent_ok or not require_recent)
+        and len(passed) >= minimum_passed
+        and (ratio_stable or not enforce_ratio_stability)
     )
 
     if len(available) < 2:
         reason = "Недостаточно истории для проверки устойчивости"
-    elif not recent or not recent["is_coint"]:
+    elif require_recent and not recent_ok:
         reason = "Коинтеграция не подтверждается на окне 60 дней"
-    elif len(passed) < 2:
-        reason = "Коинтеграция подтверждена только на одном окне"
-    elif not ratio_stable:
+    elif len(passed) < minimum_passed:
+        reason = "Коинтеграция не подтверждена на требуемом числе окон"
+    elif enforce_ratio_stability and not ratio_stable:
         reason = "Коэффициент пары заметно меняется между окнами"
     else:
         reason = "Связь подтверждена минимум на двух окнах"

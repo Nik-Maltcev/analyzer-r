@@ -52,6 +52,8 @@ echo "PORT=$PORT"
 echo "APP_VARIANT=${APP_VARIANT:-global}"
 echo "ENABLED_MARKETS=$ENABLED_MARKETS"
 
+ANALYSIS_POLICY_MARKER="/data/.analysis-policy-equity-medium-v1"
+
 # 1. Rebuild DB if needed
 if [ ! -f "$DB_PATH" ] || [ ! -s "$DB_PATH" ]; then
     echo "DB missing or empty, rebuilding..."
@@ -114,6 +116,18 @@ fi
 python /scripts/load_international.py
 
 # 9. Start background update loop (checks every 30s, runs daily_update at 06:00 UTC)
+if [ ! -f "$ANALYSIS_POLICY_MARKER" ]; then
+    (
+        echo "[$(date -u)] Recomputing pairs for updated equity signal policy..."
+        if python /scripts/compute_analysis.py; then
+            touch "$ANALYSIS_POLICY_MARKER"
+            echo "[$(date -u)] Equity signal policy recompute complete"
+        else
+            echo "[$(date -u)] Equity signal policy recompute failed"
+        fi
+    ) &
+fi
+
 (
     while true; do
         CURRENT_HOUR=$(date -u +%H)
