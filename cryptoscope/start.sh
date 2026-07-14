@@ -115,7 +115,12 @@ fi
 # 8. Load administrator-only international equity markets
 python /scripts/load_international.py
 
-# 9. Start background update loop (checks every 30s, runs daily_update at 06:00 UTC)
+# 9. Retry today's idempotent content publication after a deploy
+(
+    python /scripts/run_content_automation.py || echo "[$(date -u)] content automation startup run failed"
+) &
+
+# 10. Start background update loop (checks every 30s, runs daily_update at 06:00 UTC)
 if [ ! -f "$ANALYSIS_POLICY_MARKER" ]; then
     (
         echo "[$(date -u)] Recomputing pairs for updated equity signal policy..."
@@ -141,6 +146,6 @@ fi
     done
 ) &
 
-# 10. Launch FastAPI app
+# 11. Launch FastAPI app
 echo "Starting MEANX on port $PORT..."
 exec python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT"

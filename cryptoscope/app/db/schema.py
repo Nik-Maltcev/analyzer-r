@@ -297,6 +297,44 @@ CREATE TABLE IF NOT EXISTS user_subscriptions (
 )
 """
 
+CREATE_CONTENT_PUBLICATIONS = """
+CREATE TABLE IF NOT EXISTS content_publications (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    market                TEXT NOT NULL DEFAULT 'crypto',
+    scanner               TEXT NOT NULL,
+    ticker                TEXT NOT NULL,
+    direction             TEXT NOT NULL,
+    confidence            TEXT NOT NULL,
+    first_seen_date       TEXT NOT NULL,
+    data_date             TEXT NOT NULL,
+    signal_age_days       INTEGER NOT NULL DEFAULT 1,
+    review_in_days        INTEGER,
+    entry_price           REAL NOT NULL,
+    current_price         REAL,
+    return_pct            REAL DEFAULT 0,
+    status                TEXT NOT NULL DEFAULT 'draft',
+    favorite_id           INTEGER,
+    telegram_message_id   INTEGER,
+    telegram_chat_id      TEXT,
+    card_path             TEXT,
+    initial_text          TEXT,
+    last_update_text      TEXT,
+    generation_payload    TEXT,
+    provider_response     TEXT,
+    last_update_data_date TEXT,
+    published_at          TEXT,
+    closed_at             TEXT,
+    created_at            TEXT DEFAULT (datetime('now')),
+    updated_at            TEXT DEFAULT (datetime('now')),
+    UNIQUE(market, scanner, ticker, direction, first_seen_date)
+)
+"""
+
+CREATE_CONTENT_PUBLICATION_INDICES = [
+    "CREATE INDEX IF NOT EXISTS idx_content_status ON content_publications(status, data_date)",
+    "CREATE INDEX IF NOT EXISTS idx_content_ticker ON content_publications(market, ticker, created_at)",
+]
+
 CREATE_AUTH_INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_auth_magic_email ON auth_magic_links(email, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_auth_magic_expiry ON auth_magic_links(expires_at)",
@@ -321,6 +359,7 @@ ALL_TABLES_SQL = [
     CREATE_PAYMENT_NOTIFICATIONS,
     CREATE_PAYMENT_ORDERS,
     CREATE_USER_SUBSCRIPTIONS,
+    CREATE_CONTENT_PUBLICATIONS,
 ]
 
 ALL_INDICES_SQL = (
@@ -329,4 +368,5 @@ ALL_INDICES_SQL = (
     + CREATE_SCANNER_SIGNAL_INDICES
     + CREATE_HOURLY_INDICES
     + CREATE_AUTH_INDICES
+    + CREATE_CONTENT_PUBLICATION_INDICES
 )

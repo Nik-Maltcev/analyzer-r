@@ -310,6 +310,12 @@ def main():
         if result.returncode != 0:
             print(f"compute_analysis failed with exit code {result.returncode}")
 
+    print("Running crypto content automation...")
+    content_script = SCRIPT_DIR / "run_content_automation.py"
+    result = subprocess.run([sys.executable, str(content_script)], check=False)
+    if result.returncode != 0:
+        print(f"Content automation failed with exit code {result.returncode}")
+
 
 if __name__ == "__main__":
     main()

@@ -47,6 +47,17 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
 
+    content_automation_enabled: bool = False
+    content_bot_user_id: str = "content-bot"
+    content_telegram_bot_token: str = ""
+    content_telegram_chat_id: str = ""
+    content_openrouter_api_key: str = ""
+    content_openrouter_text_model: str = ""
+    content_openrouter_image_model: str = ""
+    content_card_dir: str = "/data/content_cards"
+    content_repeat_ticker_days: int = 30
+    content_max_active: int = 5
+
     log_level: str = "info"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
