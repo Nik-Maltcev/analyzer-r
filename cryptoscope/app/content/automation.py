@@ -593,13 +593,8 @@ def run_content_automation(settings: Settings | None = None) -> dict[str, Any]:
             """,
             (data_date,),
         ).fetchone()
-        active_count = int(conn.execute(
-            "SELECT COUNT(*) FROM content_publications WHERE market = 'crypto' AND status = 'active'"
-        ).fetchone()[0])
         if already_published:
             return {"status": "already_published", "data_date": data_date, "updates": updates}
-        if active_count >= max(1, settings.content_max_active):
-            return {"status": "active_limit", "active": active_count, "updates": updates}
 
         candidate = select_candidate(conn, wide, settings.content_repeat_ticker_days)
         if not candidate:

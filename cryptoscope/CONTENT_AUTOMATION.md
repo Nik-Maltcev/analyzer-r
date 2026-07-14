@@ -23,7 +23,6 @@ Optional:
 CONTENT_BOT_USER_ID=content-bot
 CONTENT_CARD_DIR=/data/content_cards
 CONTENT_REPEAT_TICKER_DAYS=30
-CONTENT_MAX_ACTIVE=5
 ```
 
 The Telegram bot must be an administrator of the channel with permission to post.
