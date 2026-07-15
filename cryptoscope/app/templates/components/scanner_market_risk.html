@@ -1,0 +1,14 @@
+{% if market == "ru" and market_regime == "stress" %}
+<div class="market-risk-banner is-stress scanner-market-risk-banner">
+    <strong>Стрессовый режим рынка RU</strong>
+    <span>Широкие движения рынка могут искажать сигналы сканеров. Подтвердите вход после следующего обновления.</span>
+    {% if market_volatility is not none %}
+    <span class="market-risk-value">Волатильность: {{ "%.0f"|format(market_volatility) }}%</span>
+    {% endif %}
+</div>
+{% elif market == "ru" and market_regime == "elevated" %}
+<div class="market-risk-banner is-elevated scanner-market-risk-banner">
+    <strong>Повышенная волатильность RU</strong>
+    <span>{{ market_regime_reason or "Рекомендации требуют дополнительного подтверждения." }}</span>
+</div>
+{% endif %}

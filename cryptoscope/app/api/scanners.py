@@ -5,7 +5,13 @@ import pandas as pd
 from fastapi import APIRouter, Query
 from app.db.database import get_connection, fetch_prices
 from app.data.tickers import ALL_MARKETS
-from app.core.scanners import corr_breakdown_scan, momentum_scan, drawdown_scan
+from app.core.scanners import (
+    apply_scanner_market_context,
+    corr_breakdown_scan,
+    drawdown_scan,
+    momentum_scan,
+    scanner_market_context,
+)
 
 router = APIRouter(prefix="/scanners", tags=["scanners"])
 
@@ -33,10 +39,16 @@ async def scanner_corrbreak(
     # Filter by min deviation
     df = df[df["deviation"] >= min_deviation]
     
+    market_context = scanner_market_context(wide.values, market)
+    results = apply_scanner_market_context(
+        df.to_dict(orient="records"), market, market_context
+    )
+
     return {
-        "results": df.to_dict(orient="records"),
+        "results": results,
         "total": len(df),
         "market": market,
+        **market_context,
     }
 
 
@@ -58,11 +70,16 @@ async def scanner_momentum(
     
     prices_mat = wide.values
     df = momentum_scan(prices_mat, tickers_list, dates_list)
+    market_context = scanner_market_context(prices_mat, market)
+    results = apply_scanner_market_context(
+        df.head(limit).to_dict(orient="records"), market, market_context
+    )
     
     return {
-        "results": df.head(limit).to_dict(orient="records"),
+        "results": results,
         "total": len(df),
         "market": market,
+        **market_context,
     }
 
 
@@ -87,8 +104,14 @@ async def scanner_drawdown(
     # Filter by min drawdown
     df = df[df["drawdown_pct"] >= min_drawdown]
     
+    market_context = scanner_market_context(prices_mat, market)
+    results = apply_scanner_market_context(
+        df.to_dict(orient="records"), market, market_context
+    )
+
     return {
-        "results": df.to_dict(orient="records"),
+        "results": results,
         "total": len(df),
         "market": market,
+        **market_context,
     }

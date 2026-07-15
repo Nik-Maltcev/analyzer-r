@@ -11,7 +11,13 @@ from zoneinfo import ZoneInfo
 from app.auth import get_current_or_legacy_user
 from app.core.calculator import calc_pair_performance, calc_single_performance
 from app.core.cointegration import compute_fixed_zscore, compute_zscore, engle_granger
-from app.core.scanners import corr_breakdown_scan, drawdown_scan, momentum_scan
+from app.core.scanners import (
+    apply_scanner_market_context,
+    corr_breakdown_scan,
+    drawdown_scan,
+    momentum_scan,
+    scanner_market_context,
+)
 from app.core.scanner_history import (
     annotate_scanner_results,
     build_scanner_snapshot,
@@ -760,6 +766,10 @@ async def tab_scanner_content(
         "results": [],
         "total": 0,
         "scanner_data_date": None,
+        "market_regime": "normal",
+        "market_volatility": None,
+        "market_max_5d_move": None,
+        "market_regime_reason": None,
     }
 
     try:
@@ -771,6 +781,7 @@ async def tab_scanner_content(
 
         wide = prices_df.pivot(index="date", columns="ticker", values="close")
         data_date = str(max(wide.index))[:10]
+        market_context = scanner_market_context(wide.values, market)
         df, active_snapshot = build_scanner_snapshot(wide, scanner_type)
         async with get_connection() as conn:
             periods = await sync_scanner_periods(
@@ -797,6 +808,11 @@ async def tab_scanner_content(
             results = _df_records(df)
 
         results = annotate_scanner_results(results, scanner_type, periods)
+        results = apply_scanner_market_context(
+            results,
+            market,
+            market_context,
+        )
 
         if scanner_type in {"momentum", "drawdown"} and results:
             favorite_pairs = set()
@@ -829,6 +845,7 @@ async def tab_scanner_content(
             "results": results,
             "total": len(results),
             "scanner_data_date": format_scanner_date(data_date),
+            **market_context,
         })
     except Exception as e:
         return templates.TemplateResponse(request, template, {

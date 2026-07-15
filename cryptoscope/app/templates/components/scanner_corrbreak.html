@@ -3,6 +3,8 @@
     <div class="error-msg">{{ error }}</div>
     {% endif %}
 
+    {% include "components/scanner_market_risk.html" %}
+
     <div class="section-header">
         <h3>Corr Breakdown ({{ total }})</h3>
         <div class="scanner-snapshot-meta">
@@ -41,6 +43,9 @@
                             <span class="badge badge-gray">{{ r.recommendation }}</span>
                             <span class="scanner-confidence">Уверенность: {{ r.confidence }}</span>
                             <span class="scanner-reason">{{ r.recommendation_reason }}</span>
+                            {% if r.risk_note %}
+                            <span class="scanner-risk-note">{{ r.risk_note }}</span>
+                            {% endif %}
                             {% if r.signal_age_days is defined %}
                             <span class="scanner-signal-age beginner-only">
                                 Сигнал действует {{ r.signal_age_days }} дн. ·

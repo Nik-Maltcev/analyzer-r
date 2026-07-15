@@ -4,12 +4,72 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, List
 
+from app.core.risk import assess_market_regime
+
 
 def _lower_confidence(confidence: str) -> str:
     return {
         "Высокая": "Средняя",
         "Средняя": "Низкая",
     }.get(confidence, confidence)
+
+
+def scanner_market_context(prices: np.ndarray, market: str) -> dict:
+    """Return broad-market risk context only for the Russian market."""
+    context = {
+        "market_regime": "normal",
+        "market_volatility": None,
+        "market_max_5d_move": None,
+        "market_regime_reason": None,
+    }
+    if str(market).lower() != "ru":
+        return context
+
+    regime = assess_market_regime(prices)
+    return {
+        "market_regime": regime.get("market_regime") or "normal",
+        "market_volatility": regime.get("market_volatility"),
+        "market_max_5d_move": regime.get("market_max_5d_move"),
+        "market_regime_reason": regime.get("market_regime_reason"),
+    }
+
+
+def apply_scanner_market_context(
+    records: List[Dict[str, Any]],
+    market: str,
+    context: dict,
+) -> List[Dict[str, Any]]:
+    """Add RU regime warnings without changing scanner directions."""
+    if str(market).lower() != "ru":
+        return records
+
+    regime = context.get("market_regime") or "normal"
+    if regime not in {"stress", "elevated"}:
+        return records
+
+    if regime == "stress":
+        regime_note = (
+            "Стрессовый режим RU: подтвердите вход после следующего обновления "
+            "и уменьшите размер позиции"
+        )
+    else:
+        regime_note = (
+            "Повышенная волатильность RU: используйте меньший размер позиции"
+        )
+
+    for record in records:
+        record["market_regime"] = regime
+        if regime == "stress" and record.get("confidence"):
+            record["confidence"] = _lower_confidence(
+                str(record["confidence"])
+            )
+        existing_note = str(record.get("risk_note") or "").strip()
+        record["risk_note"] = (
+            f"{existing_note}. {regime_note}"
+            if existing_note
+            else regime_note
+        )
+    return records
 
 
 def corr_breakdown_scan(price_matrix: pd.DataFrame, tickers: List[str]) -> pd.DataFrame:

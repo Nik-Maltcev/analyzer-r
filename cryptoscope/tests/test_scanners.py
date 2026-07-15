@@ -2,9 +2,11 @@ import numpy as np
 import pandas as pd
 
 from app.core.scanners import (
+    apply_scanner_market_context,
     corr_breakdown_scan,
     drawdown_scan,
     momentum_scan,
+    scanner_market_context,
 )
 
 
@@ -69,3 +71,50 @@ def test_correlation_break_recommends_avoiding_unvalidated_pair():
 
     assert row["recommendation"] == "Не открывать пару"
     assert row["recommendation_class"] == "wait"
+
+
+def test_scanner_market_context_detects_stress_only_for_ru():
+    prices = np.full((40, 8), 100.0)
+    prices *= np.exp(np.arange(40)[:, None] * 0.001)
+    prices[-1] *= 0.95
+
+    ru_context = scanner_market_context(prices, "ru")
+    crypto_context = scanner_market_context(prices, "crypto")
+
+    assert ru_context["market_regime"] == "stress"
+    assert crypto_context["market_regime"] == "normal"
+    assert crypto_context["market_volatility"] is None
+
+
+def test_ru_stress_lowers_scanner_confidence_and_adds_warning():
+    records = [{
+        "ticker": "SBER",
+        "confidence": "Высокая",
+        "risk_note": None,
+    }]
+
+    result = apply_scanner_market_context(
+        records,
+        "ru",
+        {"market_regime": "stress"},
+    )
+
+    assert result[0]["confidence"] == "Средняя"
+    assert "Стрессовый режим RU" in result[0]["risk_note"]
+
+
+def test_scanner_stress_context_does_not_change_other_markets():
+    records = [{
+        "ticker": "BTC/USD",
+        "confidence": "Высокая",
+        "risk_note": None,
+    }]
+
+    result = apply_scanner_market_context(
+        records,
+        "crypto",
+        {"market_regime": "stress"},
+    )
+
+    assert result[0]["confidence"] == "Высокая"
+    assert result[0]["risk_note"] is None
