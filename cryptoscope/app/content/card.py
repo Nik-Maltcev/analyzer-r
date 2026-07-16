@@ -15,11 +15,13 @@ HEIGHT = 1500
 def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     font_paths = (
         (
+            "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "C:/Windows/Fonts/arialbd.ttf",
         )
         if bold
         else (
+            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
             "C:/Windows/Fonts/arial.ttf",
         )
@@ -75,6 +77,13 @@ def _date(value: str) -> str:
         return value
 
 
+def _scanner_name(value: str) -> str:
+    return {
+        "momentum": "Импульс",
+        "drawdown": "Просадка",
+    }.get(value.lower(), value.title())
+
+
 def render_signal_card(
     payload: dict,
     output_path: str | Path,
@@ -98,7 +107,7 @@ def render_signal_card(
     draw.rounded_rectangle((92, 92, 160, 160), radius=14, fill=green)
     draw.text((114, 100), "M", font=_font(42, True), fill=(4, 22, 20, 255))
     draw.text((182, 98), "MEANX", font=_font(42, True), fill=white)
-    draw.text((182, 145), "CRYPTO MARKET SIGNAL", font=_font(20, True), fill=muted)
+    draw.text((182, 145), "КРИПТОСИГНАЛ", font=_font(20, True), fill=muted)
 
     draw.text((92, 250), _date(payload["data_date"]), font=_font(25, True), fill=muted)
     draw.text(
@@ -115,7 +124,7 @@ def render_signal_card(
         outline=accent,
         width=2,
     )
-    draw.text((120, 463), side, font=_font(35, True), fill=accent)
+    draw.text((120, 465), side, font=_font(31, True), fill=accent)
 
     draw.text((92, 605), "Цена при публикации", font=_font(25), fill=muted)
     draw.text(
@@ -127,8 +136,8 @@ def render_signal_card(
 
     draw.line((92, 770, 1108, 770), fill=(63, 83, 95, 180), width=2)
     metrics = [
-        ("Источник", str(payload["scanner"]).upper()),
-        ("Уверенность", "ВЫСОКАЯ"),
+        ("Сканер", _scanner_name(str(payload["scanner"]))),
+        ("Уверенность", "Высокая"),
         ("Сигнал активен", f"{payload['signal_age_days']} дн."),
         ("Следующая проверка", f"через ~{payload['review_in_days']} дн."),
     ]

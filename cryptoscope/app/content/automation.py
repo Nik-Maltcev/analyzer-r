@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
@@ -297,18 +298,50 @@ def _payload(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def _initial_fallback(payload: dict[str, Any]) -> str:
-    side = "рассмотреть лонг" if payload["direction"] == "long" else "рассмотреть шорт"
+def _clean_telegram_text(value: str) -> str:
+    """Normalize model output to the plain-text style used by the channel."""
+    text = value.replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("—", "-").replace("–", "-").replace("−", "-")
+    text = re.sub(r"\*\*(.*?)\*\*", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"__(.*?)__", r"\1", text, flags=re.DOTALL)
+    text = text.replace("**", "").replace("__", "").replace("`", "")
+    text = re.sub(r"(?m)^\s*#{1,6}\s*", "", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"(?i)\bLong\b", "лонг", text)
+    text = re.sub(r"(?i)\bShort\b", "шорт", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _scenario_explanation(payload: dict[str, Any]) -> str:
+    if payload["scanner"] == "drawdown":
+        return (
+            "Сканер просадок отметил актив после заметного снижения. "
+            "Идея состоит в наблюдении за возможным восстановлением цены."
+        )
     return (
-        f"Криптосигнал дня: {payload['ticker']}\n\n"
-        f"Сценарий: {side}.\n"
-        f"Источник: {payload['scanner'].title()}, уверенность высокая.\n"
-        f"Сигнал активен {payload['signal_age_days']} дн.; "
-        f"следующая проверка примерно через {payload['review_in_days']} дн.\n"
-        f"Цена при публикации: ${payload['entry_price']:.6g}.\n\n"
-        "Будем ежедневно показывать движение и сообщим, когда условие сканера исчезнет.\n\n"
+        "Сканер импульса подтвердил движение на нескольких временных горизонтах. "
+        "Идея состоит в наблюдении за продолжением текущего направления."
+    )
+
+
+def _compose_initial_text(payload: dict[str, Any], explanation: str) -> str:
+    side = "рассмотреть лонг" if payload["direction"] == "long" else "рассмотреть шорт"
+    return _clean_telegram_text(
+        f"{payload['ticker']}: {side}\n\n"
+        f"{explanation}\n\n"
+        f"Цена при публикации: ${payload['entry_price']:.6g}\n"
+        f"Сигнал активен: {payload['signal_age_days']} дн.\n"
+        f"Следующая проверка: примерно через {payload['review_in_days']} дн.\n\n"
+        "MEANX проверяет сигнал ежедневно. Если условие исчезнет или направление "
+        "изменится, мы опубликуем обновление.\n\n"
         "Не является индивидуальной инвестиционной рекомендацией."
     )
+
+
+def _initial_fallback(payload: dict[str, Any]) -> str:
+    return _compose_initial_text(payload, _scenario_explanation(payload))
 
 
 def _generate_initial_text(
@@ -319,15 +352,21 @@ def _generate_initial_text(
     if not provider.api_key or not provider.text_model:
         return fallback, None
     system = (
-        "Ты редактор Telegram-канала MEANX. Напиши ясный профессиональный пост на русском. "
-        "Используй только факты из JSON. Не меняй тикер, направление, цену, даты и сроки; "
-        "не добавляй новости, причины движения, гарантии прибыли или выдуманные числа. "
-        "Кратко объясни сценарий новичку, укажи ежедневный мониторинг и дисклеймер. "
-        "До 850 символов, без markdown-таблиц."
+        "Ты редактор Telegram-канала MEANX. По фактам из JSON напиши только два "
+        "коротких предложения, которые простыми словами объясняют смысл сигнала. "
+        "Не повторяй тикер, цену, срок, направление и дисклеймер. Не добавляй новости, "
+        "причины движения, прогноз доходности или гарантии. Не используй Markdown, "
+        "эмодзи, заголовки, списки и длинное тире. Используй обычный дефис. "
+        "Текст должен быть на русском языке и занимать не более 240 символов."
     )
     try:
-        text = provider.generate_text(system, json.dumps(payload, ensure_ascii=False))
-        return text[:1024], provider.response_json()
+        explanation = _clean_telegram_text(
+            provider.generate_text(system, json.dumps(payload, ensure_ascii=False))
+        )[:240]
+        explanation = re.sub(r"\s+", " ", explanation).strip()
+        if not explanation:
+            explanation = _scenario_explanation(payload)
+        return _compose_initial_text(payload, explanation), provider.response_json()
     except Exception as exc:
         return fallback, json.dumps({"text_error": str(exc)}, ensure_ascii=False)
 
@@ -431,14 +470,14 @@ def _active_period_exists(conn: sqlite3.Connection, row: sqlite3.Row) -> bool:
 
 def _update_fallback(row: sqlite3.Row, current: float, return_pct: float, closed: bool) -> str:
     state = (
-        "Условие сканера исчезло — завершаем публичное наблюдение."
+        "Условие сканера исчезло. Наблюдение завершено."
         if closed
-        else "Сигнал остается активным; продолжаем ежедневное наблюдение."
+        else "Сигнал остается активным. Продолжаем ежедневное наблюдение."
     )
-    return (
-        f"Обновление: {row['ticker']}\n\n"
-        f"Цена сейчас: ${current:.6g}.\n"
-        f"Движение по сценарию с момента публикации: {return_pct:+.2f}%.\n"
+    return _clean_telegram_text(
+        f"{row['ticker']}: обновление сигнала\n\n"
+        f"Цена сейчас: ${current:.6g}\n"
+        f"Результат сценария с момента публикации: {return_pct:+.2f}%\n\n"
         f"{state}\n\n"
         "Не является индивидуальной инвестиционной рекомендацией."
     )
@@ -465,17 +504,17 @@ def _generate_update_text(
     if not provider.api_key or not provider.text_model:
         return fallback, None
     system = (
-        "Ты редактор Telegram-канала MEANX. Напиши короткое ежедневное обновление на русском "
-        "по исходной карточке. Используй только JSON. Показатель return уже учитывает направление: "
-        "плюс означает движение в пользу сценария. Не добавляй причины, новости, прогнозы, гарантии "
-        "или новые числа. Если status=closed, прямо скажи, что условие сканера исчезло и наблюдение "
-        "завершено. До 600 символов, с дисклеймером."
+        "Ты редактор Telegram-канала MEANX. Напиши краткое обновление на русском "
+        "только по фактам из JSON. Плюс в return означает движение в пользу сценария. "
+        "Не добавляй причины, новости, новые прогнозы или гарантии. Если status=closed, "
+        "прямо скажи, что условие исчезло и наблюдение завершено. Не используй Markdown, "
+        "эмодзи и длинное тире. Используй обычный дефис. До 350 символов."
     )
     try:
-        return (
-            provider.generate_text(system, json.dumps(facts, ensure_ascii=False))[:4096],
-            provider.response_json(),
+        text = _clean_telegram_text(
+            provider.generate_text(system, json.dumps(facts, ensure_ascii=False))
         )
+        return text[:4096] or fallback, provider.response_json()
     except Exception as exc:
         return fallback, json.dumps({"update_error": str(exc)}, ensure_ascii=False)
 
