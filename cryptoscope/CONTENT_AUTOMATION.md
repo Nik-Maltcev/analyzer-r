@@ -23,6 +23,7 @@ Optional:
 CONTENT_BOT_USER_ID=content-bot
 CONTENT_CARD_DIR=/data/content_cards
 CONTENT_REPEAT_TICKER_DAYS=30
+CONTENT_DEPLOY_PREVIEW_ENABLED=false
 ```
 
 The Telegram bot must be an administrator of the channel with permission to post.
@@ -40,3 +41,8 @@ text/card fallback. Telegram configuration is mandatory when automation is enabl
 
 Updates are replies to the original post. A unique database constraint and market
 data date make deploy/startup retries idempotent.
+
+For temporary visual testing, set `CONTENT_DEPLOY_PREVIEW_ENABLED=true`. Each
+service deploy republishes the latest active signal and makes that new message the
+parent for future daily updates. The scheduled daily run does not create preview
+duplicates. Set the variable back to `false` after approving the post design.

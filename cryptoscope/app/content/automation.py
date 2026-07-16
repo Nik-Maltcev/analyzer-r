@@ -455,6 +455,62 @@ def _publish_draft(
         raise
 
 
+def _republish_latest_active(
+    conn: sqlite3.Connection,
+    settings: Settings,
+    provider: OpenRouterClient,
+    telegram: TelegramPublisher,
+) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT * FROM content_publications
+        WHERE market = 'crypto' AND status = 'active'
+        ORDER BY published_at DESC, id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    if not row:
+        return None
+
+    payload = _payload(row)
+    text, text_response = _generate_initial_text(provider, payload)
+    background, image_response = _generate_background(provider, payload)
+    card_path = Path(settings.content_card_dir) / (
+        f"deploy-preview-{payload['data_date']}-{payload['scanner']}-"
+        f"{payload['ticker'].replace('/', '-')}.png"
+    )
+    render_signal_card(payload, card_path, background)
+    message_id = telegram.send_photo(card_path, text)
+    provider_response = json.dumps(
+        {"text": text_response, "image": image_response, "deploy_preview": True},
+        ensure_ascii=False,
+    )[:20000]
+    conn.execute(
+        """
+        UPDATE content_publications
+        SET telegram_message_id = ?, telegram_chat_id = ?, card_path = ?,
+            initial_text = ?, provider_response = ?,
+            published_at = datetime('now'), updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (
+            message_id,
+            telegram.chat_id,
+            str(card_path),
+            text,
+            provider_response,
+            int(row["id"]),
+        ),
+    )
+    conn.commit()
+    return {
+        "status": "deploy_preview_published",
+        "publication_id": int(row["id"]),
+        "message_id": message_id,
+        "ticker": payload["ticker"],
+    }
+
+
 def _active_period_exists(conn: sqlite3.Connection, row: sqlite3.Row) -> bool:
     found = conn.execute(
         """
@@ -588,7 +644,10 @@ def _update_active_publications(
     return updated
 
 
-def run_content_automation(settings: Settings | None = None) -> dict[str, Any]:
+def run_content_automation(
+    settings: Settings | None = None,
+    deploy_preview: bool = False,
+) -> dict[str, Any]:
     settings = settings or get_settings()
     if not settings.content_automation_enabled:
         return {"status": "disabled"}
@@ -610,6 +669,11 @@ def run_content_automation(settings: Settings | None = None) -> dict[str, Any]:
         wide = _price_frame(conn)
         if wide.empty:
             return {"status": "no_crypto_prices"}
+
+        if deploy_preview and settings.content_deploy_preview_enabled:
+            preview = _republish_latest_active(conn, settings, provider, telegram)
+            if preview:
+                return preview
 
         updates = _update_active_publications(conn, wide, provider, telegram)
         draft = conn.execute(

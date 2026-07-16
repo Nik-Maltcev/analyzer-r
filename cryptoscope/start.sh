@@ -117,7 +117,7 @@ python /scripts/load_international.py
 
 # 9. Retry today's idempotent content publication after a deploy
 (
-    python /scripts/run_content_automation.py || echo "[$(date -u)] content automation startup run failed"
+    python /scripts/run_content_automation.py --deploy-preview || echo "[$(date -u)] content automation startup run failed"
 ) &
 
 # 10. Start background update loop (checks every 30s, runs daily_update at 06:00 UTC)

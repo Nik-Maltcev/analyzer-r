@@ -1,4 +1,5 @@
 import sqlite3
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -7,6 +8,7 @@ from app.content.automation import (
     _clean_telegram_text,
     _generate_initial_text,
     _initial_fallback,
+    _republish_latest_active,
     directional_return_pct,
     select_candidate,
 )
@@ -68,6 +70,50 @@ def test_generated_content_keeps_fixed_structure():
     assert "Цена при публикации: $570.94" in text
     assert "—" not in text
     assert "**" not in text
+
+
+def test_deploy_preview_republishes_latest_active_signal(tmp_path):
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(CREATE_CONTENT_PUBLICATIONS)
+    conn.execute(
+        """
+        INSERT INTO content_publications (
+            market, scanner, ticker, direction, confidence, first_seen_date,
+            data_date, signal_age_days, review_in_days, entry_price, status,
+            telegram_message_id, telegram_chat_id
+        ) VALUES (
+            'crypto', 'drawdown', 'ZEC/USD', 'long', 'high', '2026-07-15',
+            '2026-07-16', 2, 8, 570.94, 'active', 5, '-100-old'
+        )
+        """
+    )
+
+    class Provider:
+        api_key = ""
+        text_model = ""
+        image_model = ""
+
+    class Telegram:
+        chat_id = "@meanx_trade"
+
+        @staticmethod
+        def send_photo(_path, _text):
+            return 77
+
+    result = _republish_latest_active(
+        conn,
+        SimpleNamespace(content_card_dir=str(tmp_path)),
+        Provider(),
+        Telegram(),
+    )
+
+    row = conn.execute(
+        "SELECT telegram_message_id, telegram_chat_id FROM content_publications"
+    ).fetchone()
+    assert result["status"] == "deploy_preview_published"
+    assert row["telegram_message_id"] == 77
+    assert row["telegram_chat_id"] == "@meanx_trade"
 
 
 def test_select_candidate_uses_active_high_confidence_crypto_period(monkeypatch):
