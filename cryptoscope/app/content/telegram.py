@@ -23,10 +23,24 @@ class TelegramPublisher:
 
     @staticmethod
     def _result(response: httpx.Response) -> dict:
-        response.raise_for_status()
-        payload = response.json()
-        if not payload.get("ok"):
-            raise RuntimeError(f"Telegram rejected the request: {payload}")
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        if not response.is_success or not payload.get("ok"):
+            description = (
+                payload.get("description")
+                or "request failed without a JSON description"
+            )
+            hint = ""
+            if response.status_code == 403:
+                hint = (
+                    " Check that the bot is an administrator of the target channel "
+                    "and has permission to post messages."
+                )
+            raise RuntimeError(
+                f"Telegram API error {response.status_code}: {description}.{hint}"
+            )
         return payload["result"]
 
     def send_photo(self, image_path: str | Path, caption: str) -> int:
