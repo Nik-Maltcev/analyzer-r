@@ -71,3 +71,25 @@ def test_threads_reports_image_processing_error(monkeypatch):
 
     with pytest.raises(RuntimeError, match="Image URL returned HTTP 404"):
         publisher._wait_for_media("container-123")
+
+
+def test_threads_image_container_includes_topic(monkeypatch):
+    publisher = ThreadsPublisher("token")
+    calls = []
+
+    def fake_post(path, params):
+        calls.append((path, params))
+        return {"id": "post-123" if path.endswith("threads_publish") else "container-123"}
+
+    monkeypatch.setattr(publisher, "_post", fake_post)
+    monkeypatch.setattr(publisher, "_wait_for_media", lambda *_args: None)
+
+    post_id = publisher.send_image(
+        "https://example.com/card.jpg",
+        "Signal text",
+        "Signal card",
+        "Криптовалюты",
+    )
+
+    assert post_id == "post-123"
+    assert calls[0][1]["topic_tag"] == "Криптовалюты"

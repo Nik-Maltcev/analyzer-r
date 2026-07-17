@@ -105,17 +105,26 @@ class ThreadsPublisher:
             raise RuntimeError("Threads API did not return a post id")
         return post_id
 
-    def send_image(self, image_url: str, text: str, alt_text: str) -> str:
+    def send_image(
+        self,
+        image_url: str,
+        text: str,
+        alt_text: str,
+        topic_tag: str = "",
+    ) -> str:
         if not self.configured:
             raise RuntimeError("Threads content channel is not configured")
+        params = {
+            "media_type": "IMAGE",
+            "image_url": image_url,
+            "text": self._short_text(text),
+            "alt_text": self._short_text(alt_text, 1000),
+        }
+        if topic_tag.strip():
+            params["topic_tag"] = topic_tag.strip()
         container = self._post(
             "me/threads",
-            {
-                "media_type": "IMAGE",
-                "image_url": image_url,
-                "text": self._short_text(text),
-                "alt_text": self._short_text(alt_text, 1000),
-            },
+            params,
         )
         container_id = str(container.get("id") or "")
         if not container_id:
@@ -123,31 +132,42 @@ class ThreadsPublisher:
         self._wait_for_media(container_id)
         return self._publish_container(container_id)
 
-    def send_reply(self, text: str, reply_to_id: str) -> str:
+    def send_reply(
+        self,
+        text: str,
+        reply_to_id: str,
+        topic_tag: str = "",
+    ) -> str:
         if not self.configured:
             raise RuntimeError("Threads content channel is not configured")
+        params = {
+            "media_type": "TEXT",
+            "text": self._short_text(text),
+            "reply_to_id": str(reply_to_id),
+        }
+        if topic_tag.strip():
+            params["topic_tag"] = topic_tag.strip()
         container = self._post(
             "me/threads",
-            {
-                "media_type": "TEXT",
-                "text": self._short_text(text),
-                "reply_to_id": str(reply_to_id),
-            },
+            params,
         )
         container_id = str(container.get("id") or "")
         if not container_id:
             raise RuntimeError("Threads API did not return a reply container id")
         return self._publish_container(container_id)
 
-    def send_text(self, text: str) -> str:
+    def send_text(self, text: str, topic_tag: str = "") -> str:
         if not self.configured:
             raise RuntimeError("Threads content channel is not configured")
+        params = {
+            "media_type": "TEXT",
+            "text": self._short_text(text),
+        }
+        if topic_tag.strip():
+            params["topic_tag"] = topic_tag.strip()
         container = self._post(
             "me/threads",
-            {
-                "media_type": "TEXT",
-                "text": self._short_text(text),
-            },
+            params,
         )
         container_id = str(container.get("id") or "")
         if not container_id:

@@ -440,6 +440,19 @@ def _threads_alt_text(payload: dict[str, Any]) -> str:
     )
 
 
+def _threads_topic_tag(payload: Any) -> str:
+    ticker = str(payload["ticker"]).upper()
+    scanner = str(payload["scanner"]).lower()
+    direction = str(payload["direction"]).lower()
+    if ticker.startswith(("BTC/", "WBTC/")):
+        return "Биткоин"
+    if scanner == "momentum":
+        return "Трейдинг"
+    if scanner == "drawdown" and direction == "long":
+        return "Инвестиции"
+    return "Криптовалюты"
+
+
 def _send_threads_image(
     threads: ThreadsPublisher,
     settings: Settings,
@@ -451,16 +464,18 @@ def _send_threads_image(
         return None
     image_path = _threads_jpeg(card_path)
     image_url = _threads_card_url(settings, image_path)
-    print(f"Threads image URL: {image_url}")
+    topic_tag = _threads_topic_tag(payload)
+    print(f"Threads image URL: {image_url} (topic: {topic_tag})")
     try:
         return threads.send_image(
             image_url,
             text,
             _threads_alt_text(payload),
+            topic_tag,
         )
     except RuntimeError as exc:
         print(f"Threads image publication failed; trying text fallback: {exc}")
-        return threads.send_text(text)
+        return threads.send_text(text, topic_tag)
 
 
 def _publish_draft(
@@ -791,6 +806,7 @@ def _update_active_publications(
                 threads_reply_id = threads.send_reply(
                     text,
                     str(row["threads_post_id"]),
+                    _threads_topic_tag(row),
                 )
             except Exception as exc:
                 threads_error = str(exc)

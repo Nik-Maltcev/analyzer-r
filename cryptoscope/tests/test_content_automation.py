@@ -11,6 +11,7 @@ from app.content.automation import (
     _republish_latest_active,
     _threads_card_url,
     _threads_jpeg,
+    _threads_topic_tag,
     directional_return_pct,
     select_candidate,
 )
@@ -141,6 +142,21 @@ def test_threads_card_uses_railway_domain_and_jpeg(tmp_path, monkeypatch):
         "https://analyzer-r-production.up.railway.app/"
         "api/public/content/cards/signal.threads.jpg?v="
     )
+
+
+def test_threads_topic_is_selected_from_signal_context():
+    assert _threads_topic_tag({
+        "ticker": "BTC/USD", "scanner": "drawdown", "direction": "long"
+    }) == "Биткоин"
+    assert _threads_topic_tag({
+        "ticker": "SOL/USD", "scanner": "momentum", "direction": "long"
+    }) == "Трейдинг"
+    assert _threads_topic_tag({
+        "ticker": "ZEC/USD", "scanner": "drawdown", "direction": "long"
+    }) == "Инвестиции"
+    assert _threads_topic_tag({
+        "ticker": "ZEC/USD", "scanner": "drawdown", "direction": "short"
+    }) == "Криптовалюты"
 
 
 def test_select_candidate_uses_active_high_confidence_crypto_period(monkeypatch):
