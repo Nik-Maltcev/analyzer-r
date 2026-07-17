@@ -9,6 +9,8 @@ from app.content.automation import (
     _generate_initial_text,
     _initial_fallback,
     _republish_latest_active,
+    _threads_card_url,
+    _threads_jpeg,
     directional_return_pct,
     select_candidate,
 )
@@ -114,6 +116,31 @@ def test_deploy_preview_republishes_latest_active_signal(tmp_path):
     assert result["status"] == "deploy_preview_published"
     assert row["telegram_message_id"] == 77
     assert row["telegram_chat_id"] == "@meanx_trade"
+
+
+def test_threads_card_uses_railway_domain_and_jpeg(tmp_path, monkeypatch):
+    from PIL import Image
+
+    png_path = tmp_path / "signal.png"
+    Image.new("RGB", (20, 20), "#102030").save(png_path)
+    jpeg_path = _threads_jpeg(png_path)
+    monkeypatch.setenv(
+        "RAILWAY_PUBLIC_DOMAIN",
+        "analyzer-r-production.up.railway.app",
+    )
+    settings = SimpleNamespace(
+        content_public_asset_base_url="",
+        app_base_url="https://www.meanx.pro",
+    )
+
+    url = _threads_card_url(settings, jpeg_path)
+
+    assert jpeg_path.suffix == ".jpg"
+    assert jpeg_path.is_file()
+    assert url.startswith(
+        "https://analyzer-r-production.up.railway.app/"
+        "api/public/content/cards/signal.threads.jpg?v="
+    )
 
 
 def test_select_candidate_uses_active_high_confidence_crypto_period(monkeypatch):

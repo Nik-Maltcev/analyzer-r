@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 from dataclasses import asdict, dataclass
@@ -12,6 +13,7 @@ from typing import Any
 from urllib.parse import quote
 
 import pandas as pd
+from PIL import Image
 
 from app.config import Settings, get_settings
 from app.content.card import render_signal_card
@@ -395,10 +397,38 @@ def _generate_background(provider: OpenRouterClient, payload: dict[str, Any]) ->
 
 
 def _threads_card_url(settings: Settings, card_path: Path) -> str:
-    base_url = settings.app_base_url.strip().rstrip("/")
+    configured_base = str(
+        getattr(settings, "content_public_asset_base_url", "") or ""
+    ).strip()
+    railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
+    base_url = configured_base
+    if not base_url and railway_domain:
+        base_url = f"https://{railway_domain}"
     if not base_url:
-        raise RuntimeError("APP_BASE_URL is required for Threads image publishing")
-    return f"{base_url}/api/public/content/cards/{quote(card_path.name)}"
+        base_url = settings.app_base_url.strip()
+    base_url = base_url.rstrip("/")
+    if not base_url:
+        raise RuntimeError(
+            "CONTENT_PUBLIC_ASSET_BASE_URL or APP_BASE_URL is required for "
+            "Threads image publishing"
+        )
+    cache_key = card_path.stat().st_mtime_ns
+    return (
+        f"{base_url}/api/public/content/cards/{quote(card_path.name)}"
+        f"?v={cache_key}"
+    )
+
+
+def _threads_jpeg(card_path: Path) -> Path:
+    jpeg_path = card_path.with_name(f"{card_path.stem}.threads.jpg")
+    with Image.open(card_path) as source:
+        source.convert("RGB").save(
+            jpeg_path,
+            format="JPEG",
+            quality=92,
+            optimize=True,
+        )
+    return jpeg_path
 
 
 def _threads_alt_text(payload: dict[str, Any]) -> str:
@@ -419,9 +449,12 @@ def _send_threads_image(
 ) -> str | None:
     if not threads.configured:
         return None
+    image_path = _threads_jpeg(card_path)
+    image_url = _threads_card_url(settings, image_path)
+    print(f"Threads image URL: {image_url}")
     try:
         return threads.send_image(
-            _threads_card_url(settings, card_path),
+            image_url,
             text,
             _threads_alt_text(payload),
         )
@@ -816,8 +849,15 @@ def run_content_automation(
     if settings.content_threads_enabled:
         if not threads.configured:
             raise RuntimeError("CONTENT_THREADS_ACCESS_TOKEN is required")
-        if not settings.app_base_url.strip():
-            raise RuntimeError("APP_BASE_URL is required for Threads image publishing")
+        if not (
+            settings.content_public_asset_base_url.strip()
+            or os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
+            or settings.app_base_url.strip()
+        ):
+            raise RuntimeError(
+                "CONTENT_PUBLIC_ASSET_BASE_URL or APP_BASE_URL is required for "
+                "Threads image publishing"
+            )
 
     with sqlite3.connect(settings.db_path) as conn:
         conn.row_factory = sqlite3.Row

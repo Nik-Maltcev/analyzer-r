@@ -37,13 +37,16 @@ CONTENT_THREADS_ENABLED=true
 CONTENT_THREADS_ACCESS_TOKEN=<long-lived Threads tester token>
 CONTENT_THREADS_API_VERSION=
 CONTENT_THREADS_DEPLOY_PREVIEW_ENABLED=false
+CONTENT_PUBLIC_ASSET_BASE_URL=
 APP_BASE_URL=https://www.meanx.pro
 ```
 
 The token is generated in Meta for Developers after the public Threads profile
 accepts its tester invitation. Keep it only in Railway variables. Meta downloads
-the generated card through `/api/public/content/cards/<filename>`, which can be
-proxied by Yandex API Gateway to Railway.
+the generated card through `/api/public/content/cards/<filename>`. On Railway,
+`RAILWAY_PUBLIC_DOMAIN` is used automatically so Meta fetches the JPEG directly
+from the application instead of through a regional reverse proxy. Set
+`CONTENT_PUBLIC_ASSET_BASE_URL` only when that automatic domain is unavailable.
 
 ## Lifecycle
 
