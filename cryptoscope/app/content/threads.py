@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import httpx
 
 
@@ -11,10 +13,14 @@ class ThreadsPublisher:
         access_token: str,
         api_version: str = "",
         timeout: float = 45.0,
+        media_timeout: float = 60.0,
+        media_poll_interval: float = 2.0,
     ) -> None:
         self.access_token = access_token.strip()
         self.api_version = api_version.strip().strip("/")
         self.timeout = timeout
+        self.media_timeout = media_timeout
+        self.media_poll_interval = media_poll_interval
         suffix = f"/{self.api_version}" if self.api_version else ""
         self.base_url = f"https://graph.threads.net{suffix}"
 
@@ -58,6 +64,40 @@ class ThreadsPublisher:
         except RuntimeError as exc:
             raise RuntimeError(f"{path}: {exc}") from None
 
+    def _get(self, path: str, params: dict[str, str]) -> dict:
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.get(
+                f"{self.base_url}/{path.lstrip('/')}",
+                params=params,
+                headers={"Authorization": f"Bearer {self.access_token}"},
+            )
+        try:
+            return self._result(response)
+        except RuntimeError as exc:
+            raise RuntimeError(f"{path}: {exc}") from None
+
+    def _wait_for_media(self, container_id: str) -> None:
+        deadline = time.monotonic() + self.media_timeout
+        last_status = "IN_PROGRESS"
+        while time.monotonic() < deadline:
+            result = self._get(
+                container_id,
+                {"fields": "id,status,error_message"},
+            )
+            last_status = str(result.get("status") or "IN_PROGRESS").upper()
+            if last_status == "FINISHED":
+                return
+            if last_status in {"ERROR", "EXPIRED"}:
+                detail = str(result.get("error_message") or "no error description")
+                raise RuntimeError(
+                    f"Threads media container {last_status.lower()}: {detail}"
+                )
+            time.sleep(self.media_poll_interval)
+        raise RuntimeError(
+            f"Threads media container was not ready after {self.media_timeout:g}s "
+            f"(last status: {last_status})"
+        )
+
     def _publish_container(self, container_id: str) -> str:
         result = self._post("me/threads_publish", {"creation_id": container_id})
         post_id = str(result.get("id") or "")
@@ -80,6 +120,7 @@ class ThreadsPublisher:
         container_id = str(container.get("id") or "")
         if not container_id:
             raise RuntimeError("Threads API did not return a container id")
+        self._wait_for_media(container_id)
         return self._publish_container(container_id)
 
     def send_reply(self, text: str, reply_to_id: str) -> str:

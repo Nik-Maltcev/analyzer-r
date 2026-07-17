@@ -38,3 +38,36 @@ def test_threads_success_returns_payload():
     response = httpx.Response(200, json={"id": "container-123"}, request=request)
 
     assert ThreadsPublisher._result(response) == {"id": "container-123"}
+
+
+def test_threads_waits_until_image_container_is_ready(monkeypatch):
+    publisher = ThreadsPublisher(
+        "token",
+        media_timeout=1,
+        media_poll_interval=0,
+    )
+    responses = iter(
+        [
+            {"id": "container-123", "status": "IN_PROGRESS"},
+            {"id": "container-123", "status": "FINISHED"},
+        ]
+    )
+    monkeypatch.setattr(publisher, "_get", lambda *_args, **_kwargs: next(responses))
+
+    publisher._wait_for_media("container-123")
+
+
+def test_threads_reports_image_processing_error(monkeypatch):
+    publisher = ThreadsPublisher("token", media_timeout=1, media_poll_interval=0)
+    monkeypatch.setattr(
+        publisher,
+        "_get",
+        lambda *_args, **_kwargs: {
+            "id": "container-123",
+            "status": "ERROR",
+            "error_message": "Image URL returned HTTP 404",
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="Image URL returned HTTP 404"):
+        publisher._wait_for_media("container-123")
