@@ -1,7 +1,9 @@
 # Crypto Telegram and Threads automation
 
 The workflow publishes at most one new crypto scanner signal for each market data
-date and posts one daily reply for every active publication. It never processes
+date and at most one channel update per day. Every active publication is still
+recalculated and stored. Closure or reversal updates have priority; otherwise the
+signal with the largest absolute move is selected. The workflow never processes
 equities or regional markets.
 
 ## Railway variables
@@ -59,6 +61,20 @@ from the application instead of through a regional reverse proxy. Set
 
 Updates are replies to the original post. A unique database constraint and market
 data date make deploy/startup retries idempotent.
+
+## Production schedule
+
+The Railway service loop uses UTC and runs every day, including weekends:
+
+```text
+06:30 UTC / 09:30 MSK - refresh data and publish one main signal
+16:00 UTC / 19:00 MSK - publish at most one active-signal update
+```
+
+Marker files in `/data` prevent duplicate runs after a service restart. The main
+post uses `--main-only`; the evening run uses `--updates-only`. If no eligible
+high-confidence signal or no newer market data exists, the run finishes without
+posting filler content.
 
 For temporary visual testing, set `CONTENT_DEPLOY_PREVIEW_ENABLED=true`. Each
 service deploy republishes the latest active signal and makes that new message the

@@ -764,14 +764,19 @@ def _update_active_publications(
     provider: OpenRouterClient,
     telegram: TelegramPublisher,
     threads: ThreadsPublisher,
+    publish_limit: int = 1,
 ) -> list[dict[str, Any]]:
     if wide.empty:
         return []
     data_date = str(wide.index.max())[:10]
     rows = conn.execute(
-        "SELECT * FROM content_publications WHERE market = 'crypto' AND status = 'active'"
+        """
+        SELECT * FROM content_publications
+        WHERE market = 'crypto' AND status = 'active'
+        ORDER BY published_at DESC, id DESC
+        """
     ).fetchall()
-    updated: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
     for row in rows:
         if data_date <= str(row["data_date"]):
             continue
@@ -786,13 +791,49 @@ def _update_active_publications(
         current = float(values.iloc[-1])
         return_pct = directional_return_pct(str(row["direction"]), float(row["entry_price"]), current)
         closed = not _active_period_exists(conn, row)
-        text, response = _generate_update_text(
-            provider, row, current, return_pct, closed, data_date
+        candidates.append({
+            "row": row,
+            "ticker": ticker,
+            "current": current,
+            "return_pct": return_pct,
+            "closed": closed,
+        })
+
+    candidates.sort(
+        key=lambda item: (
+            not item["closed"],
+            -abs(item["return_pct"]),
+            -int(item["row"]["id"]),
         )
-        telegram.send_message(text, int(row["telegram_message_id"] or 0) or None)
+    )
+
+    updated: list[dict[str, Any]] = []
+    published_count = 0
+    for candidate in candidates:
+        row = candidate["row"]
+        ticker = candidate["ticker"]
+        current = candidate["current"]
+        return_pct = candidate["return_pct"]
+        closed = candidate["closed"]
+        should_publish = published_count < max(0, publish_limit)
+        if should_publish:
+            text, response = _generate_update_text(
+                provider, row, current, return_pct, closed, data_date
+            )
+            telegram.send_message(
+                text,
+                int(row["telegram_message_id"] or 0) or None,
+            )
+            published_count += 1
+        else:
+            text = _update_fallback(row, current, return_pct, closed)
+            response = json.dumps(
+                {"channel_publish_skipped": "daily_limit"},
+                ensure_ascii=False,
+            )
         threads_reply_id = None
         threads_error = None
-        if threads.configured and row["threads_post_id"]:
+        if should_publish and threads.configured and row["threads_post_id"]:
             try:
                 threads_reply_id = threads.send_reply(
                     text,
@@ -821,6 +862,7 @@ def _update_active_publications(
             "id": int(row["id"]),
             "ticker": ticker,
             "status": status,
+            "published": should_publish,
             "threads_reply_id": threads_reply_id,
             "threads_error": threads_error,
         })
@@ -830,6 +872,8 @@ def _update_active_publications(
 def run_content_automation(
     settings: Settings | None = None,
     deploy_preview: bool = False,
+    publish_main: bool = True,
+    publish_updates: bool = True,
 ) -> dict[str, Any]:
     settings = settings or get_settings()
     if not settings.content_automation_enabled:
@@ -879,17 +923,37 @@ def run_content_automation(
                 threads_backfill = {"error": str(exc)}
                 print(f"Threads backfill failed: {exc}")
 
-        if deploy_preview and settings.content_deploy_preview_enabled:
-            preview = _republish_latest_active(
-                conn, settings, provider, telegram, threads
-            )
-            if preview:
-                preview["threads_backfill"] = threads_backfill
-                return preview
+        if deploy_preview:
+            if settings.content_deploy_preview_enabled:
+                preview = _republish_latest_active(
+                    conn, settings, provider, telegram, threads
+                )
+                if preview:
+                    preview["threads_backfill"] = threads_backfill
+                    return preview
+            return {
+                "status": "deploy_preview_disabled",
+                "threads_backfill": threads_backfill,
+            }
 
-        updates = _update_active_publications(
-            conn, wide, provider, telegram, threads
+        updates = (
+            _update_active_publications(
+                conn,
+                wide,
+                provider,
+                telegram,
+                threads,
+                publish_limit=1,
+            )
+            if publish_updates
+            else []
         )
+        if not publish_main:
+            return {
+                "status": "updates_completed",
+                "threads_backfill": threads_backfill,
+                "updates": updates,
+            }
         draft = conn.execute(
             """
             SELECT id FROM content_publications

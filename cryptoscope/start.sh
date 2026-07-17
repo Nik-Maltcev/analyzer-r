@@ -125,7 +125,8 @@ python /scripts/load_international.py
     python /scripts/run_content_automation.py --deploy-preview || echo "[$(date -u)] content automation startup run failed"
 ) &
 
-# 10. Start background update loop (checks every 30s, runs daily_update at 06:00 UTC)
+# 10. Start background publishing loop.
+# Moscow is UTC+3 year-round: 06:30 UTC = 09:30 MSK, 16:00 UTC = 19:00 MSK.
 if [ ! -f "$ANALYSIS_POLICY_MARKER" ]; then
     (
         echo "[$(date -u)] Recomputing pairs for updated equity signal policy..."
@@ -140,12 +141,27 @@ fi
 
 (
     while true; do
-        CURRENT_HOUR=$(date -u +%H)
-        CURRENT_MINUTE=$(date -u +%M)
-        if [ "$CURRENT_HOUR" = "06" ] && [ "$CURRENT_MINUTE" = "00" ]; then
+        CURRENT_DATE=$(date -u +%F)
+        CURRENT_TIME=$(date -u +%H%M)
+        DAILY_MARKER="/data/.meanx-daily-$CURRENT_DATE"
+        EVENING_MARKER="/data/.meanx-evening-$CURRENT_DATE"
+
+        if [ "$CURRENT_TIME" -ge "0630" ] && [ ! -f "$DAILY_MARKER" ]; then
             echo "[$(date -u)] Running daily update..."
-            python /scripts/daily_update.py || echo "[$(date -u)] daily update failed"
-            sleep 90
+            if python /scripts/daily_update.py; then
+                touch "$DAILY_MARKER"
+            else
+                echo "[$(date -u)] daily update failed"
+            fi
+        fi
+
+        if [ "$CURRENT_TIME" -ge "1600" ] && [ ! -f "$EVENING_MARKER" ]; then
+            echo "[$(date -u)] Publishing evening signal update..."
+            if python /scripts/run_content_automation.py --updates-only; then
+                touch "$EVENING_MARKER"
+            else
+                echo "[$(date -u)] evening content update failed"
+            fi
         fi
         sleep 30
     done

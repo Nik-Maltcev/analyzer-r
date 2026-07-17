@@ -272,7 +272,7 @@ def update_international_market(
     )
 
 
-def main():
+def main() -> int:
     conn = sqlite3.connect(DB_PATH)
 
     total = 0
@@ -312,10 +312,15 @@ def main():
 
     print("Running crypto content automation...")
     content_script = SCRIPT_DIR / "run_content_automation.py"
-    result = subprocess.run([sys.executable, str(content_script)], check=False)
+    result = subprocess.run(
+        [sys.executable, str(content_script), "--main-only"],
+        check=False,
+    )
     if result.returncode != 0:
         print(f"Content automation failed with exit code {result.returncode}")
+        return result.returncode
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
