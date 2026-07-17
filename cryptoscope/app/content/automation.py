@@ -419,11 +419,15 @@ def _send_threads_image(
 ) -> str | None:
     if not threads.configured:
         return None
-    return threads.send_image(
-        _threads_card_url(settings, card_path),
-        text,
-        _threads_alt_text(payload),
-    )
+    try:
+        return threads.send_image(
+            _threads_card_url(settings, card_path),
+            text,
+            _threads_alt_text(payload),
+        )
+    except RuntimeError as exc:
+        print(f"Threads image publication failed; trying text fallback: {exc}")
+        return threads.send_text(text)
 
 
 def _publish_draft(

@@ -9,13 +9,14 @@ class ThreadsPublisher:
     def __init__(
         self,
         access_token: str,
-        api_version: str = "v1.0",
+        api_version: str = "",
         timeout: float = 45.0,
     ) -> None:
         self.access_token = access_token.strip()
-        self.api_version = api_version.strip().strip("/") or "v1.0"
+        self.api_version = api_version.strip().strip("/")
         self.timeout = timeout
-        self.base_url = f"https://graph.threads.net/{self.api_version}"
+        suffix = f"/{self.api_version}" if self.api_version else ""
+        self.base_url = f"https://graph.threads.net{suffix}"
 
     @property
     def configured(self) -> bool:
@@ -49,10 +50,13 @@ class ThreadsPublisher:
         with httpx.Client(timeout=self.timeout) as client:
             response = client.post(
                 f"{self.base_url}/{path.lstrip('/')}",
-                data=data,
+                params=data,
                 headers={"Authorization": f"Bearer {self.access_token}"},
             )
-        return self._result(response)
+        try:
+            return self._result(response)
+        except RuntimeError as exc:
+            raise RuntimeError(f"{path}: {exc}") from None
 
     def _publish_container(self, container_id: str) -> str:
         result = self._post("me/threads_publish", {"creation_id": container_id})
@@ -92,4 +96,19 @@ class ThreadsPublisher:
         container_id = str(container.get("id") or "")
         if not container_id:
             raise RuntimeError("Threads API did not return a reply container id")
+        return self._publish_container(container_id)
+
+    def send_text(self, text: str) -> str:
+        if not self.configured:
+            raise RuntimeError("Threads content channel is not configured")
+        container = self._post(
+            "me/threads",
+            {
+                "media_type": "TEXT",
+                "text": self._short_text(text),
+            },
+        )
+        container_id = str(container.get("id") or "")
+        if not container_id:
+            raise RuntimeError("Threads API did not return a text container id")
         return self._publish_container(container_id)
