@@ -144,18 +144,15 @@ def test_threads_card_uses_railway_domain_and_jpeg(tmp_path, monkeypatch):
     )
 
 
-def test_threads_topic_is_selected_from_signal_context():
+def test_threads_scanner_signals_use_crypto_topic():
     assert _threads_topic_tag({
         "ticker": "BTC/USD", "scanner": "drawdown", "direction": "long"
-    }) == "Биткоин"
+    }) == "Криптовалюты"
     assert _threads_topic_tag({
         "ticker": "SOL/USD", "scanner": "momentum", "direction": "long"
-    }) == "Трейдинг"
+    }) == "Криптовалюты"
     assert _threads_topic_tag({
-        "ticker": "ZEC/USD", "scanner": "drawdown", "direction": "long"
-    }) == "Инвестиции"
-    assert _threads_topic_tag({
-        "ticker": "ZEC/USD", "scanner": "drawdown", "direction": "short"
+        "ticker": "ZEC/USD", "scanner": "momentum", "direction": "short"
     }) == "Криптовалюты"
 
 

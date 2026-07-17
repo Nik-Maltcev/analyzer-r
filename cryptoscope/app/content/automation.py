@@ -440,16 +440,7 @@ def _threads_alt_text(payload: dict[str, Any]) -> str:
     )
 
 
-def _threads_topic_tag(payload: Any) -> str:
-    ticker = str(payload["ticker"]).upper()
-    scanner = str(payload["scanner"]).lower()
-    direction = str(payload["direction"]).lower()
-    if ticker.startswith(("BTC/", "WBTC/")):
-        return "Биткоин"
-    if scanner == "momentum":
-        return "Трейдинг"
-    if scanner == "drawdown" and direction == "long":
-        return "Инвестиции"
+def _threads_topic_tag(_payload: Any) -> str:
     return "Криптовалюты"
 
 
