@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     content_card_dir: str = "/data/content_cards"
     content_repeat_ticker_days: int = 30
     content_deploy_preview_enabled: bool = False
+    content_threads_enabled: bool = False
+    content_threads_access_token: str = ""
+    content_threads_api_version: str = "v1.0"
+    content_threads_deploy_preview_enabled: bool = False
 
     log_level: str = "info"
 

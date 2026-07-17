@@ -316,6 +316,7 @@ CREATE TABLE IF NOT EXISTS content_publications (
     favorite_id           INTEGER,
     telegram_message_id   INTEGER,
     telegram_chat_id      TEXT,
+    threads_post_id       TEXT,
     card_path             TEXT,
     initial_text          TEXT,
     last_update_text      TEXT,

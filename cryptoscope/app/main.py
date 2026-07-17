@@ -21,6 +21,7 @@ from app.api.payments import router as payments_router
 from app.api.portfolio import router as portfolio_router
 from app.api.polymarket import api_router as polymarket_api_router
 from app.api.polymarket import ui_router as polymarket_ui_router
+from app.api.public_content import router as public_content_router
 from app.api.public_extension import router as public_extension_router
 from app.api.scanners import router as scanners_router
 from app.api.signals import router as signals_router
@@ -167,6 +168,7 @@ app.include_router(data_router, prefix="/api")
 app.include_router(charts_router, prefix="/api")
 app.include_router(locale_router, prefix="/api")
 app.include_router(public_extension_router, prefix="/api")
+app.include_router(public_content_router, prefix="/api")
 app.include_router(payments_router)
 app.include_router(ui_router)
 app.include_router(polymarket_api_router)

@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pandas as pd
 
@@ -16,6 +17,7 @@ from app.config import Settings, get_settings
 from app.content.card import render_signal_card
 from app.content.providers import OpenRouterClient
 from app.content.telegram import TelegramPublisher
+from app.content.threads import ThreadsPublisher
 from app.core.scanner_history import SCANNER_HORIZONS
 from app.core.scanners import drawdown_scan, momentum_scan
 from app.db.schema import (
@@ -56,6 +58,12 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     for statement in CREATE_SCANNER_SIGNAL_INDICES:
         conn.execute(statement)
     conn.execute(CREATE_CONTENT_PUBLICATIONS)
+    publication_columns = {
+        str(row[1])
+        for row in conn.execute("PRAGMA table_info(content_publications)").fetchall()
+    }
+    if "threads_post_id" not in publication_columns:
+        conn.execute("ALTER TABLE content_publications ADD COLUMN threads_post_id TEXT")
     for statement in CREATE_CONTENT_PUBLICATION_INDICES:
         conn.execute(statement)
     conn.commit()
@@ -386,12 +394,45 @@ def _generate_background(provider: OpenRouterClient, payload: dict[str, Any]) ->
         return None, json.dumps({"image_error": str(exc)}, ensure_ascii=False)
 
 
+def _threads_card_url(settings: Settings, card_path: Path) -> str:
+    base_url = settings.app_base_url.strip().rstrip("/")
+    if not base_url:
+        raise RuntimeError("APP_BASE_URL is required for Threads image publishing")
+    return f"{base_url}/api/public/content/cards/{quote(card_path.name)}"
+
+
+def _threads_alt_text(payload: dict[str, Any]) -> str:
+    side = "лонг" if payload["direction"] == "long" else "шорт"
+    return (
+        f"Карточка MEANX: {payload['ticker']}, рассмотреть {side}. "
+        f"Сканер {payload['scanner']}, цена при публикации "
+        f"{payload['entry_price']:.6g} доллара."
+    )
+
+
+def _send_threads_image(
+    threads: ThreadsPublisher,
+    settings: Settings,
+    payload: dict[str, Any],
+    card_path: Path,
+    text: str,
+) -> str | None:
+    if not threads.configured:
+        return None
+    return threads.send_image(
+        _threads_card_url(settings, card_path),
+        text,
+        _threads_alt_text(payload),
+    )
+
+
 def _publish_draft(
     conn: sqlite3.Connection,
     publication_id: int,
     settings: Settings,
     provider: OpenRouterClient,
     telegram: TelegramPublisher,
+    threads: ThreadsPublisher,
 ) -> int:
     claimed = conn.execute(
         """
@@ -419,21 +460,35 @@ def _publish_draft(
         )
         render_signal_card(payload, card_path, background)
         message_id = telegram.send_photo(card_path, text)
+        threads_post_id = None
+        threads_error = None
+        try:
+            threads_post_id = _send_threads_image(
+                threads, settings, payload, card_path, text
+            )
+        except Exception as exc:
+            threads_error = str(exc)
+            print(f"Threads initial publication failed: {threads_error}")
         provider_response = json.dumps(
-            {"text": text_response, "image": image_response},
+            {
+                "text": text_response,
+                "image": image_response,
+                "threads_error": threads_error,
+            },
             ensure_ascii=False,
         )[:20000]
         conn.execute(
             """
             UPDATE content_publications
             SET status = 'active', telegram_message_id = ?, telegram_chat_id = ?,
-                card_path = ?, initial_text = ?, provider_response = ?,
+                threads_post_id = ?, card_path = ?, initial_text = ?, provider_response = ?,
                 published_at = datetime('now'), updated_at = datetime('now')
             WHERE id = ? AND status = 'publishing'
             """,
             (
                 message_id,
                 telegram.chat_id,
+                threads_post_id,
                 str(card_path),
                 text,
                 provider_response,
@@ -460,6 +515,7 @@ def _republish_latest_active(
     settings: Settings,
     provider: OpenRouterClient,
     telegram: TelegramPublisher,
+    threads: ThreadsPublisher | None = None,
 ) -> dict[str, Any] | None:
     row = conn.execute(
         """
@@ -481,14 +537,34 @@ def _republish_latest_active(
     )
     render_signal_card(payload, card_path, background)
     message_id = telegram.send_photo(card_path, text)
+    threads_post_id = None
+    threads_error = None
+    if (
+        threads
+        and threads.configured
+        and settings.content_threads_deploy_preview_enabled
+    ):
+        try:
+            threads_post_id = _send_threads_image(
+                threads, settings, payload, card_path, text
+            )
+        except Exception as exc:
+            threads_error = str(exc)
+            print(f"Threads deploy preview failed: {threads_error}")
     provider_response = json.dumps(
-        {"text": text_response, "image": image_response, "deploy_preview": True},
+        {
+            "text": text_response,
+            "image": image_response,
+            "deploy_preview": True,
+            "threads_error": threads_error,
+        },
         ensure_ascii=False,
     )[:20000]
     conn.execute(
         """
         UPDATE content_publications
-        SET telegram_message_id = ?, telegram_chat_id = ?, card_path = ?,
+        SET telegram_message_id = ?, telegram_chat_id = ?,
+            threads_post_id = COALESCE(?, threads_post_id), card_path = ?,
             initial_text = ?, provider_response = ?,
             published_at = datetime('now'), updated_at = datetime('now')
         WHERE id = ?
@@ -496,6 +572,7 @@ def _republish_latest_active(
         (
             message_id,
             telegram.chat_id,
+            threads_post_id,
             str(card_path),
             text,
             provider_response,
@@ -507,7 +584,55 @@ def _republish_latest_active(
         "status": "deploy_preview_published",
         "publication_id": int(row["id"]),
         "message_id": message_id,
+        "threads_post_id": threads_post_id,
         "ticker": payload["ticker"],
+    }
+
+
+def _backfill_latest_threads_post(
+    conn: sqlite3.Connection,
+    settings: Settings,
+    threads: ThreadsPublisher,
+) -> dict[str, Any] | None:
+    if not threads.configured:
+        return None
+    row = conn.execute(
+        """
+        SELECT * FROM content_publications
+        WHERE market = 'crypto' AND status = 'active'
+          AND COALESCE(threads_post_id, '') = ''
+          AND COALESCE(card_path, '') != ''
+          AND COALESCE(initial_text, '') != ''
+        ORDER BY published_at DESC, id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    if not row:
+        return None
+    card_path = Path(str(row["card_path"]))
+    if not card_path.is_file():
+        return None
+    payload = _payload(row)
+    post_id = _send_threads_image(
+        threads,
+        settings,
+        payload,
+        card_path,
+        str(row["initial_text"]),
+    )
+    conn.execute(
+        """
+        UPDATE content_publications
+        SET threads_post_id = ?, updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (post_id, int(row["id"])),
+    )
+    conn.commit()
+    return {
+        "publication_id": int(row["id"]),
+        "threads_post_id": post_id,
+        "ticker": str(row["ticker"]),
     }
 
 
@@ -599,6 +724,7 @@ def _update_active_publications(
     wide: pd.DataFrame,
     provider: OpenRouterClient,
     telegram: TelegramPublisher,
+    threads: ThreadsPublisher,
 ) -> list[dict[str, Any]]:
     if wide.empty:
         return []
@@ -625,6 +751,17 @@ def _update_active_publications(
             provider, row, current, return_pct, closed, data_date
         )
         telegram.send_message(text, int(row["telegram_message_id"] or 0) or None)
+        threads_reply_id = None
+        threads_error = None
+        if threads.configured and row["threads_post_id"]:
+            try:
+                threads_reply_id = threads.send_reply(
+                    text,
+                    str(row["threads_post_id"]),
+                )
+            except Exception as exc:
+                threads_error = str(exc)
+                print(f"Threads update failed: {threads_error}")
         status = "closed" if closed else "active"
         conn.execute(
             """
@@ -640,7 +777,13 @@ def _update_active_publications(
         if closed:
             _close_favorite(conn, row["favorite_id"], current, return_pct)
         conn.commit()
-        updated.append({"id": int(row["id"]), "ticker": ticker, "status": status})
+        updated.append({
+            "id": int(row["id"]),
+            "ticker": ticker,
+            "status": status,
+            "threads_reply_id": threads_reply_id,
+            "threads_error": threads_error,
+        })
     return updated
 
 
@@ -662,6 +805,15 @@ def run_content_automation(
         settings.content_openrouter_text_model,
         settings.content_openrouter_image_model,
     )
+    threads = ThreadsPublisher(
+        settings.content_threads_access_token if settings.content_threads_enabled else "",
+        settings.content_threads_api_version,
+    )
+    if settings.content_threads_enabled:
+        if not threads.configured:
+            raise RuntimeError("CONTENT_THREADS_ACCESS_TOKEN is required")
+        if not settings.app_base_url.strip():
+            raise RuntimeError("APP_BASE_URL is required for Threads image publishing")
 
     with sqlite3.connect(settings.db_path) as conn:
         conn.row_factory = sqlite3.Row
@@ -670,12 +822,27 @@ def run_content_automation(
         if wide.empty:
             return {"status": "no_crypto_prices"}
 
+        threads_backfill = None
+        if threads.configured:
+            try:
+                threads_backfill = _backfill_latest_threads_post(
+                    conn, settings, threads
+                )
+            except Exception as exc:
+                threads_backfill = {"error": str(exc)}
+                print(f"Threads backfill failed: {exc}")
+
         if deploy_preview and settings.content_deploy_preview_enabled:
-            preview = _republish_latest_active(conn, settings, provider, telegram)
+            preview = _republish_latest_active(
+                conn, settings, provider, telegram, threads
+            )
             if preview:
+                preview["threads_backfill"] = threads_backfill
                 return preview
 
-        updates = _update_active_publications(conn, wide, provider, telegram)
+        updates = _update_active_publications(
+            conn, wide, provider, telegram, threads
+        )
         draft = conn.execute(
             """
             SELECT id FROM content_publications
@@ -684,8 +851,15 @@ def run_content_automation(
             """
         ).fetchone()
         if draft:
-            message_id = _publish_draft(conn, int(draft["id"]), settings, provider, telegram)
-            return {"status": "draft_published", "message_id": message_id, "updates": updates}
+            message_id = _publish_draft(
+                conn, int(draft["id"]), settings, provider, telegram, threads
+            )
+            return {
+                "status": "draft_published",
+                "message_id": message_id,
+                "threads_backfill": threads_backfill,
+                "updates": updates,
+            }
 
         data_date = str(wide.index.max())[:10]
         already_published = conn.execute(
@@ -697,17 +871,30 @@ def run_content_automation(
             (data_date,),
         ).fetchone()
         if already_published:
-            return {"status": "already_published", "data_date": data_date, "updates": updates}
+            return {
+                "status": "already_published",
+                "data_date": data_date,
+                "threads_backfill": threads_backfill,
+                "updates": updates,
+            }
 
         candidate = select_candidate(conn, wide, settings.content_repeat_ticker_days)
         if not candidate:
-            return {"status": "no_candidate", "data_date": data_date, "updates": updates}
+            return {
+                "status": "no_candidate",
+                "data_date": data_date,
+                "threads_backfill": threads_backfill,
+                "updates": updates,
+            }
         publication_id = _create_draft(conn, candidate, settings.content_bot_user_id)
-        message_id = _publish_draft(conn, publication_id, settings, provider, telegram)
+        message_id = _publish_draft(
+            conn, publication_id, settings, provider, telegram, threads
+        )
         return {
             "status": "published",
             "publication_id": publication_id,
             "message_id": message_id,
             "ticker": candidate.ticker,
+            "threads_backfill": threads_backfill,
             "updates": updates,
         }

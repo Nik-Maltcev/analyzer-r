@@ -1,4 +1,4 @@
-# Crypto Telegram automation
+# Crypto Telegram and Threads automation
 
 The workflow publishes at most one new crypto scanner signal for each market data
 date and posts one daily reply for every active publication. It never processes
@@ -30,6 +30,21 @@ The Telegram bot must be an administrator of the channel with permission to post
 If the OpenRouter key or either model is absent, the workflow uses a deterministic
 text/card fallback. Telegram configuration is mandatory when automation is enabled.
 
+Optional Threads publishing for the same signal and its daily updates:
+
+```text
+CONTENT_THREADS_ENABLED=true
+CONTENT_THREADS_ACCESS_TOKEN=<long-lived Threads tester token>
+CONTENT_THREADS_API_VERSION=v1.0
+CONTENT_THREADS_DEPLOY_PREVIEW_ENABLED=false
+APP_BASE_URL=https://www.meanx.pro
+```
+
+The token is generated in Meta for Developers after the public Threads profile
+accepts its tester invitation. Keep it only in Railway variables. Meta downloads
+the generated card through `/api/public/content/cards/<filename>`, which can be
+proxied by Yandex API Gateway to Railway.
+
 ## Lifecycle
 
 1. Update every active publication using the latest completed crypto candle.
@@ -38,6 +53,7 @@ text/card fallback. Telegram configuration is mandatory when automation is enabl
 4. Select the strongest active high-confidence Momentum or Drawdown signal.
 5. Add it to the isolated `content-bot` favorites portfolio.
 6. Generate a card and caption, publish them, and store the Telegram message id.
+7. When Threads is enabled, publish the same card and store its Threads post id.
 
 Updates are replies to the original post. A unique database constraint and market
 data date make deploy/startup retries idempotent.
