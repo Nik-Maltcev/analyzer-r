@@ -576,11 +576,7 @@ def _republish_latest_active(
     message_id = telegram.send_photo(card_path, text)
     threads_post_id = None
     threads_error = None
-    if (
-        threads
-        and threads.configured
-        and settings.content_threads_deploy_preview_enabled
-    ):
+    if threads and threads.configured:
         try:
             threads_post_id = _send_threads_image(
                 threads, settings, payload, card_path, text

@@ -60,7 +60,6 @@ class Settings(BaseSettings):
     content_threads_enabled: bool = False
     content_threads_access_token: str = ""
     content_threads_api_version: str = ""
-    content_threads_deploy_preview_enabled: bool = False
     content_public_asset_base_url: str = ""
 
     log_level: str = "info"

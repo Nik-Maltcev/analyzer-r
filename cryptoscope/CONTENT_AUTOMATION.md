@@ -36,7 +36,6 @@ Optional Threads publishing for the same signal and its daily updates:
 CONTENT_THREADS_ENABLED=true
 CONTENT_THREADS_ACCESS_TOKEN=<long-lived Threads tester token>
 CONTENT_THREADS_API_VERSION=
-CONTENT_THREADS_DEPLOY_PREVIEW_ENABLED=false
 CONTENT_PUBLIC_ASSET_BASE_URL=
 APP_BASE_URL=https://www.meanx.pro
 ```
