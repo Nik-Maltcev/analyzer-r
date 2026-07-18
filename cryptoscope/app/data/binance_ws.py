@@ -69,16 +69,25 @@ async def fetch_latest_prices(symbols: list) -> Dict[str, float]:
     """Fetch latest prices via REST API (fallback/initial load)."""
     if not symbols:
         return {}
-    try:
-        symbols_str = json.dumps(symbols)
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{BINANCE_REST_URL}/ticker/price", params={"symbols": symbols_str})
-            resp.raise_for_status()
-            data = resp.json()
-            return {item["symbol"]: float(item["price"]) for item in data}
-    except Exception as e:
-        print(f"[Binance] Failed to fetch prices: {e}")
-        return {}
+    prices: Dict[str, float] = {}
+    batch_size = 40
+    async with httpx.AsyncClient(timeout=10) as client:
+        for start in range(0, len(symbols), batch_size):
+            batch = symbols[start:start + batch_size]
+            try:
+                resp = await client.get(
+                    f"{BINANCE_REST_URL}/ticker/price",
+                    params={"symbols": json.dumps(batch)},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                prices.update({
+                    item["symbol"]: float(item["price"])
+                    for item in data
+                })
+            except Exception as exc:
+                print(f"[Binance] Failed to fetch price batch: {exc}")
+    return prices
 
 
 def get_crypto_live_snapshot(

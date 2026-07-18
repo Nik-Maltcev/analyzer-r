@@ -53,7 +53,8 @@ explicit content origin takes priority.
 
 ## Lifecycle
 
-1. Update every active publication using the latest completed crypto candle.
+1. Update every active publication using the current Binance quote. If Binance is
+   temporarily unavailable, use the latest completed crypto candle as a fallback.
 2. Close monitoring when the scanner condition disappears or reverses.
 3. Retry an unfinished draft before selecting another signal.
 4. Select the strongest active high-confidence Momentum or Drawdown signal.

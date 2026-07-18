@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -23,6 +24,7 @@ from app.content.telegram import TelegramPublisher
 from app.content.threads import ThreadsPublisher
 from app.core.scanner_history import SCANNER_HORIZONS
 from app.core.scanners import drawdown_scan, momentum_scan
+from app.data.binance_ws import refresh_crypto_live_prices
 from app.db.schema import (
     CREATE_CONTENT_PUBLICATION_INDICES,
     CREATE_CONTENT_PUBLICATIONS,
@@ -705,6 +707,33 @@ def _active_period_exists(conn: sqlite3.Connection, row: sqlite3.Row) -> bool:
     return found is not None
 
 
+def _fetch_live_crypto_prices(tickers: list[str]) -> dict[str, float]:
+    """Fetch current Binance quotes for content updates, with caller fallback."""
+    if not tickers:
+        return {}
+    try:
+        result = asyncio.run(
+            refresh_crypto_live_prices(tickers, ttl_seconds=0)
+        )
+        raw_prices = result.get("prices", {})
+        prices = {
+            str(ticker): float(price)
+            for ticker, price in raw_prices.items()
+            if price is not None and float(price) > 0
+        }
+        print(
+            "Content live prices loaded from Binance: "
+            f"{len(prices)}/{len(set(tickers))}"
+        )
+        return prices
+    except Exception as exc:
+        print(
+            "Content live price refresh failed; using daily closes: "
+            f"{exc}"
+        )
+        return {}
+
+
 def _update_fallback(row: sqlite3.Row, current: float, return_pct: float, closed: bool) -> str:
     state = (
         "Условие сканера исчезло. Наблюдение завершено."
@@ -794,19 +823,29 @@ def _update_active_publications(
         ORDER BY published_at DESC, id DESC
         """
     ).fetchall()
+    eligible_rows = [
+        row for row in rows
+        if data_date > str(row["data_date"])
+        and (
+            not row["last_update_data_date"]
+            or data_date > str(row["last_update_data_date"])
+        )
+        and str(row["ticker"]) in wide.columns
+    ]
+    live_prices = _fetch_live_crypto_prices([
+        str(row["ticker"]) for row in eligible_rows
+    ])
     candidates: list[dict[str, Any]] = []
-    for row in rows:
-        if data_date <= str(row["data_date"]):
-            continue
-        if row["last_update_data_date"] and data_date <= str(row["last_update_data_date"]):
-            continue
+    for row in eligible_rows:
         ticker = str(row["ticker"])
-        if ticker not in wide.columns:
-            continue
         values = wide[ticker].dropna()
         if values.empty:
             continue
-        current = float(values.iloc[-1])
+        daily_close = float(values.iloc[-1])
+        current = live_prices.get(ticker, daily_close)
+        price_source = (
+            "binance_live" if ticker in live_prices else "daily_close"
+        )
         return_pct = directional_return_pct(
             str(row["direction"]),
             float(row["entry_price"]),
@@ -819,6 +858,7 @@ def _update_active_publications(
             "current": current,
             "return_pct": return_pct,
             "closed": closed,
+            "price_source": price_source,
         })
 
     candidates.sort(
@@ -837,6 +877,7 @@ def _update_active_publications(
         current = candidate["current"]
         return_pct = candidate["return_pct"]
         closed = candidate["closed"]
+        price_source = candidate["price_source"]
         should_publish = published_count < max(0, publish_limit)
         if should_publish:
             text, response = _generate_update_text(
@@ -900,6 +941,8 @@ def _update_active_publications(
             "ticker": ticker,
             "status": status,
             "published": should_publish,
+            "current_price": current,
+            "price_source": price_source,
             "threads_reply_id": threads_reply_id,
             "threads_error": threads_error,
         })

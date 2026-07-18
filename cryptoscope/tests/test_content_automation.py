@@ -324,7 +324,7 @@ def test_select_candidate_does_not_repeat_recent_ticker(monkeypatch):
     assert select_candidate(conn, wide, repeat_days=30) is None
 
 
-def test_evening_update_keeps_telegram_text_and_threads_image(tmp_path):
+def test_evening_update_keeps_telegram_text_and_threads_image(tmp_path, monkeypatch):
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.execute(CREATE_SCANNER_SIGNAL_PERIODS)
@@ -375,6 +375,11 @@ def test_evening_update_keeps_telegram_text_and_threads_image(tmp_path):
             cls.sent.append(args)
             return "threads-update-88"
 
+    monkeypatch.setattr(
+        "app.content.automation._fetch_live_crypto_prices",
+        lambda tickers: {"AAA/USD": 105.0},
+    )
+
     updates = _update_active_publications(
         conn,
         wide,
@@ -389,6 +394,9 @@ def test_evening_update_keeps_telegram_text_and_threads_image(tmp_path):
     )
 
     assert updates[0]["published"] is True
+    assert updates[0]["current_price"] == 105.0
+    assert updates[0]["price_source"] == "binance_live"
     assert Telegram.sent[0][1] == 77
+    assert "105" in Telegram.sent[0][0]
     assert Threads.sent[0][4] == "threads-original-77"
     assert "update-momentum-AAA-USD.threads.jpg" in Threads.sent[0][0]
