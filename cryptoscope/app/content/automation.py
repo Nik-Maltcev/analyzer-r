@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -464,19 +465,25 @@ def _send_threads_image(
     image_url = _threads_card_url(settings, image_path)
     topic_tag = _threads_topic_tag(payload)
     print(f"Threads image URL: {image_url} (topic: {topic_tag})")
-    try:
-        return threads.send_image(
-            image_url,
-            text,
-            _threads_alt_text(payload),
-            topic_tag,
-            reply_to_id,
-        )
-    except RuntimeError as exc:
-        print(f"Threads image publication failed; trying text fallback: {exc}")
-        if reply_to_id:
-            return threads.send_reply(text, reply_to_id, topic_tag)
-        return threads.send_text(text, topic_tag)
+    for attempt in range(1, 4):
+        try:
+            return threads.send_image(
+                image_url,
+                text,
+                _threads_alt_text(payload),
+                topic_tag,
+                reply_to_id,
+            )
+        except RuntimeError as exc:
+            if attempt == 3:
+                raise
+            delay = attempt * 5
+            print(
+                f"Threads image attempt {attempt}/3 failed: {exc}. "
+                f"Retrying in {delay}s..."
+            )
+            time.sleep(delay)
+    return None
 
 
 def _publish_draft(

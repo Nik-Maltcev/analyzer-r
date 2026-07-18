@@ -78,6 +78,10 @@ posting filler content. Restarts outside these windows do not trigger late catch
 posts. Main publications include an image in both channels. Evening updates remain
 text replies in Telegram and use an update image card in Threads.
 
+Threads image processing is retried three times. A failed image is never replaced
+with a text-only Threads post; the missing publication remains eligible for the
+next startup backfill.
+
 For temporary visual testing, set `CONTENT_DEPLOY_PREVIEW_ENABLED=true`. Each
 service deploy republishes the latest active signal and makes that new message the
 parent for future daily updates. The scheduled daily run does not create preview

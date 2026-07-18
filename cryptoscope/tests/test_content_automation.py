@@ -9,6 +9,7 @@ from app.content.automation import (
     _generate_initial_text,
     _initial_fallback,
     _republish_latest_active,
+    _send_threads_image,
     _threads_card_url,
     _threads_jpeg,
     _threads_topic_tag,
@@ -155,6 +156,48 @@ def test_threads_scanner_signals_use_crypto_topic():
     assert _threads_topic_tag({
         "ticker": "ZEC/USD", "scanner": "momentum", "direction": "short"
     }) == "Криптовалюты"
+
+
+def test_threads_image_retries_instead_of_publishing_text(tmp_path, monkeypatch):
+    from PIL import Image
+
+    card_path = tmp_path / "signal.png"
+    Image.new("RGB", (20, 20), "#102030").save(card_path)
+    monkeypatch.setattr("app.content.automation.time.sleep", lambda *_: None)
+
+    class Threads:
+        configured = True
+        attempts = 0
+
+        @classmethod
+        def send_image(cls, *_args):
+            cls.attempts += 1
+            if cls.attempts < 3:
+                raise RuntimeError("temporary image processing error")
+            return "threads-image-123"
+
+        @staticmethod
+        def send_text(*_args):
+            raise AssertionError("text fallback must not be published")
+
+    result = _send_threads_image(
+        Threads(),
+        SimpleNamespace(
+            content_public_asset_base_url="https://example.com",
+            app_base_url="",
+        ),
+        {
+            "ticker": "ZEC/USD",
+            "direction": "long",
+            "scanner": "drawdown",
+            "entry_price": 570.94,
+        },
+        card_path,
+        "Signal text",
+    )
+
+    assert result == "threads-image-123"
+    assert Threads.attempts == 3
 
 
 def test_select_candidate_uses_active_high_confidence_crypto_period(monkeypatch):
