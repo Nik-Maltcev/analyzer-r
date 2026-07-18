@@ -43,26 +43,15 @@ class TelegramPublisher:
             )
         return payload["result"]
 
-    def send_photo(
-        self,
-        image_path: str | Path,
-        caption: str,
-        reply_to_message_id: int | None = None,
-    ) -> int:
+    def send_photo(self, image_path: str | Path, caption: str) -> int:
         if not self.configured:
             raise RuntimeError("Telegram content channel is not configured")
-        data = {"chat_id": self.chat_id, "caption": caption[:1024]}
-        if reply_to_message_id:
-            data["reply_parameters"] = json.dumps({
-                "message_id": int(reply_to_message_id),
-                "allow_sending_without_reply": True,
-            })
         with Path(image_path).open("rb") as image_file, httpx.Client(
             timeout=self.timeout
         ) as client:
             response = client.post(
                 self._url("sendPhoto"),
-                data=data,
+                data={"chat_id": self.chat_id, "caption": caption[:1024]},
                 files={"photo": (Path(image_path).name, image_file, "image/png")},
             )
         return int(self._result(response)["message_id"])

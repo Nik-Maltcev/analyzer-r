@@ -835,20 +835,7 @@ def _update_active_publications(
             text, response = _generate_update_text(
                 provider, row, current, return_pct, closed, data_date
             )
-            update_payload = _payload(row)
-            update_payload.update({
-                "data_date": data_date,
-                "current_price": current,
-                "return_pct": return_pct,
-                "closed": closed,
-            })
-            card_path = Path(settings.content_card_dir) / (
-                f"{data_date}-update-{row['scanner']}-"
-                f"{ticker.replace('/', '-')}.png"
-            )
-            render_update_card(update_payload, card_path)
-            telegram.send_photo(
-                card_path,
+            telegram.send_message(
                 text,
                 int(row["telegram_message_id"] or 0) or None,
             )
@@ -863,6 +850,18 @@ def _update_active_publications(
         threads_error = None
         if should_publish and threads.configured and row["threads_post_id"]:
             try:
+                update_payload = _payload(row)
+                update_payload.update({
+                    "data_date": data_date,
+                    "current_price": current,
+                    "return_pct": return_pct,
+                    "closed": closed,
+                })
+                card_path = Path(settings.content_card_dir) / (
+                    f"{data_date}-update-{row['scanner']}-"
+                    f"{ticker.replace('/', '-')}.png"
+                )
+                render_update_card(update_payload, card_path)
                 threads_reply_id = _send_threads_image(
                     threads,
                     settings,

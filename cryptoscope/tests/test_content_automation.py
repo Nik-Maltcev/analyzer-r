@@ -235,7 +235,7 @@ def test_select_candidate_does_not_repeat_recent_ticker(monkeypatch):
     assert select_candidate(conn, wide, repeat_days=30) is None
 
 
-def test_evening_update_publishes_image_reply(tmp_path):
+def test_evening_update_keeps_telegram_text_and_threads_image(tmp_path):
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.execute(CREATE_SCANNER_SIGNAL_PERIODS)
@@ -254,9 +254,10 @@ def test_evening_update_publishes_image_reply(tmp_path):
         INSERT INTO content_publications (
             market, scanner, ticker, direction, confidence, first_seen_date,
             data_date, signal_age_days, review_in_days, entry_price, status,
-            telegram_message_id
+            telegram_message_id, threads_post_id
         ) VALUES ('crypto', 'momentum', 'AAA/USD', 'long', 'high',
-                  '2026-07-13', '2026-07-14', 2, 3, 100, 'active', 77)
+                  '2026-07-13', '2026-07-14', 2, 3, 100, 'active', 77,
+                  'threads-original-77')
         """
     )
     wide = pd.DataFrame(
@@ -272,23 +273,33 @@ def test_evening_update_publishes_image_reply(tmp_path):
         sent = []
 
         @classmethod
-        def send_photo(cls, path, text, reply_to_message_id=None):
-            cls.sent.append((path, text, reply_to_message_id))
+        def send_message(cls, text, reply_to_message_id=None):
+            cls.sent.append((text, reply_to_message_id))
             return 88
 
     class Threads:
-        configured = False
+        configured = True
+        sent = []
+
+        @classmethod
+        def send_image(cls, *args):
+            cls.sent.append(args)
+            return "threads-update-88"
 
     updates = _update_active_publications(
         conn,
         wide,
-        SimpleNamespace(content_card_dir=str(tmp_path)),
+        SimpleNamespace(
+            content_card_dir=str(tmp_path),
+            content_public_asset_base_url="https://example.com",
+            app_base_url="",
+        ),
         Provider(),
         Telegram(),
         Threads(),
     )
 
     assert updates[0]["published"] is True
-    assert Telegram.sent[0][2] == 77
-    assert Telegram.sent[0][0].is_file()
-    assert "update-momentum-AAA-USD.png" in Telegram.sent[0][0].name
+    assert Telegram.sent[0][1] == 77
+    assert Threads.sent[0][4] == "threads-original-77"
+    assert "update-momentum-AAA-USD.threads.jpg" in Threads.sent[0][0]

@@ -75,7 +75,8 @@ Marker files in `/data` prevent duplicate runs after a service restart. The main
 post uses `--main-only`; the evening run uses `--updates-only`. If no eligible
 high-confidence signal or no newer market data exists, the run finishes without
 posting filler content. Restarts outside these windows do not trigger late catch-up
-posts. Both main publications and evening updates include an image card.
+posts. Main publications include an image in both channels. Evening updates remain
+text replies in Telegram and use an update image card in Threads.
 
 For temporary visual testing, set `CONTENT_DEPLOY_PREVIEW_ENABLED=true`. Each
 service deploy republishes the latest active signal and makes that new message the
