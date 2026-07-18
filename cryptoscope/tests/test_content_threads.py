@@ -93,3 +93,25 @@ def test_threads_image_container_includes_topic(monkeypatch):
 
     assert post_id == "post-123"
     assert calls[0][1]["topic_tag"] == "Криптовалюты"
+
+
+def test_threads_image_can_reply_to_original_post(monkeypatch):
+    publisher = ThreadsPublisher("token")
+    calls = []
+
+    def fake_post(path, params):
+        calls.append((path, params))
+        return {"id": "post-123" if path.endswith("threads_publish") else "container-123"}
+
+    monkeypatch.setattr(publisher, "_post", fake_post)
+    monkeypatch.setattr(publisher, "_wait_for_media", lambda *_args: None)
+
+    publisher.send_image(
+        "https://example.com/update.jpg",
+        "Update text",
+        "Update card",
+        "Криптовалюты",
+        "original-post-456",
+    )
+
+    assert calls[0][1]["reply_to_id"] == "original-post-456"

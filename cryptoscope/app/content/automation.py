@@ -16,7 +16,7 @@ import pandas as pd
 from PIL import Image
 
 from app.config import Settings, get_settings
-from app.content.card import render_signal_card
+from app.content.card import render_signal_card, render_update_card
 from app.content.providers import OpenRouterClient
 from app.content.telegram import TelegramPublisher
 from app.content.threads import ThreadsPublisher
@@ -433,6 +433,12 @@ def _threads_jpeg(card_path: Path) -> Path:
 
 def _threads_alt_text(payload: dict[str, Any]) -> str:
     side = "лонг" if payload["direction"] == "long" else "шорт"
+    if "current_price" in payload:
+        return (
+            f"Карточка обновления MEANX: {payload['ticker']}, {side}. "
+            f"Текущая цена {payload['current_price']:.6g} доллара, движение "
+            f"от входа {payload['return_pct']:+.2f} процента."
+        )
     return (
         f"Карточка MEANX: {payload['ticker']}, рассмотреть {side}. "
         f"Сканер {payload['scanner']}, цена при публикации "
@@ -450,6 +456,7 @@ def _send_threads_image(
     payload: dict[str, Any],
     card_path: Path,
     text: str,
+    reply_to_id: str = "",
 ) -> str | None:
     if not threads.configured:
         return None
@@ -463,9 +470,12 @@ def _send_threads_image(
             text,
             _threads_alt_text(payload),
             topic_tag,
+            reply_to_id,
         )
     except RuntimeError as exc:
         print(f"Threads image publication failed; trying text fallback: {exc}")
+        if reply_to_id:
+            return threads.send_reply(text, reply_to_id, topic_tag)
         return threads.send_text(text, topic_tag)
 
 
@@ -761,6 +771,7 @@ def _close_favorite(
 def _update_active_publications(
     conn: sqlite3.Connection,
     wide: pd.DataFrame,
+    settings: Settings,
     provider: OpenRouterClient,
     telegram: TelegramPublisher,
     threads: ThreadsPublisher,
@@ -789,7 +800,11 @@ def _update_active_publications(
         if values.empty:
             continue
         current = float(values.iloc[-1])
-        return_pct = directional_return_pct(str(row["direction"]), float(row["entry_price"]), current)
+        return_pct = directional_return_pct(
+            str(row["direction"]),
+            float(row["entry_price"]),
+            current,
+        )
         closed = not _active_period_exists(conn, row)
         candidates.append({
             "row": row,
@@ -820,7 +835,20 @@ def _update_active_publications(
             text, response = _generate_update_text(
                 provider, row, current, return_pct, closed, data_date
             )
-            telegram.send_message(
+            update_payload = _payload(row)
+            update_payload.update({
+                "data_date": data_date,
+                "current_price": current,
+                "return_pct": return_pct,
+                "closed": closed,
+            })
+            card_path = Path(settings.content_card_dir) / (
+                f"{data_date}-update-{row['scanner']}-"
+                f"{ticker.replace('/', '-')}.png"
+            )
+            render_update_card(update_payload, card_path)
+            telegram.send_photo(
+                card_path,
                 text,
                 int(row["telegram_message_id"] or 0) or None,
             )
@@ -835,10 +863,13 @@ def _update_active_publications(
         threads_error = None
         if should_publish and threads.configured and row["threads_post_id"]:
             try:
-                threads_reply_id = threads.send_reply(
+                threads_reply_id = _send_threads_image(
+                    threads,
+                    settings,
+                    update_payload,
+                    card_path,
                     text,
                     str(row["threads_post_id"]),
-                    _threads_topic_tag(row),
                 )
             except Exception as exc:
                 threads_error = str(exc)
@@ -940,6 +971,7 @@ def run_content_automation(
             _update_active_publications(
                 conn,
                 wide,
+                settings,
                 provider,
                 telegram,
                 threads,

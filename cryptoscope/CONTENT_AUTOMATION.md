@@ -67,14 +67,15 @@ data date make deploy/startup retries idempotent.
 The Railway service loop uses UTC and runs every day, including weekends:
 
 ```text
-06:30 UTC / 09:30 MSK - refresh data and publish one main signal
-16:00 UTC / 19:00 MSK - publish at most one active-signal update
+06:30-08:00 UTC / 09:30-11:00 MSK - refresh data and publish one main signal
+16:00-18:00 UTC / 19:00-21:00 MSK - publish at most one active-signal update
 ```
 
 Marker files in `/data` prevent duplicate runs after a service restart. The main
 post uses `--main-only`; the evening run uses `--updates-only`. If no eligible
 high-confidence signal or no newer market data exists, the run finishes without
-posting filler content.
+posting filler content. Restarts outside these windows do not trigger late catch-up
+posts. Both main publications and evening updates include an image card.
 
 For temporary visual testing, set `CONTENT_DEPLOY_PREVIEW_ENABLED=true`. Each
 service deploy republishes the latest active signal and makes that new message the

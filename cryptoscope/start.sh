@@ -146,7 +146,7 @@ fi
         DAILY_MARKER="/data/.meanx-daily-$CURRENT_DATE"
         EVENING_MARKER="/data/.meanx-evening-$CURRENT_DATE"
 
-        if [ "$CURRENT_TIME" -ge "0630" ] && [ ! -f "$DAILY_MARKER" ]; then
+        if [ "$CURRENT_TIME" -ge "0630" ] && [ "$CURRENT_TIME" -lt "0800" ] && [ ! -f "$DAILY_MARKER" ]; then
             echo "[$(date -u)] Running daily update..."
             if python /scripts/daily_update.py; then
                 touch "$DAILY_MARKER"
@@ -155,7 +155,7 @@ fi
             fi
         fi
 
-        if [ "$CURRENT_TIME" -ge "1600" ] && [ ! -f "$EVENING_MARKER" ]; then
+        if [ "$CURRENT_TIME" -ge "1600" ] && [ "$CURRENT_TIME" -lt "1800" ] && [ ! -f "$EVENING_MARKER" ]; then
             echo "[$(date -u)] Publishing evening signal update..."
             if python /scripts/run_content_automation.py --updates-only; then
                 touch "$EVENING_MARKER"

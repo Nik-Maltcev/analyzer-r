@@ -42,7 +42,10 @@ def main() -> int:
             publish_main=not args.updates_only,
             publish_updates=not args.main_only,
         )
-        print(json.dumps(result, ensure_ascii=False))
+        print(
+            f"Content automation result: {json.dumps(result, ensure_ascii=False)}",
+            flush=True,
+        )
         return 0
     except Exception as exc:
         print(f"Content automation failed: {exc}", file=sys.stderr)

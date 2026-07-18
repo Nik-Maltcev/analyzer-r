@@ -12,6 +12,7 @@ from app.content.automation import (
     _threads_card_url,
     _threads_jpeg,
     _threads_topic_tag,
+    _update_active_publications,
     directional_return_pct,
     select_candidate,
 )
@@ -232,3 +233,62 @@ def test_select_candidate_does_not_repeat_recent_ticker(monkeypatch):
     )
 
     assert select_candidate(conn, wide, repeat_days=30) is None
+
+
+def test_evening_update_publishes_image_reply(tmp_path):
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(CREATE_SCANNER_SIGNAL_PERIODS)
+    conn.execute(CREATE_CONTENT_PUBLICATIONS)
+    conn.execute(
+        """
+        INSERT INTO scanner_signal_periods (
+            market, scanner, signal_key, ticker_a, direction,
+            first_seen_date, last_seen_date, observation_count, status
+        ) VALUES ('crypto', 'momentum', 'AAA/USD', 'AAA/USD', 'long',
+                  '2026-07-13', '2026-07-15', 3, 'active')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO content_publications (
+            market, scanner, ticker, direction, confidence, first_seen_date,
+            data_date, signal_age_days, review_in_days, entry_price, status,
+            telegram_message_id
+        ) VALUES ('crypto', 'momentum', 'AAA/USD', 'long', 'high',
+                  '2026-07-13', '2026-07-14', 2, 3, 100, 'active', 77)
+        """
+    )
+    wide = pd.DataFrame(
+        {"AAA/USD": [100.0, 104.0]},
+        index=["2026-07-14", "2026-07-15"],
+    )
+
+    class Provider:
+        api_key = ""
+        text_model = ""
+
+    class Telegram:
+        sent = []
+
+        @classmethod
+        def send_photo(cls, path, text, reply_to_message_id=None):
+            cls.sent.append((path, text, reply_to_message_id))
+            return 88
+
+    class Threads:
+        configured = False
+
+    updates = _update_active_publications(
+        conn,
+        wide,
+        SimpleNamespace(content_card_dir=str(tmp_path)),
+        Provider(),
+        Telegram(),
+        Threads(),
+    )
+
+    assert updates[0]["published"] is True
+    assert Telegram.sent[0][2] == 77
+    assert Telegram.sent[0][0].is_file()
+    assert "update-momentum-AAA-USD.png" in Telegram.sent[0][0].name

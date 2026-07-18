@@ -111,6 +111,7 @@ class ThreadsPublisher:
         text: str,
         alt_text: str,
         topic_tag: str = "",
+        reply_to_id: str = "",
     ) -> str:
         if not self.configured:
             raise RuntimeError("Threads content channel is not configured")
@@ -122,6 +123,8 @@ class ThreadsPublisher:
         }
         if topic_tag.strip():
             params["topic_tag"] = topic_tag.strip()
+        if reply_to_id.strip():
+            params["reply_to_id"] = reply_to_id.strip()
         container = self._post(
             "me/threads",
             params,
