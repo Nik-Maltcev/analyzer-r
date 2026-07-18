@@ -402,7 +402,9 @@ def _threads_card_url(settings: Settings, card_path: Path) -> str:
         getattr(settings, "content_public_asset_base_url", "") or ""
     ).strip()
     railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
-    base_url = f"https://{railway_domain}" if railway_domain else configured_base
+    base_url = configured_base
+    if not base_url and railway_domain:
+        base_url = f"https://{railway_domain}"
     if not base_url:
         base_url = settings.app_base_url.strip()
     base_url = base_url.rstrip("/")

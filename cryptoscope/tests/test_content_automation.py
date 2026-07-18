@@ -132,7 +132,7 @@ def test_threads_card_uses_railway_domain_and_jpeg(tmp_path, monkeypatch):
         "analyzer-r-production.up.railway.app",
     )
     settings = SimpleNamespace(
-        content_public_asset_base_url="https://www.meanx.pro",
+        content_public_asset_base_url="",
         app_base_url="https://www.meanx.pro",
     )
 
@@ -143,6 +143,33 @@ def test_threads_card_uses_railway_domain_and_jpeg(tmp_path, monkeypatch):
     assert url.startswith(
         "https://analyzer-r-production.up.railway.app/"
         "api/public/content/cards/signal.threads.jpg?v="
+    )
+
+
+def test_threads_card_prefers_configured_origin_over_custom_domain(
+    tmp_path,
+    monkeypatch,
+):
+    from PIL import Image
+
+    png_path = tmp_path / "signal.png"
+    Image.new("RGB", (20, 20), "#102030").save(png_path)
+    jpeg_path = _threads_jpeg(png_path)
+    monkeypatch.setenv("RAILWAY_PUBLIC_DOMAIN", "www.meanx.pro")
+
+    url = _threads_card_url(
+        SimpleNamespace(
+            content_public_asset_base_url=(
+                "https://analyzer-r-production.up.railway.app"
+            ),
+            app_base_url="https://www.meanx.pro",
+        ),
+        jpeg_path,
+    )
+
+    assert url.startswith(
+        "https://analyzer-r-production.up.railway.app/"
+        "api/public/content/cards/"
     )
 
 

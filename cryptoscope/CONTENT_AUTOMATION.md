@@ -46,9 +46,10 @@ The token is generated in Meta for Developers after the public Threads profile
 accepts its tester invitation. Keep it only in Railway variables. Meta downloads
 the generated card through `/api/public/content/cards/<filename>`. On Railway,
 `RAILWAY_PUBLIC_DOMAIN` is used automatically so Meta fetches the JPEG directly
-from the application instead of through a regional reverse proxy. Inside Railway,
-this direct domain always takes priority over `CONTENT_PUBLIC_ASSET_BASE_URL`. Set
-the optional variable only when the automatic Railway domain is unavailable.
+from the application instead of through a regional reverse proxy. Railway may set
+that system variable to a custom domain. In that case, set
+`CONTENT_PUBLIC_ASSET_BASE_URL` to the generated `*.up.railway.app` origin; the
+explicit content origin takes priority.
 
 ## Lifecycle
 
