@@ -115,14 +115,14 @@ fi
 # 8. Load administrator-only international equity markets
 python /scripts/load_international.py
 
-# 9. Retry today's idempotent content publication after a deploy
+# 9. Retry missing Threads media after deploy without duplicating Telegram posts.
 (
     until curl -fsS "http://127.0.0.1:$PORT/health/live" >/dev/null 2>&1; do
         sleep 1
     done
     # Give Railway time to route the public domain to this healthy deployment.
     sleep 8
-    python /scripts/run_content_automation.py --deploy-preview || echo "[$(date -u)] content automation startup run failed"
+    python /scripts/run_content_automation.py --backfill-only || echo "[$(date -u)] content automation startup run failed"
 ) &
 
 # 10. Start background publishing loop.

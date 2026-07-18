@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     content_openrouter_image_model: str = ""
     content_card_dir: str = "/data/content_cards"
     content_repeat_ticker_days: int = 30
+    content_update_publish_limit: int = 2
     content_deploy_preview_enabled: bool = False
     content_threads_enabled: bool = False
     content_threads_access_token: str = ""

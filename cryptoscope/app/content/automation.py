@@ -8,6 +8,7 @@ import os
 import re
 import sqlite3
 import time
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -69,6 +70,19 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     }
     if "threads_post_id" not in publication_columns:
         conn.execute("ALTER TABLE content_publications ADD COLUMN threads_post_id TEXT")
+    if "threads_last_update_data_date" not in publication_columns:
+        conn.execute(
+            "ALTER TABLE content_publications "
+            "ADD COLUMN threads_last_update_data_date TEXT"
+        )
+    conn.execute(
+        """
+        UPDATE content_publications
+        SET status = 'draft', updated_at = datetime('now')
+        WHERE status = 'publishing'
+          AND updated_at <= datetime('now', '-30 minutes')
+        """
+    )
     for statement in CREATE_CONTENT_PUBLICATION_INDICES:
         conn.execute(statement)
     conn.commit()
@@ -299,6 +313,15 @@ def _create_draft(
 
 
 def _payload(row: sqlite3.Row) -> dict[str, Any]:
+    entry_price = float(row["entry_price"])
+    current_value = row["current_price"] if "current_price" in row.keys() else None
+    current_price = float(current_value) if current_value else entry_price
+    return_value = row["return_pct"] if "return_pct" in row.keys() else None
+    return_pct = (
+        float(return_value)
+        if return_value is not None
+        else directional_return_pct(str(row["direction"]), entry_price, current_price)
+    )
     return {
         "scanner": str(row["scanner"]),
         "ticker": str(row["ticker"]),
@@ -307,7 +330,9 @@ def _payload(row: sqlite3.Row) -> dict[str, Any]:
         "data_date": str(row["data_date"]),
         "signal_age_days": int(row["signal_age_days"]),
         "review_in_days": int(row["review_in_days"] or 0),
-        "entry_price": float(row["entry_price"]),
+        "entry_price": entry_price,
+        "current_price": current_price,
+        "return_pct": return_pct,
     }
 
 
@@ -341,10 +366,22 @@ def _scenario_explanation(payload: dict[str, Any]) -> str:
 
 def _compose_initial_text(payload: dict[str, Any], explanation: str) -> str:
     side = "рассмотреть лонг" if payload["direction"] == "long" else "рассмотреть шорт"
+    current_price = float(payload.get("current_price") or payload["entry_price"])
+    return_pct = float(
+        payload.get("return_pct")
+        if payload.get("return_pct") is not None
+        else directional_return_pct(
+            str(payload["direction"]),
+            float(payload["entry_price"]),
+            current_price,
+        )
+    )
     return _clean_telegram_text(
         f"{payload['ticker']}: {side}\n\n"
         f"{explanation}\n\n"
-        f"Цена при публикации: ${payload['entry_price']:.6g}\n"
+        f"Цена входа: ${payload['entry_price']:.6g}\n"
+        f"Цена сейчас: ${current_price:.6g}\n"
+        f"Движение сценария: {return_pct:+.2f}%\n"
         f"Сигнал активен: {payload['signal_age_days']} дн.\n"
         f"Следующая проверка: примерно через {payload['review_in_days']} дн.\n\n"
         "MEANX проверяет сигнал ежедневно. Если условие исчезнет или направление "
@@ -514,6 +551,7 @@ def _publish_draft(
     if not row:
         return 0
     try:
+        row, price_source = _refresh_draft_entry_price(conn, row)
         payload = _payload(row)
         text, text_response = _generate_initial_text(provider, payload)
         background, image_response = _generate_background(provider, payload)
@@ -535,6 +573,7 @@ def _publish_draft(
             {
                 "text": text_response,
                 "image": image_response,
+                "entry_price_source": price_source,
                 "threads_error": threads_error,
             },
             ensure_ascii=False,
@@ -590,6 +629,7 @@ def _republish_latest_active(
     if not row:
         return None
 
+    row, price_source = _refresh_active_current_price(conn, row)
     payload = _payload(row)
     text, text_response = _generate_initial_text(provider, payload)
     background, image_response = _generate_background(provider, payload)
@@ -614,6 +654,7 @@ def _republish_latest_active(
             "text": text_response,
             "image": image_response,
             "deploy_preview": True,
+            "current_price_source": price_source,
             "threads_error": threads_error,
         },
         ensure_ascii=False,
@@ -644,6 +685,8 @@ def _republish_latest_active(
         "message_id": message_id,
         "threads_post_id": threads_post_id,
         "ticker": payload["ticker"],
+        "current_price": payload["current_price"],
+        "price_source": price_source,
     }
 
 
@@ -694,6 +737,78 @@ def _backfill_latest_threads_post(
     }
 
 
+def _backfill_threads_updates(
+    conn: sqlite3.Connection,
+    settings: Settings,
+    threads: ThreadsPublisher,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    """Retry Threads updates that already reached Telegram."""
+    if not threads.configured:
+        return []
+    rows = conn.execute(
+        """
+        SELECT * FROM content_publications
+        WHERE market = 'crypto' AND status IN ('active', 'closed')
+          AND COALESCE(threads_post_id, '') != ''
+          AND COALESCE(last_update_text, '') != ''
+          AND COALESCE(last_update_data_date, '') != ''
+          AND COALESCE(threads_last_update_data_date, '')
+              != last_update_data_date
+        ORDER BY last_update_data_date, id
+        LIMIT ?
+        """,
+        (max(1, int(limit)),),
+    ).fetchall()
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        data_date = str(row["last_update_data_date"])
+        payload = _payload(row)
+        payload.update({
+            "data_date": data_date,
+            "current_price": float(row["current_price"] or row["entry_price"]),
+            "return_pct": float(row["return_pct"] or 0),
+            "closed": str(row["status"]) == "closed",
+        })
+        card_path = Path(settings.content_card_dir) / (
+            f"{data_date}-update-{row['scanner']}-"
+            f"{str(row['ticker']).replace('/', '-')}.png"
+        )
+        try:
+            render_update_card(payload, card_path)
+            reply_id = _send_threads_image(
+                threads,
+                settings,
+                payload,
+                card_path,
+                str(row["last_update_text"]),
+                str(row["threads_post_id"]),
+            )
+            conn.execute(
+                """
+                UPDATE content_publications
+                SET threads_last_update_data_date = ?,
+                    updated_at = datetime('now')
+                WHERE id = ?
+                """,
+                (data_date, int(row["id"])),
+            )
+            conn.commit()
+            results.append({
+                "publication_id": int(row["id"]),
+                "ticker": str(row["ticker"]),
+                "threads_reply_id": reply_id,
+            })
+        except Exception as exc:
+            print(f"Threads update backfill failed for {row['ticker']}: {exc}")
+            results.append({
+                "publication_id": int(row["id"]),
+                "ticker": str(row["ticker"]),
+                "error": str(exc),
+            })
+    return results
+
+
 def _active_period_exists(conn: sqlite3.Connection, row: sqlite3.Row) -> bool:
     found = conn.execute(
         """
@@ -732,6 +847,99 @@ def _fetch_live_crypto_prices(tickers: list[str]) -> dict[str, float]:
             f"{exc}"
         )
         return {}
+
+
+def _refresh_draft_entry_price(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+) -> tuple[sqlite3.Row, str]:
+    """Anchor an unpublished signal to the live quote used in its first post."""
+    ticker = str(row["ticker"])
+    live_price = _fetch_live_crypto_prices([ticker]).get(ticker)
+    if not live_price:
+        return row, "daily_close"
+
+    generation_payload: dict[str, Any] = {}
+    try:
+        generation_payload = json.loads(str(row["generation_payload"] or "{}"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        generation_payload = {}
+    generation_payload["entry_price"] = live_price
+
+    conn.execute(
+        """
+        UPDATE content_publications
+        SET entry_price = ?, current_price = ?, return_pct = 0,
+            generation_payload = ?, updated_at = datetime('now')
+        WHERE id = ? AND status = 'publishing'
+        """,
+        (
+            live_price,
+            live_price,
+            json.dumps(generation_payload, ensure_ascii=False),
+            int(row["id"]),
+        ),
+    )
+    if row["favorite_id"]:
+        conn.execute(
+            """
+            UPDATE favorites
+            SET price_a_entry = ?
+            WHERE id = ? AND status = 'active'
+            """,
+            (live_price, int(row["favorite_id"])),
+        )
+    conn.commit()
+    refreshed = conn.execute(
+        "SELECT * FROM content_publications WHERE id = ?",
+        (int(row["id"]),),
+    ).fetchone()
+    return refreshed or row, "binance_live"
+
+
+def _refresh_active_current_price(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+) -> tuple[sqlite3.Row, str]:
+    """Refresh the current quote before intentionally republishing an active signal."""
+    ticker = str(row["ticker"])
+    live_price = _fetch_live_crypto_prices([ticker]).get(ticker)
+    source = "binance_live"
+    current = live_price
+    if not current:
+        latest = conn.execute(
+            """
+            SELECT close FROM prices
+            WHERE market = 'crypto' AND ticker = ? AND close > 0
+            ORDER BY date DESC LIMIT 1
+            """,
+            (ticker,),
+        ).fetchone()
+        current = float(latest["close"]) if latest else None
+        source = "daily_close"
+    if not current:
+        current = float(row["current_price"] or row["entry_price"])
+        source = "stored_price"
+
+    return_pct = directional_return_pct(
+        str(row["direction"]),
+        float(row["entry_price"]),
+        current,
+    )
+    conn.execute(
+        """
+        UPDATE content_publications
+        SET current_price = ?, return_pct = ?, updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (current, return_pct, int(row["id"])),
+    )
+    conn.commit()
+    refreshed = conn.execute(
+        "SELECT * FROM content_publications WHERE id = ?",
+        (int(row["id"]),),
+    ).fetchone()
+    return refreshed or row, source
 
 
 def _update_fallback(row: sqlite3.Row, current: float, return_pct: float, closed: bool) -> str:
@@ -863,9 +1071,13 @@ def _update_active_publications(
 
     candidates.sort(
         key=lambda item: (
+            str(
+                item["row"]["last_update_data_date"]
+                or item["row"]["data_date"]
+            ),
             not item["closed"],
             -abs(item["return_pct"]),
-            -int(item["row"]["id"]),
+            int(item["row"]["id"]),
         )
     )
 
@@ -891,9 +1103,31 @@ def _update_active_publications(
         else:
             text = _update_fallback(row, current, return_pct, closed)
             response = json.dumps(
-                {"channel_publish_skipped": "daily_limit"},
+                {"channel_publish_deferred": "daily_limit"},
                 ensure_ascii=False,
             )
+            conn.execute(
+                """
+                UPDATE content_publications
+                SET current_price = ?, return_pct = ?, provider_response = ?,
+                    updated_at = datetime('now')
+                WHERE id = ? AND status = 'active'
+                """,
+                (current, return_pct, response, int(row["id"])),
+            )
+            conn.commit()
+            updated.append({
+                "id": int(row["id"]),
+                "ticker": ticker,
+                "status": str(row["status"]),
+                "published": False,
+                "deferred": True,
+                "current_price": current,
+                "price_source": price_source,
+                "threads_reply_id": None,
+                "threads_error": None,
+            })
+            continue
         threads_reply_id = None
         threads_error = None
         if should_publish and threads.configured and row["threads_post_id"]:
@@ -922,16 +1156,22 @@ def _update_active_publications(
                 threads_error = str(exc)
                 print(f"Threads update failed: {threads_error}")
         status = "closed" if closed else "active"
+        threads_delivered = bool(threads_reply_id)
         conn.execute(
             """
             UPDATE content_publications
             SET current_price = ?, return_pct = ?, status = ?, last_update_text = ?,
                 provider_response = ?, last_update_data_date = ?,
+                threads_last_update_data_date = CASE
+                    WHEN ? THEN ? ELSE threads_last_update_data_date END,
                 closed_at = CASE WHEN ? THEN datetime('now') ELSE closed_at END,
                 updated_at = datetime('now')
             WHERE id = ?
             """,
-            (current, return_pct, status, text, response, data_date, int(closed), int(row["id"])),
+            (
+                current, return_pct, status, text, response, data_date,
+                int(threads_delivered), data_date, int(closed), int(row["id"]),
+            ),
         )
         if closed:
             _close_favorite(conn, row["favorite_id"], current, return_pct)
@@ -986,7 +1226,7 @@ def run_content_automation(
                 "Threads image publishing"
             )
 
-    with sqlite3.connect(settings.db_path) as conn:
+    with closing(sqlite3.connect(settings.db_path)) as conn:
         conn.row_factory = sqlite3.Row
         _ensure_schema(conn)
         wide = _price_frame(conn)
@@ -994,6 +1234,7 @@ def run_content_automation(
             return {"status": "no_crypto_prices"}
 
         threads_backfill = None
+        threads_update_backfill: list[dict[str, Any]] = []
         if threads.configured:
             try:
                 threads_backfill = _backfill_latest_threads_post(
@@ -1002,6 +1243,9 @@ def run_content_automation(
             except Exception as exc:
                 threads_backfill = {"error": str(exc)}
                 print(f"Threads backfill failed: {exc}")
+            threads_update_backfill = _backfill_threads_updates(
+                conn, settings, threads
+            )
 
         if deploy_preview:
             if settings.content_deploy_preview_enabled:
@@ -1024,7 +1268,7 @@ def run_content_automation(
                 provider,
                 telegram,
                 threads,
-                publish_limit=1,
+                publish_limit=max(1, settings.content_update_publish_limit),
             )
             if publish_updates
             else []
@@ -1033,6 +1277,7 @@ def run_content_automation(
             return {
                 "status": "updates_completed",
                 "threads_backfill": threads_backfill,
+                "threads_update_backfill": threads_update_backfill,
                 "updates": updates,
             }
         draft = conn.execute(

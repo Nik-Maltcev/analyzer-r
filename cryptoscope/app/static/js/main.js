@@ -778,7 +778,33 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
 });
 
 document.body.addEventListener('htmx:responseError', function(evt) {
+    const detail = evt.detail || {};
+    const request = detail.requestConfig || {};
+    const status = detail.xhr ? detail.xhr.status : 0;
+    const method = String(request.verb || '').toUpperCase();
+    const source = detail.elt;
+    const retryable = method === 'GET' && [502, 503, 504].includes(status);
+
+    if (retryable && source && typeof htmx !== 'undefined') {
+        const attempt = Number(source.dataset.meanxRetryAttempt || 0);
+        const path = request.path || source.getAttribute('hx-get');
+        if (attempt < 2 && path) {
+            source.dataset.meanxRetryAttempt = String(attempt + 1);
+            const target = detail.target || request.target;
+            const swap = request.swap || source.getAttribute('hx-swap') || 'innerHTML';
+            window.setTimeout(() => {
+                htmx.ajax('GET', path, {source, target, swap});
+            }, 700 * (attempt + 1));
+            return;
+        }
+    }
     showToast('Ошибка загрузки данных', 'error');
+});
+
+document.body.addEventListener('htmx:afterRequest', function(evt) {
+    if (evt.detail && evt.detail.successful && evt.detail.elt) {
+        delete evt.detail.elt.dataset.meanxRetryAttempt;
+    }
 });
 
 // Swap tickers for spread chart

@@ -206,7 +206,7 @@ def temp_db():
     """)
 
     conn.commit()
+    conn.close()
 
     yield path
-    conn.close()
     os.unlink(path)

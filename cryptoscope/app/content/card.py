@@ -126,15 +126,35 @@ def render_signal_card(
     )
     draw.text((120, 465), side, font=_font(31, True), fill=accent)
 
-    draw.text((92, 605), "Цена при публикации", font=_font(25), fill=muted)
+    current_price = float(payload.get("current_price") or payload["entry_price"])
+    return_pct = float(
+        payload.get("return_pct")
+        if payload.get("return_pct") is not None
+        else 0
+    )
+    move_color = green if return_pct >= 0 else red
+    draw.text((92, 605), "Цена входа", font=_font(25), fill=muted)
     draw.text(
         (92, 650),
         _price(float(payload["entry_price"])),
-        font=_font(68, True),
+        font=_font(56, True),
         fill=white,
     )
+    draw.text((620, 605), "Сейчас", font=_font(25), fill=muted)
+    draw.text(
+        (620, 650),
+        _price(current_price),
+        font=_font(56, True),
+        fill=white,
+    )
+    draw.text(
+        (620, 720),
+        f"по сценарию {return_pct:+.2f}%",
+        font=_font(24, True),
+        fill=move_color,
+    )
 
-    draw.line((92, 770, 1108, 770), fill=(63, 83, 95, 180), width=2)
+    draw.line((92, 790, 1108, 790), fill=(63, 83, 95, 180), width=2)
     metrics = [
         ("Сканер", _scanner_name(str(payload["scanner"]))),
         ("Уверенность", "Высокая"),

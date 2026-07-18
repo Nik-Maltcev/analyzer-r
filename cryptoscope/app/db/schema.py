@@ -323,6 +323,7 @@ CREATE TABLE IF NOT EXISTS content_publications (
     generation_payload    TEXT,
     provider_response     TEXT,
     last_update_data_date TEXT,
+    threads_last_update_data_date TEXT,
     published_at          TEXT,
     closed_at             TEXT,
     created_at            TEXT DEFAULT (datetime('now')),

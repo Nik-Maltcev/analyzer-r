@@ -3,6 +3,7 @@
 import os
 import sqlite3
 import sys
+from contextlib import closing
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -20,7 +21,7 @@ def app(temp_db, monkeypatch):
     monkeypatch.setattr(settings, "resend_api_key", "re_test")
     set_db_path(temp_db)
 
-    with sqlite3.connect(temp_db) as conn:
+    with closing(sqlite3.connect(temp_db)) as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS scanner_signal_periods (
@@ -92,7 +93,7 @@ async def test_empty_public_feed_is_not_cached(app):
 
 @pytest.mark.asyncio
 async def test_public_feed_falls_back_to_active_scanner_signals(app, temp_db):
-    with sqlite3.connect(temp_db) as conn:
+    with closing(sqlite3.connect(temp_db)) as conn:
         conn.execute("DELETE FROM pairs WHERE market = 'br'")
         for index in range(15):
             day = f"2026-01-{index + 1:02d}"

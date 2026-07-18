@@ -29,7 +29,12 @@ def parse_args() -> argparse.Namespace:
     mode.add_argument(
         "--updates-only",
         action="store_true",
-        help="Publish at most one daily update without a new signal.",
+        help="Publish queued daily updates without a new signal.",
+    )
+    mode.add_argument(
+        "--backfill-only",
+        action="store_true",
+        help="Retry missing Threads media without publishing Telegram content.",
     )
     return parser.parse_args()
 
@@ -39,8 +44,8 @@ def main() -> int:
     try:
         result = run_content_automation(
             deploy_preview=args.deploy_preview,
-            publish_main=not args.updates_only,
-            publish_updates=not args.main_only,
+            publish_main=not (args.updates_only or args.backfill_only),
+            publish_updates=not (args.main_only or args.backfill_only),
         )
         print(
             f"Content automation result: {json.dumps(result, ensure_ascii=False)}",

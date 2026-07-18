@@ -518,6 +518,15 @@ async def db_status(conn: aiosqlite.Connection) -> dict[str, Any]:
     """Get database status summary."""
     status = {}
 
+    cursor = await conn.execute("PRAGMA table_info(pairs)")
+    pair_columns = {row["name"] for row in await cursor.fetchall()}
+    stable_column = "is_coint_stable" if "is_coint_stable" in pair_columns else "is_coint"
+    stability_pattern = (
+        "COALESCE(coint_windows, 'null')"
+        if "coint_windows" in pair_columns
+        else "'legacy'"
+    )
+
     cursor = await conn.execute("SELECT COUNT(DISTINCT ticker) as n FROM prices")
     row = await cursor.fetchone()
     status["n_tickers"] = row["n"] if row else 0
@@ -557,14 +566,14 @@ async def db_status(conn: aiosqlite.Connection) -> dict[str, Any]:
     }
 
     cursor = await conn.execute(
-        """
+        f"""
         SELECT market,
                COUNT(*) AS pairs,
                SUM(CASE WHEN is_coint = 1 THEN 1 ELSE 0 END) AS coint,
-               SUM(CASE WHEN is_coint_stable = 1 THEN 1 ELSE 0 END) AS stable,
+               SUM(CASE WHEN {stable_column} = 1 THEN 1 ELSE 0 END) AS stable,
                SUM(CASE WHEN ABS(COALESCE(z_now, 0)) >= 2 THEN 1 ELSE 0 END) AS deviated,
                SUM(CASE
-                   WHEN is_coint_stable = 1 AND ABS(COALESCE(z_now, 0)) >= 2
+                   WHEN {stable_column} = 1 AND ABS(COALESCE(z_now, 0)) >= 2
                    THEN 1 ELSE 0
                END) AS stable_deviated,
                SUM(CASE WHEN signal_type != 'wait' THEN 1 ELSE 0 END) AS active,
@@ -588,11 +597,11 @@ async def db_status(conn: aiosqlite.Connection) -> dict[str, Any]:
     }
 
     cursor = await conn.execute(
-        """
-        SELECT market, COALESCE(coint_windows, 'null') AS pattern, COUNT(*) AS n
+        f"""
+        SELECT market, {stability_pattern} AS pattern, COUNT(*) AS n
         FROM pairs
         WHERE is_coint = 1
-        GROUP BY market, COALESCE(coint_windows, 'null')
+        GROUP BY market, {stability_pattern}
         ORDER BY market, n DESC
         """
     )
