@@ -132,7 +132,7 @@ def test_threads_card_uses_railway_domain_and_jpeg(tmp_path, monkeypatch):
         "analyzer-r-production.up.railway.app",
     )
     settings = SimpleNamespace(
-        content_public_asset_base_url="",
+        content_public_asset_base_url="https://www.meanx.pro",
         app_base_url="https://www.meanx.pro",
     )
 
@@ -144,6 +144,25 @@ def test_threads_card_uses_railway_domain_and_jpeg(tmp_path, monkeypatch):
         "https://analyzer-r-production.up.railway.app/"
         "api/public/content/cards/signal.threads.jpg?v="
     )
+
+
+def test_threads_card_uses_configured_domain_outside_railway(tmp_path, monkeypatch):
+    from PIL import Image
+
+    png_path = tmp_path / "signal.png"
+    Image.new("RGB", (20, 20), "#102030").save(png_path)
+    jpeg_path = _threads_jpeg(png_path)
+    monkeypatch.delenv("RAILWAY_PUBLIC_DOMAIN", raising=False)
+
+    url = _threads_card_url(
+        SimpleNamespace(
+            content_public_asset_base_url="https://cdn.example.com",
+            app_base_url="https://www.meanx.pro",
+        ),
+        jpeg_path,
+    )
+
+    assert url.startswith("https://cdn.example.com/api/public/content/cards/")
 
 
 def test_threads_scanner_signals_use_crypto_topic():
