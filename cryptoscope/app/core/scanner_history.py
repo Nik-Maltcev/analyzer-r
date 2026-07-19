@@ -25,6 +25,15 @@ SCANNER_HORIZONS = {
 }
 
 
+def is_scanner_signal_within_horizon(scanner: str, age_days: Any) -> bool:
+    """Return whether a scanner condition is still an actionable recommendation."""
+    try:
+        age = max(1, int(age_days or 1))
+    except (TypeError, ValueError):
+        age = 1
+    return age <= SCANNER_HORIZONS.get(scanner, 3)
+
+
 def _iso_date(value: Any) -> str:
     if isinstance(value, (date, datetime)):
         return value.strftime("%Y-%m-%d")
@@ -236,6 +245,10 @@ def annotate_scanner_results(
             ),
             "signal_horizon_days": horizon,
             "signal_remaining_days": remaining,
+            "signal_within_horizon": is_scanner_signal_within_horizon(
+                scanner,
+                age,
+            ),
         })
     return records
 

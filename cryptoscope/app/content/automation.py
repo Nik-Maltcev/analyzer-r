@@ -23,7 +23,10 @@ from app.content.card import render_signal_card, render_update_card
 from app.content.providers import OpenRouterClient
 from app.content.telegram import TelegramPublisher
 from app.content.threads import ThreadsPublisher
-from app.core.scanner_history import SCANNER_HORIZONS
+from app.core.scanner_history import (
+    SCANNER_HORIZONS,
+    is_scanner_signal_within_horizon,
+)
 from app.core.scanners import drawdown_scan, momentum_scan
 from app.data.binance_ws import refresh_crypto_live_prices
 from app.db.schema import (
@@ -235,6 +238,8 @@ def select_candidate(
             )
             age = max(1, int(period.get("observation_count") or 1))
             horizon = SCANNER_HORIZONS[scanner]
+            if not is_scanner_signal_within_horizon(scanner, age):
+                continue
             rank = (
                 abs(float(record.get("momentum_score") or 0))
                 if scanner == "momentum"
@@ -903,14 +908,20 @@ def _backfill_threads_updates(
 def _active_period_exists(conn: sqlite3.Connection, row: sqlite3.Row) -> bool:
     found = conn.execute(
         """
-        SELECT 1 FROM scanner_signal_periods
+        SELECT observation_count FROM scanner_signal_periods
         WHERE market = 'crypto' AND scanner = ? AND ticker_a = ?
           AND direction = ? AND first_seen_date = ? AND status = 'active'
         LIMIT 1
         """,
         (row["scanner"], row["ticker"], row["direction"], row["first_seen_date"]),
     ).fetchone()
-    return found is not None
+    return bool(
+        found is not None
+        and is_scanner_signal_within_horizon(
+            str(row["scanner"]),
+            found["observation_count"],
+        )
+    )
 
 
 def _fetch_live_crypto_prices(tickers: list[str]) -> dict[str, float]:

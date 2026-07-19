@@ -339,6 +339,15 @@ def test_select_candidate_uses_active_high_confidence_crypto_period(monkeypatch)
     assert candidate.review_in_days == 3
     assert candidate.signal_start_price == wide.loc["2026-07-13", "AAA/USD"]
 
+    conn.execute(
+        """
+        UPDATE scanner_signal_periods
+        SET observation_count = 6
+        WHERE scanner = 'momentum' AND ticker_a = 'AAA/USD'
+        """
+    )
+    assert select_candidate(conn, wide, repeat_days=30) is None
+
 
 def test_select_candidate_does_not_repeat_recent_ticker(monkeypatch):
     conn = sqlite3.connect(":memory:")

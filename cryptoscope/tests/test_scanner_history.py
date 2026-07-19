@@ -3,6 +3,7 @@ import pytest
 
 from app.core.scanner_history import (
     annotate_scanner_results,
+    is_scanner_signal_within_horizon,
     sync_scanner_periods,
 )
 
@@ -38,6 +39,7 @@ async def test_scanner_signal_period_closes_and_restarts(temp_db):
         assert annotated[0]["signal_age_days"] == 2
         assert annotated[0]["signal_remaining_days"] == 3
         assert annotated[0]["signal_first_seen_date"] == "09.07.2026"
+        assert annotated[0]["signal_within_horizon"] is True
 
         periods = await sync_scanner_periods(
             conn, "stocks", "momentum", "2026-07-11", []
@@ -64,3 +66,10 @@ async def test_scanner_signal_period_closes_and_restarts(temp_db):
             ("closed", "2026-07-11"),
             ("active", None),
         ]
+
+
+def test_scanner_signal_horizon_expires_without_closing_raw_period():
+    assert is_scanner_signal_within_horizon("momentum", 5) is True
+    assert is_scanner_signal_within_horizon("momentum", 6) is False
+    assert is_scanner_signal_within_horizon("drawdown", 10) is True
+    assert is_scanner_signal_within_horizon("drawdown", 11) is False

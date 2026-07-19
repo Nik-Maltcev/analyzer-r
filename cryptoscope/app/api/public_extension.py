@@ -7,6 +7,7 @@ import numpy as np
 from fastapi import APIRouter, Query, Response
 
 from app.core.scanners import drawdown_scan, momentum_scan
+from app.core.scanner_history import is_scanner_signal_within_horizon
 from app.core.signals import estimate_signal_timing, is_actionable_signal
 from app.db.database import fetch_active_pairs, fetch_prices, get_connection
 from app.product import get_product_profile, require_market_enabled
@@ -170,11 +171,14 @@ def _high_confidence_scanner_items(prices, periods, market: str) -> list[dict]:
             ticker = str(record["ticker"])
             direction = str(record["recommendation_class"])
             period = period_map.get((scanner, ticker, direction), {})
+            age = period.get("observation_count", 1)
+            if not is_scanner_signal_within_horizon(scanner, age):
+                continue
             record.update({
                 "scanner": scanner,
                 "ticker_a": ticker,
                 "direction": direction,
-                "observation_count": period.get("observation_count", 1),
+                "observation_count": age,
                 "first_seen_date": period.get("first_seen_date", str(max(wide.index))[:10]),
             })
             rank = (

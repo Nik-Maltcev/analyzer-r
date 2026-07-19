@@ -22,6 +22,7 @@ from app.core.scanner_history import (
     annotate_scanner_results,
     build_scanner_snapshot,
     format_scanner_date,
+    is_scanner_signal_within_horizon,
     sync_scanner_periods,
 )
 from app.core.signals import estimate_signal_timing, is_actionable_signal
@@ -405,7 +406,7 @@ def _single_scanner_plan(source, days_held, recommendation) -> dict:
     else:
         detail = f"{plan_kind}: окно {horizon_days} дн. уже пройдено"
 
-    return {
+    plan = {
         "scanner_next_check_days": next_days,
         "scanner_next_check_label": label,
         "scanner_plan_detail": detail,
@@ -413,6 +414,18 @@ def _single_scanner_plan(source, days_held, recommendation) -> dict:
         "scanner_days_remaining": remaining,
         "scanner_check_interval_days": interval_days,
     }
+    if remaining == 0 and recommendation == "holding":
+        plan.update({
+            "status": "Рекомендация закрыть",
+            "status_color": "red",
+            "status_detail": (
+                f"Расчётное окно {horizon_days} дн. завершено. "
+                "Рекомендуется закрыть или заново оценить позицию."
+            ),
+            "recommendation": "close_warn",
+            "is_expired": True,
+        })
+    return plan
 
 
 async def _dash_data(conn, market):
@@ -795,7 +808,7 @@ async def tab_scanner_content(
         if scanner_type == "momentum":
             if not df.empty:
                 df = df[df["recommendation_class"].isin({"long", "short"})]
-            results = _df_records(df, limit)
+            results = _df_records(df)
         elif scanner_type == "drawdown":
             if not df.empty:
                 df = df[
@@ -808,6 +821,15 @@ async def tab_scanner_content(
             results = _df_records(df)
 
         results = annotate_scanner_results(results, scanner_type, periods)
+        results = [
+            result for result in results
+            if is_scanner_signal_within_horizon(
+                scanner_type,
+                result.get("signal_age_days"),
+            )
+        ]
+        if scanner_type == "momentum":
+            results = results[:limit]
         results = apply_scanner_market_context(
             results,
             market,
