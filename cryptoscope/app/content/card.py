@@ -127,16 +127,31 @@ def render_signal_card(
     draw.text((120, 465), side, font=_font(31, True), fill=accent)
 
     current_price = float(payload.get("current_price") or payload["entry_price"])
-    return_pct = float(
-        payload.get("return_pct")
-        if payload.get("return_pct") is not None
+    signal_start_price = float(
+        payload.get("signal_start_price") or payload["entry_price"]
+    )
+    signal_return_pct = float(
+        payload.get("signal_return_pct")
+        if payload.get("signal_return_pct") is not None
         else 0
     )
-    move_color = green if return_pct >= 0 else red
-    draw.text((92, 605), "Цена входа", font=_font(25), fill=muted)
+    move_color = green if signal_return_pct >= 0 else red
+    signal_horizon_days = int(
+        payload.get("signal_horizon_days")
+        or (5 if str(payload.get("scanner")) == "momentum" else 10)
+    )
+    signal_start_date = _date(
+        str(payload.get("first_seen_date") or payload.get("data_date") or "")
+    )
+    draw.text(
+        (92, 605),
+        f"На старте · {signal_start_date}",
+        font=_font(25),
+        fill=muted,
+    )
     draw.text(
         (92, 650),
-        _price(float(payload["entry_price"])),
+        _price(signal_start_price),
         font=_font(56, True),
         fill=white,
     )
@@ -149,7 +164,7 @@ def render_signal_card(
     )
     draw.text(
         (620, 720),
-        f"по сценарию {return_pct:+.2f}%",
+        f"с начала {signal_return_pct:+.2f}%",
         font=_font(24, True),
         fill=move_color,
     )
@@ -158,8 +173,16 @@ def render_signal_card(
     metrics = [
         ("Сканер", _scanner_name(str(payload["scanner"]))),
         ("Уверенность", "Высокая"),
-        ("Сигнал активен", f"{payload['signal_age_days']} дн."),
-        ("Следующая проверка", f"через ~{payload['review_in_days']} дн."),
+        (
+            "Сигнал наблюдается",
+            f"{payload['signal_age_days']} из ~{signal_horizon_days} дн.",
+        ),
+        (
+            "До планового пересмотра",
+            f"~{payload['review_in_days']} дн."
+            if int(payload["review_in_days"]) > 0
+            else "горизонт достигнут",
+        ),
     ]
     for index, (label, value) in enumerate(metrics):
         x = 92 if index % 2 == 0 else 620
@@ -170,13 +193,13 @@ def render_signal_card(
     draw.line((92, 1240, 1108, 1240), fill=(63, 83, 95, 180), width=2)
     draw.text(
         (92, 1285),
-        "Данные аналитической модели. Не является",
+        "Проверка ежедневно по закрытой дневной свече.",
         font=_font(22),
         fill=muted,
     )
     draw.text(
         (92, 1320),
-        "индивидуальной инвестиционной рекомендацией.",
+        "Сигнал может завершиться раньше. Не инвестрекомендация.",
         font=_font(22),
         fill=muted,
     )

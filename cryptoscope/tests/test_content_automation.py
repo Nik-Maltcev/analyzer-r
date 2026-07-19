@@ -39,15 +39,22 @@ def test_content_text_is_plain_russian_without_long_dashes():
         "scanner": "drawdown",
         "ticker": "ZEC/USD",
         "direction": "long",
+        "first_seen_date": "2026-07-13",
         "signal_age_days": 2,
         "review_in_days": 8,
+        "signal_horizon_days": 10,
+        "signal_start_price": 560.0,
+        "current_price": 570.94,
         "entry_price": 570.94,
     })
     assert "рассмотреть лонг" in text
     assert "Сканер просадок" in text
-    assert "Цена входа: $570.94" in text
+    assert "Цена в начале сигнала (13.07.2026): $560" in text
     assert "Цена сейчас: $570.94" in text
-    assert "Движение сценария: +0.00%" in text
+    assert "Движение с начала сигнала: +1.95%" in text
+    assert "Сигнал наблюдается: 2 дн. из расчётных ~10 дн." in text
+    assert "До планового пересмотра: примерно 8 дн." in text
+    assert "по закрытой дневной свече" in text
     assert "—" not in text
     assert "**" not in text
 
@@ -69,15 +76,19 @@ def test_generated_content_keeps_fixed_structure():
         "scanner": "drawdown",
         "ticker": "ZEC/USD",
         "direction": "long",
+        "first_seen_date": "2026-07-13",
         "signal_age_days": 2,
         "review_in_days": 8,
+        "signal_horizon_days": 10,
+        "signal_start_price": 560.0,
+        "current_price": 570.94,
         "entry_price": 570.94,
     }
     text, _ = _generate_initial_text(Provider(), payload)
 
     assert text.startswith("ZEC/USD: рассмотреть лонг")
     assert "Сценарий - лонг" in text
-    assert "Цена входа: $570.94" in text
+    assert "Цена в начале сигнала (13.07.2026): $560" in text
     assert "Цена сейчас: $570.94" in text
     assert "—" not in text
     assert "**" not in text
@@ -326,6 +337,7 @@ def test_select_candidate_uses_active_high_confidence_crypto_period(monkeypatch)
     assert candidate.ticker == "AAA/USD"
     assert candidate.signal_age_days == 2
     assert candidate.review_in_days == 3
+    assert candidate.signal_start_price == wide.loc["2026-07-13", "AAA/USD"]
 
 
 def test_select_candidate_does_not_repeat_recent_ticker(monkeypatch):

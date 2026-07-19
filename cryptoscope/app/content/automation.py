@@ -46,6 +46,7 @@ class ContentCandidate:
     data_date: str
     signal_age_days: int
     review_in_days: int
+    signal_start_price: float
     entry_price: float
     rank: float
     facts: dict[str, Any]
@@ -74,6 +75,41 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE content_publications "
             "ADD COLUMN threads_last_update_data_date TEXT"
+        )
+    if "signal_start_price" not in publication_columns:
+        conn.execute(
+            "ALTER TABLE content_publications ADD COLUMN signal_start_price REAL"
+        )
+    prices_table_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'prices'"
+    ).fetchone()
+    if prices_table_exists:
+        conn.execute(
+            """
+            UPDATE content_publications
+            SET signal_start_price = COALESCE(
+                (
+                    SELECT close
+                    FROM prices
+                    WHERE market = 'crypto'
+                      AND ticker = content_publications.ticker
+                      AND date <= content_publications.first_seen_date
+                      AND close > 0
+                    ORDER BY date DESC
+                    LIMIT 1
+                ),
+                entry_price
+            )
+            WHERE signal_start_price IS NULL OR signal_start_price <= 0
+            """
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE content_publications
+            SET signal_start_price = entry_price
+            WHERE signal_start_price IS NULL OR signal_start_price <= 0
+            """
         )
     conn.execute(
         """
@@ -191,6 +227,12 @@ def select_candidate(
             latest = wide[ticker].dropna()
             if latest.empty or float(latest.iloc[-1]) <= 0:
                 continue
+            start_values = latest.loc[
+                latest.index <= str(period["first_seen_date"])[:10]
+            ]
+            signal_start_price = float(
+                start_values.iloc[-1] if not start_values.empty else latest.iloc[-1]
+            )
             age = max(1, int(period.get("observation_count") or 1))
             horizon = SCANNER_HORIZONS[scanner]
             rank = (
@@ -206,6 +248,7 @@ def select_candidate(
                 data_date=data_date,
                 signal_age_days=age,
                 review_in_days=max(0, horizon - age),
+                signal_start_price=signal_start_price,
                 entry_price=float(latest.iloc[-1]),
                 rank=round(rank, 4),
                 facts={
@@ -275,8 +318,9 @@ def _create_draft(
         INSERT OR IGNORE INTO content_publications (
             market, scanner, ticker, direction, confidence,
             first_seen_date, data_date, signal_age_days, review_in_days,
-            entry_price, current_price, favorite_id, generation_payload
-        ) VALUES ('crypto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            signal_start_price, entry_price, current_price, favorite_id,
+            generation_payload
+        ) VALUES ('crypto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             candidate.scanner,
@@ -287,6 +331,7 @@ def _create_draft(
             candidate.data_date,
             candidate.signal_age_days,
             candidate.review_in_days,
+            candidate.signal_start_price,
             candidate.entry_price,
             candidate.entry_price,
             favorite_id,
@@ -314,6 +359,12 @@ def _create_draft(
 
 def _payload(row: sqlite3.Row) -> dict[str, Any]:
     entry_price = float(row["entry_price"])
+    start_value = (
+        row["signal_start_price"]
+        if "signal_start_price" in row.keys()
+        else None
+    )
+    signal_start_price = float(start_value) if start_value else entry_price
     current_value = row["current_price"] if "current_price" in row.keys() else None
     current_price = float(current_value) if current_value else entry_price
     return_value = row["return_pct"] if "return_pct" in row.keys() else None
@@ -330,9 +381,14 @@ def _payload(row: sqlite3.Row) -> dict[str, Any]:
         "data_date": str(row["data_date"]),
         "signal_age_days": int(row["signal_age_days"]),
         "review_in_days": int(row["review_in_days"] or 0),
+        "signal_horizon_days": SCANNER_HORIZONS.get(str(row["scanner"]), 10),
+        "signal_start_price": signal_start_price,
         "entry_price": entry_price,
         "current_price": current_price,
         "return_pct": return_pct,
+        "signal_return_pct": directional_return_pct(
+            str(row["direction"]), signal_start_price, current_price
+        ),
     }
 
 
@@ -367,25 +423,48 @@ def _scenario_explanation(payload: dict[str, Any]) -> str:
 def _compose_initial_text(payload: dict[str, Any], explanation: str) -> str:
     side = "рассмотреть лонг" if payload["direction"] == "long" else "рассмотреть шорт"
     current_price = float(payload.get("current_price") or payload["entry_price"])
-    return_pct = float(
-        payload.get("return_pct")
-        if payload.get("return_pct") is not None
+    signal_start_price = float(
+        payload.get("signal_start_price") or payload["entry_price"]
+    )
+    signal_return_pct = float(
+        payload.get("signal_return_pct")
+        if payload.get("signal_return_pct") is not None
         else directional_return_pct(
             str(payload["direction"]),
-            float(payload["entry_price"]),
+            signal_start_price,
             current_price,
         )
+    )
+    horizon_days = int(
+        payload.get("signal_horizon_days")
+        or SCANNER_HORIZONS.get(str(payload["scanner"]), 10)
+    )
+    remaining_days = int(payload.get("review_in_days") or 0)
+    try:
+        first_seen = date.fromisoformat(
+            str(payload.get("first_seen_date") or payload.get("data_date") or "")[:10]
+        ).strftime(
+            "%d.%m.%Y"
+        )
+    except ValueError:
+        first_seen = str(payload.get("first_seen_date") or "-")
+    remaining_text = (
+        f"примерно {remaining_days} дн."
+        if remaining_days > 0
+        else "расчётный горизонт достигнут"
     )
     return _clean_telegram_text(
         f"{payload['ticker']}: {side}\n\n"
         f"{explanation}\n\n"
-        f"Цена входа: ${payload['entry_price']:.6g}\n"
+        f"Цена в начале сигнала ({first_seen}): ${signal_start_price:.6g}\n"
         f"Цена сейчас: ${current_price:.6g}\n"
-        f"Движение сценария: {return_pct:+.2f}%\n"
-        f"Сигнал активен: {payload['signal_age_days']} дн.\n"
-        f"Следующая проверка: примерно через {payload['review_in_days']} дн.\n\n"
-        "MEANX проверяет сигнал ежедневно. Если условие исчезнет или направление "
-        "изменится, мы опубликуем обновление.\n\n"
+        f"Движение с начала сигнала: {signal_return_pct:+.2f}%\n"
+        f"Сигнал наблюдается: {payload['signal_age_days']} дн. "
+        f"из расчётных ~{horizon_days} дн.\n"
+        f"До планового пересмотра: {remaining_text}\n\n"
+        "MEANX проверяет условие ежедневно по закрытой дневной свече. "
+        "Сигнал может завершиться раньше расчётного горизонта. Если условие "
+        "исчезнет или направление изменится, мы опубликуем обновление.\n\n"
         "Не является индивидуальной инвестиционной рекомендацией."
     )
 
@@ -473,16 +552,28 @@ def _threads_jpeg(card_path: Path) -> Path:
 
 def _threads_alt_text(payload: dict[str, Any]) -> str:
     side = "лонг" if payload["direction"] == "long" else "шорт"
-    if "current_price" in payload:
+    if "closed" in payload:
         return (
             f"Карточка обновления MEANX: {payload['ticker']}, {side}. "
             f"Текущая цена {payload['current_price']:.6g} доллара, движение "
             f"от входа {payload['return_pct']:+.2f} процента."
         )
+    signal_start_price = float(
+        payload.get("signal_start_price") or payload["entry_price"]
+    )
+    current_price = float(payload.get("current_price") or payload["entry_price"])
+    signal_return_pct = float(
+        payload.get("signal_return_pct")
+        if payload.get("signal_return_pct") is not None
+        else directional_return_pct(
+            str(payload["direction"]), signal_start_price, current_price
+        )
+    )
     return (
         f"Карточка MEANX: {payload['ticker']}, рассмотреть {side}. "
-        f"Сканер {payload['scanner']}, цена при публикации "
-        f"{payload['entry_price']:.6g} доллара."
+        f"Сканер {payload['scanner']}, цена в начале сигнала "
+        f"{signal_start_price:.6g} доллара, сейчас {current_price:.6g}, "
+        f"движение {signal_return_pct:+.2f} процента."
     )
 
 

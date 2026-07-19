@@ -309,6 +309,7 @@ CREATE TABLE IF NOT EXISTS content_publications (
     data_date             TEXT NOT NULL,
     signal_age_days       INTEGER NOT NULL DEFAULT 1,
     review_in_days        INTEGER,
+    signal_start_price    REAL,
     entry_price           REAL NOT NULL,
     current_price         REAL,
     return_pct            REAL DEFAULT 0,
