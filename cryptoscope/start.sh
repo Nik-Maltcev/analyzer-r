@@ -52,6 +52,61 @@ echo "PORT=$PORT"
 echo "APP_VARIANT=${APP_VARIANT:-global}"
 echo "ENABLED_MARKETS=$ENABLED_MARKETS"
 
+start_reverse_tunnel() {
+    if [ "${MEANX_TUNNEL_ENABLED:-0}" != "1" ]; then
+        return 0
+    fi
+
+    for REQUIRED_VAR in \
+        MEANX_TUNNEL_HOST \
+        MEANX_TUNNEL_USER \
+        MEANX_TUNNEL_PRIVATE_KEY_B64 \
+        MEANX_TUNNEL_KNOWN_HOSTS; do
+        if [ -z "${!REQUIRED_VAR:-}" ]; then
+            echo "[Tunnel] $REQUIRED_VAR is missing; reverse tunnel disabled"
+            return 0
+        fi
+    done
+
+    TUNNEL_DIR="/tmp/meanx-tunnel"
+    TUNNEL_KEY="$TUNNEL_DIR/id_ed25519"
+    TUNNEL_KNOWN_HOSTS="$TUNNEL_DIR/known_hosts"
+    TUNNEL_SSH_PORT="${MEANX_TUNNEL_PORT:-22}"
+    TUNNEL_REMOTE_PORT="${MEANX_TUNNEL_REMOTE_PORT:-18080}"
+
+    install -d -m 700 "$TUNNEL_DIR"
+    if ! printf '%s' "$MEANX_TUNNEL_PRIVATE_KEY_B64" | base64 -d > "$TUNNEL_KEY"; then
+        echo "[Tunnel] Invalid MEANX_TUNNEL_PRIVATE_KEY_B64; reverse tunnel disabled"
+        return 0
+    fi
+    printf '%s\n' "$MEANX_TUNNEL_KNOWN_HOSTS" > "$TUNNEL_KNOWN_HOSTS"
+    chmod 600 "$TUNNEL_KEY" "$TUNNEL_KNOWN_HOSTS"
+
+    (
+        while true; do
+            echo "[Tunnel] Connecting ${MEANX_TUNNEL_HOST}:${TUNNEL_SSH_PORT}, remote port ${TUNNEL_REMOTE_PORT}"
+            ssh -NT \
+                -i "$TUNNEL_KEY" \
+                -p "$TUNNEL_SSH_PORT" \
+                -o BatchMode=yes \
+                -o ConnectTimeout=10 \
+                -o ConnectionAttempts=3 \
+                -o ExitOnForwardFailure=yes \
+                -o ServerAliveInterval=15 \
+                -o ServerAliveCountMax=3 \
+                -o StrictHostKeyChecking=yes \
+                -o UserKnownHostsFile="$TUNNEL_KNOWN_HOSTS" \
+                -R "127.0.0.1:${TUNNEL_REMOTE_PORT}:127.0.0.1:${PORT}" \
+                "${MEANX_TUNNEL_USER}@${MEANX_TUNNEL_HOST}" || true
+            echo "[Tunnel] Disconnected; retrying in 5 seconds"
+            sleep 5
+        done
+    ) &
+    echo "[Tunnel] Supervisor launched (PID $!)"
+}
+
+start_reverse_tunnel
+
 ANALYSIS_POLICY_MARKER="/data/.analysis-policy-equity-medium-v1"
 
 # 1. Rebuild DB if needed
