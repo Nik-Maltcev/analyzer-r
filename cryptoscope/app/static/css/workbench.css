@@ -153,6 +153,65 @@
     font-weight: 600;
 }
 
+.crypto-pick-progress {
+    margin-top: 14px;
+}
+
+.crypto-pick-progress > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.crypto-pick-progress > header strong {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-align: right;
+}
+
+.crypto-pick-days {
+    border-top: 1px solid var(--border-subtle);
+}
+
+.crypto-pick-day {
+    display: grid;
+    grid-template-columns: minmax(78px, 1fr) minmax(82px, auto) minmax(68px, auto);
+    align-items: center;
+    gap: 10px;
+    min-height: 34px;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.crypto-pick-day.is-latest {
+    color: var(--text-bright);
+    background: rgba(80, 207, 164, 0.04);
+}
+
+.crypto-pick-day-date {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.crypto-pick-day-date small {
+    color: var(--green-bright);
+    font-family: var(--font-sans);
+    font-size: 9px;
+}
+
+.crypto-pick-day > strong,
+.crypto-pick-day-change {
+    text-align: right;
+}
+
 .crypto-pick-footer {
     margin-top: 12px;
     color: var(--text-muted);
@@ -189,6 +248,11 @@
 
     .crypto-picks-grid {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .crypto-pick-day {
+        grid-template-columns: minmax(72px, 1fr) minmax(76px, auto) minmax(62px, auto);
+        gap: 7px;
     }
 }
 

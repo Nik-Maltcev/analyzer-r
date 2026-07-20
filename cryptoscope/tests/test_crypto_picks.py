@@ -1,4 +1,7 @@
-from app.core.crypto_picks import aggregate_crypto_long_picks
+from app.core.crypto_picks import (
+    aggregate_crypto_long_picks,
+    build_price_progress,
+)
 
 
 def test_crypto_picks_merge_scanners_and_use_shortest_horizon():
@@ -68,3 +71,21 @@ def test_crypto_picks_ignore_expired_and_non_directional_scanners():
     )
 
     assert picks == []
+
+
+def test_price_progress_starts_on_signal_date_and_tracks_daily_change():
+    progress = build_price_progress(
+        [
+            ("2026-07-18", 70),
+            ("2026-07-19", 80),
+            ("2026-07-20", 100),
+        ],
+        "19.07.2026",
+    )
+
+    assert [day["date_display"] for day in progress] == ["20.07", "19.07"]
+    assert progress[0]["price_display"] == "$100"
+    assert progress[0]["change_display"] == "+25.00%"
+    assert progress[0]["is_latest"] is True
+    assert progress[1]["price_display"] == "$80"
+    assert progress[1]["is_start"] is True

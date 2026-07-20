@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Any, Iterable
 
@@ -62,6 +63,8 @@ def _format_price(value: Any) -> str:
         price = float(value)
     except (TypeError, ValueError):
         return "—"
+    if not math.isfinite(price) or price <= 0:
+        return "—"
     if price >= 1000:
         return f"${price:,.2f}".replace(",", " ")
     if price >= 1:
@@ -69,6 +72,56 @@ def _format_price(value: Any) -> str:
     if price >= 0.01:
         return f"${price:.5f}".rstrip("0").rstrip(".")
     return f"${price:.8f}".rstrip("0").rstrip(".")
+
+
+def build_price_progress(
+    dated_prices: Iterable[tuple[Any, Any]],
+    first_seen_date: Any,
+) -> list[dict[str, Any]]:
+    """Return newest-first daily prices measured from signal discovery."""
+    start_key = _date_key(first_seen_date)
+    if start_key[0] != 0:
+        return []
+
+    normalized: list[tuple[str, float]] = []
+    for raw_date, raw_price in dated_prices:
+        date_key = _date_key(raw_date)
+        try:
+            price = float(raw_price)
+        except (TypeError, ValueError):
+            continue
+        if (
+            date_key[0] != 0
+            or date_key[1] < start_key[1]
+            or not math.isfinite(price)
+            or price <= 0
+        ):
+            continue
+        normalized.append((date_key[1], price))
+
+    normalized.sort(key=lambda item: item[0])
+    if not normalized:
+        return []
+
+    start_price = normalized[0][1]
+    latest_date = normalized[-1][0]
+    progress = []
+    for iso_date, price in normalized:
+        change_pct = (price / start_price - 1) * 100
+        progress.append({
+            "date": iso_date,
+            "date_display": datetime.strptime(
+                iso_date,
+                "%Y-%m-%d",
+            ).strftime("%d.%m"),
+            "price": price,
+            "price_display": _format_price(price),
+            "change_pct": round(change_pct, 2),
+            "change_display": f"{change_pct:+.2f}%",
+            "is_start": iso_date == normalized[0][0],
+            "is_latest": iso_date == latest_date,
+        })
+    return list(reversed(progress))
 
 
 def aggregate_crypto_long_picks(

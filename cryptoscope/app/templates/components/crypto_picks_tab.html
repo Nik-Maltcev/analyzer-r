@@ -46,6 +46,35 @@
                 </div>
             </dl>
 
+            {% if pick.price_progress %}
+            <section class="crypto-pick-progress">
+                <header>
+                    <span>Цена по дням</span>
+                    <strong class="{% if pick.progress_change_pct > 0 %}positive{% elif pick.progress_change_pct < 0 %}negative{% endif %}">
+                        {{ pick.progress_change_display }} с начала сигнала
+                    </strong>
+                </header>
+                <div class="crypto-pick-days">
+                    {% for day in pick.price_progress %}
+                    <div class="crypto-pick-day {% if day.is_latest %}is-latest{% endif %}">
+                        <span class="crypto-pick-day-date">
+                            {{ day.date_display }}
+                            {% if day.is_latest %}<small>сейчас</small>{% endif %}
+                        </span>
+                        <strong>{{ day.price_display }}</strong>
+                        {% if day.is_start %}
+                        <span class="crypto-pick-day-change text-dim">старт</span>
+                        {% else %}
+                        <span class="crypto-pick-day-change {% if day.change_pct > 0 %}positive{% elif day.change_pct < 0 %}negative{% endif %}">
+                            {{ day.change_display }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
             <footer class="crypto-pick-footer">
                 <span>{{ pick.scanner_labels|join(' + ') }}</span>
                 {% if pick.signal_first_seen_date %}

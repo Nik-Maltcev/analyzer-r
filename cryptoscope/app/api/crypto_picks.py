@@ -7,7 +7,10 @@ from fastapi.responses import HTMLResponse
 
 from app.access import is_admin_user
 from app.auth import get_current_user
-from app.core.crypto_picks import aggregate_crypto_long_picks
+from app.core.crypto_picks import (
+    aggregate_crypto_long_picks,
+    build_price_progress,
+)
 from app.core.scanner_history import (
     annotate_scanner_results,
     build_scanner_snapshot,
@@ -85,6 +88,19 @@ async def crypto_picks_tab(request: Request):
             if not series.dropna().empty
         }
         picks = aggregate_crypto_long_picks(scanner_results, latest_prices)
+        for pick in picks:
+            ticker_series = wide[pick["ticker"]].dropna()
+            progress = build_price_progress(
+                ticker_series.items(),
+                pick.get("signal_first_seen_date"),
+            )
+            pick["price_progress"] = progress
+            pick["progress_change_pct"] = (
+                progress[0]["change_pct"] if progress else None
+            )
+            pick["progress_change_display"] = (
+                progress[0]["change_display"] if progress else "—"
+            )
         return templates.TemplateResponse(
             request,
             "components/crypto_picks_tab.html",
