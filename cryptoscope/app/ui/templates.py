@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi.templating import Jinja2Templates
 
+from app.access import is_admin_user
 from app.i18n import localize_html, request_locale
 from app.pricing import get_subscription_pricing
 from app.product import get_product_profile
@@ -18,12 +19,14 @@ def product_context(request):
         "enabled_markets",
         profile.enabled_markets,
     )
+    user = getattr(request.state, "current_user", None)
     return {
         "product": profile,
         "pricing": get_subscription_pricing(profile),
         "locale": locale,
         "translations": TRANSLATIONS.get(locale, {}),
         "enabled_markets": enabled_markets,
+        "is_admin": is_admin_user(user),
         "market_names": {
             "crypto": "Crypto",
             "stocks": "Акции/ETF",

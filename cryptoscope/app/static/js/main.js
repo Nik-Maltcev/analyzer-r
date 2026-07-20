@@ -71,16 +71,6 @@ function selectSignalsWorkspace(button) {
 }
 window.selectSignalsWorkspace = selectSignalsWorkspace;
 
-function filterPolymarket(category, button) {
-    document.querySelectorAll('.poly-filter-btn').forEach(item => {
-        item.classList.toggle('active', item === button);
-    });
-    document.querySelectorAll('[data-poly-category]').forEach(row => {
-        row.hidden = category !== 'all' && row.dataset.polyCategory !== category;
-    });
-}
-window.filterPolymarket = filterPolymarket;
-
 async function changeLocale(locale) {
     const response = await fetch(`/api/locale?lang=${encodeURIComponent(locale)}`, {
         method: 'POST',

@@ -44,6 +44,154 @@
     --content-max: 1720px;
 }
 
+/* Admin crypto shortlist */
+.crypto-picks-header {
+    align-items: center;
+}
+
+.crypto-picks-snapshot {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.crypto-picks-snapshot strong {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 18px;
+}
+
+.crypto-picks-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+    gap: 10px;
+}
+
+.crypto-pick-card {
+    min-width: 0;
+    padding: 16px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--green);
+    border-radius: var(--radius);
+}
+
+.crypto-pick-card-head,
+.crypto-pick-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.crypto-pick-card-head > div {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    min-width: 0;
+}
+
+.crypto-pick-symbol {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.crypto-pick-action {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 18px 0;
+    color: var(--text-dim);
+}
+
+.crypto-pick-buy {
+    color: var(--green-bright);
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.crypto-pick-details {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0;
+    border-top: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.crypto-pick-details > div {
+    min-width: 0;
+    padding: 12px 8px;
+    border-right: 1px solid var(--border-subtle);
+}
+
+.crypto-pick-details > div:first-child {
+    padding-left: 0;
+}
+
+.crypto-pick-details > div:last-child {
+    padding-right: 0;
+    border-right: 0;
+}
+
+.crypto-pick-details dt {
+    margin-bottom: 4px;
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.crypto-pick-details dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.crypto-pick-footer {
+    margin-top: 12px;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.crypto-picks-note {
+    max-width: 780px;
+    margin: 14px 0 0;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.crypto-picks-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 5px;
+    text-align: center;
+}
+
+@media (max-width: 720px) {
+    .crypto-picks-header {
+        align-items: flex-start;
+    }
+
+    .crypto-picks-snapshot {
+        align-items: flex-end;
+        flex-direction: column;
+        gap: 0;
+        text-align: right;
+    }
+
+    .crypto-picks-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 *,
 *::before,
 *::after {
@@ -1786,7 +1934,7 @@ html[data-view-mode='beginner'] .signals-page {
         z-index: 1100;
         flex: none;
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(3, 1fr);
         width: 100vw;
         max-width: 100vw;
         height: var(--mobile-nav-h);
@@ -1818,6 +1966,10 @@ html[data-view-mode='beginner'] .signals-page {
     .nav-tab .tab-icon {
         width: 17px;
         height: 17px;
+    }
+
+    .navbar-tabs.has-admin-tab {
+        grid-template-columns: repeat(4, 1fr);
     }
 
     .navbar-end {

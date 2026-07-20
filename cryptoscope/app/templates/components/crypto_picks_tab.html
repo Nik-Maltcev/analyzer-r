@@ -1,0 +1,69 @@
+<div class="tab-page crypto-picks-page">
+    <div class="page-header crypto-picks-header">
+        <div>
+            <h2><i class="page-title-icon" data-lucide="coins"></i>Крипта</h2>
+            <p class="page-desc">Монеты с действующим LONG-сигналом в Momentum или Drawdown.</p>
+        </div>
+        <div class="crypto-picks-snapshot">
+            <strong>{{ total }}</strong>
+            <span>идей · данные на {{ scanner_data_date or "—" }}</span>
+        </div>
+    </div>
+
+    {% if error %}
+    <div class="error-msg">{{ error }}</div>
+    {% elif picks %}
+    <div class="crypto-picks-grid">
+        {% for pick in picks %}
+        <article class="crypto-pick-card">
+            <header class="crypto-pick-card-head">
+                <div>
+                    <span class="crypto-pick-symbol">{{ pick.symbol }}</span>
+                    <span class="text-dim">{{ pick.ticker }}</span>
+                </div>
+                <span class="badge {% if pick.confidence == 'Высокая' %}badge-green{% elif pick.confidence == 'Средняя' %}badge-blue{% else %}badge-gray{% endif %}">
+                    {{ pick.confidence }} уверенность
+                </span>
+            </header>
+
+            <div class="crypto-pick-action">
+                <span class="crypto-pick-buy">Купить {{ pick.symbol }}</span>
+                <span>{{ pick.action_text }}</span>
+            </div>
+
+            <dl class="crypto-pick-details">
+                <div>
+                    <dt>Цена на расчёте</dt>
+                    <dd>{{ pick.current_price_display }}</dd>
+                </div>
+                <div>
+                    <dt>Сигнал действует</dt>
+                    <dd>{{ pick.signal_age_days }} дн.</dd>
+                </div>
+                <div>
+                    <dt>Подтверждение</dt>
+                    <dd>{{ pick.scanner_count }} из 2</dd>
+                </div>
+            </dl>
+
+            <footer class="crypto-pick-footer">
+                <span>{{ pick.scanner_labels|join(' + ') }}</span>
+                {% if pick.signal_first_seen_date %}
+                <span>с {{ pick.signal_first_seen_date }}</span>
+                {% endif %}
+            </footer>
+        </article>
+        {% endfor %}
+    </div>
+    <p class="crypto-picks-note">
+        Срок продажи — ориентир по окну сигнала. Если LONG-условие исчезнет раньше,
+        позицию нужно пересмотреть при следующем ежедневном расчёте.
+    </p>
+    {% else %}
+    <div class="empty-state crypto-picks-empty">
+        <span class="empty-icon"><i data-lucide="circle-pause"></i></span>
+        <p>Сейчас Momentum и Drawdown не подтверждают ни одной покупки.</p>
+        <span>Новый список появится после следующего ежедневного расчёта.</span>
+    </div>
+    {% endif %}
+</div>

@@ -154,14 +154,7 @@ def _forecast_result():
 
 
 @pytest.mark.asyncio
-async def test_polymarket_tab_and_results_render(app, monkeypatch):
-    async def fake_forecasts(force=False):
-        return _forecast_result()
-
-    monkeypatch.setattr(
-        "app.api.polymarket.get_polymarket_forecasts",
-        fake_forecasts,
-    )
+async def test_polymarket_routes_and_navigation_are_removed(app):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         shell = await client.get("/tab/polymarket")
@@ -169,13 +162,8 @@ async def test_polymarket_tab_and_results_render(app, monkeypatch):
         api_response = await client.get("/api/polymarket")
         app_page = await client.get("/app")
 
-    assert shell.status_code == 200
-    assert 'id="polymarket-results"' in shell.text
-    assert results.status_code == 200
-    assert "S&amp;P 500 ETF" in results.text
-    assert "58.4%" in results.text
-    assert "Историческая точность" in results.text
-    assert "44 тестов · база 52.1%" in results.text
-    assert api_response.status_code == 200
-    assert api_response.json()["leader"]["key"] == "SPY"
-    assert 'data-tab="polymarket"' in app_page.text
+    assert shell.status_code == 404
+    assert results.status_code == 404
+    assert api_response.status_code == 404
+    assert 'data-tab="polymarket"' not in app_page.text
+    assert 'data-tab="crypto"' not in app_page.text
