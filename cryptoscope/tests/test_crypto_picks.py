@@ -1,6 +1,7 @@
 from app.core.crypto_picks import (
     aggregate_crypto_long_picks,
     build_completed_crypto_history,
+    build_crypto_signal_export,
     build_price_progress,
     select_crypto_sell_actions,
 )
@@ -179,3 +180,79 @@ def test_sell_actions_only_include_signals_completed_today():
     actions = select_crypto_sell_actions(history, "21.07.2026")
 
     assert [item["ticker"] for item in actions] == ["LTC/USD"]
+
+
+def test_crypto_signal_export_includes_completed_closed_and_active_results():
+    report = build_crypto_signal_export(
+        [
+            {
+                "id": 1,
+                "scanner": "momentum",
+                "ticker_a": "LTC/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-01",
+                "last_seen_date": "2026-07-05",
+                "observation_count": 5,
+                "status": "closed",
+                "ended_date": "2026-07-06",
+            },
+            {
+                "id": 2,
+                "scanner": "drawdown",
+                "ticker_a": "ETH/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-01",
+                "last_seen_date": "2026-07-03",
+                "observation_count": 3,
+                "status": "closed",
+                "ended_date": "2026-07-04",
+            },
+            {
+                "id": 3,
+                "scanner": "momentum",
+                "ticker_a": "SOL/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-03",
+                "last_seen_date": "2026-07-05",
+                "observation_count": 3,
+                "status": "active",
+            },
+        ],
+        {
+            "LTC/USD": [
+                ("2026-07-01", 100),
+                ("2026-07-02", 102),
+                ("2026-07-03", 104),
+                ("2026-07-04", 106),
+                ("2026-07-05", 110),
+                ("2026-07-06", 90),
+            ],
+            "ETH/USD": [
+                ("2026-07-01", 100),
+                ("2026-07-02", 95),
+                ("2026-07-03", 92),
+                ("2026-07-04", 90),
+                ("2026-07-05", 80),
+            ],
+            "SOL/USD": [
+                ("2026-07-03", 50),
+                ("2026-07-04", 55),
+                ("2026-07-05", 60),
+            ],
+        },
+        "2026-07-05",
+    )
+
+    rows = {item["ticker"]: item for item in report["rows"]}
+    assert rows["LTC/USD"]["status"] == "completed"
+    assert rows["LTC/USD"]["result_date"] == "2026-07-05"
+    assert rows["LTC/USD"]["return_pct"] == 10.0
+    assert rows["ETH/USD"]["status"] == "closed_early"
+    assert rows["ETH/USD"]["result_date"] == "2026-07-04"
+    assert rows["ETH/USD"]["return_pct"] == -10.0
+    assert rows["SOL/USD"]["status"] == "active"
+    assert rows["SOL/USD"]["return_pct"] == 20.0
+    assert report["summary"]["signals_total"] == 3
+    assert report["summary"]["total_invested"] == 300.0
+    assert report["summary"]["total_result"] == 20.0
+    assert report["summary"]["portfolio_return_pct"] == 6.6667

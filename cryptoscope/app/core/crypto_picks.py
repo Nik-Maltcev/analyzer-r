@@ -251,6 +251,144 @@ def select_crypto_sell_actions(
     ]
 
 
+def build_crypto_signal_export(
+    periods: Iterable[dict[str, Any]],
+    prices_by_ticker: dict[str, Iterable[tuple[Any, Any]]],
+    data_date: Any,
+    stake_per_signal: float = 100.0,
+) -> dict[str, Any]:
+    """Build an auditable journal and equal-stake result for every LONG signal."""
+    target_date = _date_key(data_date)
+    latest_date = target_date[1] if target_date[0] == 0 else "9999-12-31"
+    price_cache: dict[str, list[tuple[str, float]]] = {}
+
+    for ticker, price_rows in prices_by_ticker.items():
+        normalized: list[tuple[str, float]] = []
+        for raw_date, raw_price in price_rows:
+            date_key = _date_key(raw_date)
+            try:
+                price = float(raw_price)
+            except (TypeError, ValueError):
+                continue
+            if (
+                date_key[0] == 0
+                and date_key[1] <= latest_date
+                and math.isfinite(price)
+                and price > 0
+            ):
+                normalized.append((date_key[1], price))
+        price_cache[ticker] = sorted(normalized, key=lambda item: item[0])
+
+    rows: list[dict[str, Any]] = []
+    for period in periods:
+        scanner = str(period.get("scanner") or "")
+        horizon = CRYPTO_PICK_HORIZONS.get(scanner)
+        if horizon is None or str(period.get("direction") or "") != "long":
+            continue
+
+        ticker = str(period.get("ticker_a") or "").strip()
+        start_key = _date_key(period.get("first_seen_date"))
+        if not ticker or start_key[0] != 0:
+            continue
+
+        dated_prices = [
+            (price_date, price)
+            for price_date, price in price_cache.get(ticker, [])
+            if price_date >= start_key[1]
+        ]
+        if not dated_prices:
+            continue
+
+        observations = _safe_int(period.get("observation_count"), 0)
+        raw_status = str(period.get("status") or "active")
+        if observations >= horizon and len(dated_prices) >= horizon:
+            result_date, result_price = dated_prices[horizon - 1]
+            status = "completed"
+            status_label = "Завершён по сроку"
+            result_type = "реализованный"
+            held_days = horizon
+        elif raw_status == "closed":
+            close_key = _date_key(
+                period.get("ended_date") or period.get("last_seen_date")
+            )
+            close_date = close_key[1] if close_key[0] == 0 else latest_date
+            available = [
+                (price_date, price)
+                for price_date, price in dated_prices
+                if price_date <= close_date
+            ]
+            if not available:
+                continue
+            result_date, result_price = available[-1]
+            status = "closed_early"
+            status_label = "Закрыт раньше срока"
+            result_type = "реализованный"
+            held_days = len(available)
+        else:
+            result_date, result_price = dated_prices[-1]
+            status = "active"
+            status_label = "Активен"
+            result_type = "текущий"
+            held_days = len(dated_prices)
+
+        start_date, start_price = dated_prices[0]
+        return_pct = (result_price / start_price - 1) * 100
+        cash_result = stake_per_signal * return_pct / 100
+        rows.append({
+            "period_id": period.get("id"),
+            "ticker": ticker,
+            "symbol": _ticker_symbol(ticker),
+            "scanner": scanner,
+            "scanner_label": SCANNER_LABELS[scanner],
+            "status": status,
+            "status_label": status_label,
+            "result_type": result_type,
+            "horizon_days": horizon,
+            "held_days": held_days,
+            "start_date": start_date,
+            "result_date": result_date,
+            "start_price": start_price,
+            "result_price": result_price,
+            "return_pct": round(return_pct, 4),
+            "cash_result": round(cash_result, 4),
+            "is_profitable": return_pct > 0,
+        })
+
+    rows.sort(
+        key=lambda item: (
+            item["start_date"],
+            item["symbol"],
+            item["scanner"],
+            item.get("period_id") or 0,
+        ),
+        reverse=True,
+    )
+    total_invested = stake_per_signal * len(rows)
+    total_result = sum(item["cash_result"] for item in rows)
+    realized_result = sum(
+        item["cash_result"]
+        for item in rows
+        if item["status"] != "active"
+    )
+    unrealized_result = total_result - realized_result
+    summary = {
+        "signals_total": len(rows),
+        "signals_active": sum(1 for item in rows if item["status"] == "active"),
+        "signals_profitable": sum(1 for item in rows if item["is_profitable"]),
+        "stake_per_signal": stake_per_signal,
+        "total_invested": round(total_invested, 2),
+        "portfolio_value": round(total_invested + total_result, 2),
+        "total_result": round(total_result, 2),
+        "realized_result": round(realized_result, 2),
+        "unrealized_result": round(unrealized_result, 2),
+        "portfolio_return_pct": round(
+            total_result / total_invested * 100,
+            4,
+        ) if total_invested else 0.0,
+    }
+    return {"rows": rows, "summary": summary}
+
+
 def aggregate_crypto_long_picks(
     scanner_results: dict[str, Iterable[dict[str, Any]]],
     latest_prices: dict[str, Any],

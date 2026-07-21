@@ -4,9 +4,15 @@
             <h2><i class="page-title-icon" data-lucide="coins"></i>Крипта</h2>
             <p class="page-desc">Монеты с действующим LONG-сигналом в Momentum или Drawdown.</p>
         </div>
-        <div class="crypto-picks-snapshot">
-            <strong>{{ total }}</strong>
-            <span>идей · данные на {{ scanner_data_date or "—" }}</span>
+        <div class="crypto-picks-header-actions">
+            <div class="crypto-picks-snapshot">
+                <strong>{{ total }}</strong>
+                <span>идей · данные на {{ scanner_data_date or "—" }}</span>
+            </div>
+            <a class="btn btn-secondary crypto-export-button" href="/tab/crypto/export.csv" download>
+                <i data-lucide="download"></i>
+                Скачать CSV
+            </a>
         </div>
     </div>
 

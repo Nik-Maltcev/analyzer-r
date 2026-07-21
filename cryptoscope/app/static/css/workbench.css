@@ -49,6 +49,12 @@
     align-items: center;
 }
 
+.crypto-picks-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 .crypto-picks-snapshot {
     display: flex;
     align-items: baseline;
@@ -61,6 +67,20 @@
     color: var(--text-bright);
     font-family: var(--font-mono);
     font-size: 18px;
+}
+
+.crypto-export-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 34px;
+    white-space: nowrap;
+}
+
+.crypto-export-button svg {
+    width: 15px;
+    height: 15px;
 }
 
 .crypto-picks-grid {
@@ -508,6 +528,21 @@
         flex-direction: column;
         gap: 0;
         text-align: right;
+    }
+
+    .crypto-picks-header-actions {
+        align-items: stretch;
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .crypto-picks-snapshot {
+        align-items: flex-start;
+        text-align: left;
+    }
+
+    .crypto-export-button {
+        width: 100%;
     }
 
     .crypto-picks-grid {

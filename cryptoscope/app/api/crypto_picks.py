@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import csv
+import io
+
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from app.access import is_admin_user
 from app.auth import get_current_user
@@ -11,11 +14,13 @@ from app.core.crypto_picks import (
     aggregate_crypto_long_picks,
     build_completed_crypto_history,
     build_price_progress,
+    build_crypto_signal_export,
     select_crypto_sell_actions,
 )
 from app.core.scanner_history import (
     annotate_scanner_results,
     build_scanner_snapshot,
+    ensure_scanner_history_schema,
     format_scanner_date,
     is_scanner_signal_within_horizon,
     sync_scanner_periods,
@@ -32,6 +37,105 @@ async def _require_admin(request: Request) -> None:
         user = await get_current_user(request)
     if not is_admin_user(user):
         raise HTTPException(status_code=404, detail="Not found")
+
+
+def _csv_number(value: object, digits: int = 4) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return ""
+    return f"{number:.{digits}f}".rstrip("0").rstrip(".")
+
+
+@router.get("/export.csv")
+async def export_crypto_picks_csv(request: Request):
+    await _require_admin(request)
+    async with get_connection() as conn:
+        await ensure_scanner_history_schema(conn)
+        prices = await fetch_prices(conn, "crypto")
+        if prices.empty:
+            raise HTTPException(status_code=404, detail="No crypto data")
+        cursor = await conn.execute(
+            """
+            SELECT *
+            FROM scanner_signal_periods
+            WHERE market = 'crypto'
+              AND scanner IN ('momentum', 'drawdown')
+              AND direction = 'long'
+            ORDER BY first_seen_date DESC, id DESC
+            """
+        )
+        periods = [dict(row) for row in await cursor.fetchall()]
+
+    wide = prices.pivot(index="date", columns="ticker", values="close")
+    wide = wide.sort_index()
+    data_date = str(max(wide.index))[:10]
+    prices_by_ticker = {
+        ticker: list(series.dropna().items())
+        for ticker, series in wide.items()
+        if not series.dropna().empty
+    }
+    report = build_crypto_signal_export(periods, prices_by_ticker, data_date)
+    summary = report["summary"]
+
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, delimiter=";", lineterminator="\r\n")
+    writer.writerow(["MEANX: журнал LONG-сигналов раздела Крипта"])
+    writer.writerow(["Данные на", data_date])
+    writer.writerow([
+        "Методика",
+        "$100 на каждый сигнал; без комиссий, проскальзывания и налогов",
+    ])
+    writer.writerow(["Всего сигналов", summary["signals_total"]])
+    writer.writerow(["Активных сигналов", summary["signals_active"]])
+    writer.writerow(["Сигналов в плюсе", summary["signals_profitable"]])
+    writer.writerow(["Условно вложено, USD", _csv_number(summary["total_invested"], 2)])
+    writer.writerow(["Текущая стоимость, USD", _csv_number(summary["portfolio_value"], 2)])
+    writer.writerow(["Общий результат, USD", _csv_number(summary["total_result"], 2)])
+    writer.writerow(["Общий результат, %", _csv_number(summary["portfolio_return_pct"], 4)])
+    writer.writerow(["Реализованный результат, USD", _csv_number(summary["realized_result"], 2)])
+    writer.writerow(["Текущий результат активных, USD", _csv_number(summary["unrealized_result"], 2)])
+    writer.writerow([])
+    writer.writerow([
+        "ID сигнала",
+        "Монета",
+        "Пара",
+        "Сканер",
+        "Статус",
+        "Дата начала",
+        "Дата результата",
+        "Горизонт, дн.",
+        "Фактически, дн.",
+        "Цена начала, USD",
+        "Цена результата, USD",
+        "Изменение, %",
+        "Результат на $100, USD",
+        "Тип результата",
+    ])
+    for item in report["rows"]:
+        writer.writerow([
+            item["period_id"],
+            item["symbol"],
+            item["ticker"],
+            item["scanner_label"],
+            item["status_label"],
+            item["start_date"],
+            item["result_date"],
+            item["horizon_days"],
+            item["held_days"],
+            _csv_number(item["start_price"], 8),
+            _csv_number(item["result_price"], 8),
+            _csv_number(item["return_pct"], 4),
+            _csv_number(item["cash_result"], 4),
+            item["result_type"],
+        ])
+
+    filename = f"meanx-crypto-signals-{data_date}.csv"
+    return Response(
+        content="\ufeff" + output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("", response_class=HTMLResponse)
