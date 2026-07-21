@@ -65,8 +65,9 @@
                         {% if day.is_start %}
                         <span class="crypto-pick-day-change text-dim">старт</span>
                         {% else %}
-                        <span class="crypto-pick-day-change {% if day.change_pct > 0 %}positive{% elif day.change_pct < 0 %}negative{% endif %}">
-                            {{ day.change_display }}
+                        <span class="crypto-pick-day-change">
+                            <strong class="{% if day.day_change_pct > 0 %}positive{% elif day.day_change_pct < 0 %}negative{% endif %}">{{ day.day_change_display }}</strong>
+                            <small class="{% if day.change_pct > 0 %}positive{% elif day.change_pct < 0 %}negative{% endif %}">({{ day.change_display }} всего)</small>
                         </span>
                         {% endif %}
                     </div>
@@ -94,5 +95,105 @@
         <p>Сейчас Momentum и Drawdown не подтверждают ни одной покупки.</p>
         <span>Новый список появится после следующего ежедневного расчёта.</span>
     </div>
+    {% endif %}
+
+    {% if not error %}
+    {% if sell_actions %}
+    <section class="crypto-sell-section">
+        <header class="crypto-sell-header">
+            <div>
+                <h3><i data-lucide="badge-check"></i>Продать сегодня</h3>
+                <p>Эти LONG-сигналы достигли своего полного срока на свежем расчёте.</p>
+            </div>
+            <span class="crypto-sell-count">{{ sell_total }} завершено</span>
+        </header>
+        <div class="crypto-sell-grid">
+            {% for item in sell_actions %}
+            <article class="crypto-sell-card">
+                <header>
+                    <div>
+                        <strong>{{ item.symbol }}</strong>
+                        <span>{{ item.ticker }}</span>
+                    </div>
+                    <span class="badge badge-red">{{ item.scanner_label }} · {{ item.horizon_days }} дней</span>
+                </header>
+                <div class="crypto-sell-action">Продать {{ item.symbol }}</div>
+                <dl>
+                    <div>
+                        <dt>Начало</dt>
+                        <dd>{{ item.start_date_display }}</dd>
+                        <span>{{ item.start_price_display }}</span>
+                    </div>
+                    <div>
+                        <dt>Окончание</dt>
+                        <dd>{{ item.end_date_display }}</dd>
+                        <span>{{ item.end_price_display }}</span>
+                    </div>
+                    <div>
+                        <dt>Итог</dt>
+                        <dd class="{% if item.return_pct > 0 %}positive{% elif item.return_pct < 0 %}negative{% endif %}">{{ item.return_display }}</dd>
+                        <span>{{ item.result_label }}</span>
+                    </div>
+                </dl>
+                <footer>Если позиция была открыта по этому сигналу, её расчётный срок завершён.</footer>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    <section class="crypto-history-section">
+        <header class="crypto-history-header">
+            <div>
+                <h3><i data-lucide="history"></i>История завершённых сигналов</h3>
+                <p>Результат фиксируется в конце окна: 5 дней для Momentum, 10 дней для Drawdown. Комиссии и цена исполнения сделки не учитываются.</p>
+            </div>
+            <div class="crypto-history-summary">
+                <span><strong>{{ history_total }}</strong> завершено</span>
+                <span><strong>{{ history_profitable }}</strong> в плюсе</span>
+                <span><strong>{{ history_win_rate if history_win_rate is not none else "—" }}{% if history_win_rate is not none %}%{% endif %}</strong> доля плюсовых</span>
+            </div>
+        </header>
+
+        {% if history %}
+        <div class="crypto-history-table" role="table" aria-label="История завершённых криптосигналов">
+            <div class="crypto-history-row crypto-history-table-head" role="row">
+                <span>Монета</span>
+                <span>Сканер</span>
+                <span>Период</span>
+                <span>Цена</span>
+                <span>Результат</span>
+            </div>
+            {% for item in history %}
+            <div class="crypto-history-row" role="row">
+                <div class="crypto-history-asset">
+                    <strong>{{ item.symbol }}</strong>
+                    <span>{{ item.ticker }}</span>
+                </div>
+                <div class="crypto-history-cell crypto-history-scanner" data-label="Сканер">
+                    <strong>{{ item.scanner_label }}</strong>
+                    <span>{{ item.horizon_days }} дней</span>
+                </div>
+                <div class="crypto-history-cell crypto-history-period" data-label="Период">
+                    <strong>{{ item.start_date_display }}</strong>
+                    <span>до {{ item.end_date_display }}</span>
+                </div>
+                <div class="crypto-history-cell crypto-history-price" data-label="Цена">
+                    <strong>{{ item.start_price_display }} → {{ item.end_price_display }}</strong>
+                    <span>начало → окончание</span>
+                </div>
+                <div class="crypto-history-result {% if item.return_pct > 0 %}positive{% elif item.return_pct < 0 %}negative{% endif %}">
+                    <strong>{{ item.return_display }}</strong>
+                    <span>{{ item.result_label }}</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="crypto-history-empty">
+            История появится, когда первый LONG-сигнал пройдёт полное окно наблюдения.
+        </div>
+        {% endif %}
+    </section>
     {% endif %}
 </div>

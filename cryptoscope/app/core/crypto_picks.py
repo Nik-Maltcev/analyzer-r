@@ -12,6 +12,11 @@ SCANNER_LABELS = {
     "drawdown": "Drawdown",
 }
 
+CRYPTO_PICK_HORIZONS = {
+    "momentum": 5,
+    "drawdown": 10,
+}
+
 CONFIDENCE_RANK = {
     "Низкая": 1,
     "Средняя": 2,
@@ -106,8 +111,14 @@ def build_price_progress(
     start_price = normalized[0][1]
     latest_date = normalized[-1][0]
     progress = []
+    previous_price: float | None = None
     for iso_date, price in normalized:
         change_pct = (price / start_price - 1) * 100
+        day_change_pct = (
+            (price / previous_price - 1) * 100
+            if previous_price is not None
+            else 0.0
+        )
         progress.append({
             "date": iso_date,
             "date_display": datetime.strptime(
@@ -118,10 +129,126 @@ def build_price_progress(
             "price_display": _format_price(price),
             "change_pct": round(change_pct, 2),
             "change_display": f"{change_pct:+.2f}%",
+            "day_change_pct": round(day_change_pct, 2),
+            "day_change_display": f"{day_change_pct:+.2f}%",
             "is_start": iso_date == normalized[0][0],
             "is_latest": iso_date == latest_date,
         })
+        previous_price = price
     return list(reversed(progress))
+
+
+def build_completed_crypto_history(
+    periods: Iterable[dict[str, Any]],
+    prices_by_ticker: dict[str, Iterable[tuple[Any, Any]]],
+) -> list[dict[str, Any]]:
+    """Build completed LONG outcomes at each scanner's fixed horizon."""
+    history: list[dict[str, Any]] = []
+    price_cache: dict[str, list[tuple[str, float]]] = {}
+
+    for ticker, rows in prices_by_ticker.items():
+        normalized: list[tuple[str, float]] = []
+        for raw_date, raw_price in rows:
+            date_key = _date_key(raw_date)
+            try:
+                price = float(raw_price)
+            except (TypeError, ValueError):
+                continue
+            if (
+                date_key[0] == 0
+                and math.isfinite(price)
+                and price > 0
+            ):
+                normalized.append((date_key[1], price))
+        price_cache[ticker] = sorted(normalized, key=lambda item: item[0])
+
+    for period in periods:
+        scanner = str(period.get("scanner") or "")
+        horizon = CRYPTO_PICK_HORIZONS.get(scanner)
+        observations = _safe_int(period.get("observation_count"), 0)
+        if (
+            horizon is None
+            or str(period.get("direction") or "") != "long"
+            or observations < horizon
+        ):
+            continue
+
+        ticker = str(period.get("ticker_a") or "").strip()
+        start_key = _date_key(period.get("first_seen_date"))
+        last_key = _date_key(period.get("last_seen_date"))
+        if not ticker or start_key[0] != 0 or last_key[0] != 0:
+            continue
+
+        dated_prices = [
+            (price_date, price)
+            for price_date, price in price_cache.get(ticker, [])
+            if start_key[1] <= price_date <= last_key[1]
+        ]
+        if len(dated_prices) < horizon:
+            continue
+
+        start_date, start_price = dated_prices[0]
+        end_date, end_price = dated_prices[horizon - 1]
+        return_pct = (end_price / start_price - 1) * 100
+        if return_pct > 0:
+            result_label = "В плюсе"
+        elif return_pct < 0:
+            result_label = "В минусе"
+        else:
+            result_label = "Без изменений"
+
+        history.append({
+            "period_id": period.get("id"),
+            "ticker": ticker,
+            "symbol": _ticker_symbol(ticker),
+            "scanner": scanner,
+            "scanner_label": SCANNER_LABELS[scanner],
+            "horizon_days": horizon,
+            "start_date": start_date,
+            "start_date_display": datetime.strptime(
+                start_date,
+                "%Y-%m-%d",
+            ).strftime("%d.%m.%Y"),
+            "end_date": end_date,
+            "end_date_display": datetime.strptime(
+                end_date,
+                "%Y-%m-%d",
+            ).strftime("%d.%m.%Y"),
+            "start_price": start_price,
+            "start_price_display": _format_price(start_price),
+            "end_price": end_price,
+            "end_price_display": _format_price(end_price),
+            "return_pct": round(return_pct, 2),
+            "return_display": f"{return_pct:+.2f}%",
+            "is_profitable": return_pct > 0,
+            "result_label": result_label,
+        })
+
+    return sorted(
+        history,
+        key=lambda item: (
+            item["end_date"],
+            item["start_date"],
+            item["symbol"],
+            item["scanner"],
+        ),
+        reverse=True,
+    )
+
+
+def select_crypto_sell_actions(
+    history: Iterable[dict[str, Any]],
+    data_date: Any,
+) -> list[dict[str, Any]]:
+    """Return completed positions that reached their horizon today."""
+    target = _date_key(data_date)
+    if target[0] != 0:
+        return []
+    return [
+        item
+        for item in history
+        if _date_key(item.get("end_date")) == target
+    ]
 
 
 def aggregate_crypto_long_picks(
