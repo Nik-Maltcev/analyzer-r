@@ -17,6 +17,8 @@ CRYPTO_PICK_HORIZONS = {
     "drawdown": 10,
 }
 
+CRYPTO_PICKS_TRACKING_START = "2026-07-20"
+
 CONFIDENCE_RANK = {
     "Низкая": 1,
     "Средняя": 2,
@@ -256,10 +258,15 @@ def build_crypto_signal_export(
     prices_by_ticker: dict[str, Iterable[tuple[Any, Any]]],
     data_date: Any,
     stake_per_signal: float = 100.0,
+    tracking_start_date: Any = CRYPTO_PICKS_TRACKING_START,
 ) -> dict[str, Any]:
     """Build an auditable journal and equal-stake result for every LONG signal."""
     target_date = _date_key(data_date)
     latest_date = target_date[1] if target_date[0] == 0 else "9999-12-31"
+    tracking_start = _date_key(tracking_start_date)
+    tracking_date = (
+        tracking_start[1] if tracking_start[0] == 0 else "0000-01-01"
+    )
     price_cache: dict[str, list[tuple[str, float]]] = {}
 
     for ticker, price_rows in prices_by_ticker.items():
@@ -291,22 +298,45 @@ def build_crypto_signal_export(
         if not ticker or start_key[0] != 0:
             continue
 
-        dated_prices = [
+        original_prices = [
             (price_date, price)
             for price_date, price in price_cache.get(ticker, [])
             if price_date >= start_key[1]
         ]
-        if not dated_prices:
+        if not original_prices:
             continue
 
         observations = _safe_int(period.get("observation_count"), 0)
         raw_status = str(period.get("status") or "active")
-        if observations >= horizon and len(dated_prices) >= horizon:
-            result_date, result_price = dated_prices[horizon - 1]
+        horizon_result = (
+            original_prices[horizon - 1]
+            if observations >= horizon and len(original_prices) >= horizon
+            else None
+        )
+        last_seen_key = _date_key(period.get("last_seen_date"))
+        last_visible_date = (
+            last_seen_key[1] if last_seen_key[0] == 0 else start_key[1]
+        )
+        if horizon_result is not None:
+            last_visible_date = min(last_visible_date, horizon_result[0])
+        if last_visible_date < tracking_date:
+            continue
+
+        dated_prices = [
+            (price_date, price)
+            for price_date, price in original_prices
+            if price_date >= max(start_key[1], tracking_date)
+        ]
+        if not dated_prices:
+            continue
+
+        if horizon_result is not None:
+            result_date, result_price = horizon_result
+            if result_date < dated_prices[0][0]:
+                continue
             status = "completed"
             status_label = "Завершён по сроку"
             result_type = "реализованный"
-            held_days = horizon
         elif raw_status == "closed":
             close_key = _date_key(
                 period.get("ended_date") or period.get("last_seen_date")
@@ -323,15 +353,16 @@ def build_crypto_signal_export(
             status = "closed_early"
             status_label = "Закрыт раньше срока"
             result_type = "реализованный"
-            held_days = len(available)
         else:
             result_date, result_price = dated_prices[-1]
             status = "active"
             status_label = "Активен"
             result_type = "текущий"
-            held_days = len(dated_prices)
 
         start_date, start_price = dated_prices[0]
+        held_days = sum(
+            1 for price_date, _ in dated_prices if price_date <= result_date
+        )
         return_pct = (result_price / start_price - 1) * 100
         cash_result = stake_per_signal * return_pct / 100
         rows.append({

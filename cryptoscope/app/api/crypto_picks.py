@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, Response
 from app.access import is_admin_user
 from app.auth import get_current_user
 from app.core.crypto_picks import (
+    CRYPTO_PICKS_TRACKING_START,
     aggregate_crypto_long_picks,
     build_completed_crypto_history,
     build_price_progress,
@@ -82,6 +83,7 @@ async def export_crypto_picks_csv(request: Request):
     writer = csv.writer(output, delimiter=";", lineterminator="\r\n")
     writer.writerow(["MEANX: журнал LONG-сигналов раздела Крипта"])
     writer.writerow(["Данные на", data_date])
+    writer.writerow(["История раздела с", CRYPTO_PICKS_TRACKING_START])
     writer.writerow([
         "Методика",
         "$100 на каждый сигнал; без комиссий, проскальзывания и налогов",

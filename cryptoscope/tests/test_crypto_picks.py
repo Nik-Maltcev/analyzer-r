@@ -241,6 +241,7 @@ def test_crypto_signal_export_includes_completed_closed_and_active_results():
             ],
         },
         "2026-07-05",
+        tracking_start_date="2026-07-01",
     )
 
     rows = {item["ticker"]: item for item in report["rows"]}
@@ -256,3 +257,51 @@ def test_crypto_signal_export_includes_completed_closed_and_active_results():
     assert report["summary"]["total_invested"] == 300.0
     assert report["summary"]["total_result"] == 20.0
     assert report["summary"]["portfolio_return_pct"] == 6.6667
+
+
+def test_crypto_signal_export_excludes_pre_section_history_and_clamps_entry():
+    report = build_crypto_signal_export(
+        [
+            {
+                "id": 1,
+                "scanner": "momentum",
+                "ticker_a": "OLD/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-01",
+                "last_seen_date": "2026-07-05",
+                "observation_count": 5,
+                "status": "closed",
+                "ended_date": "2026-07-06",
+            },
+            {
+                "id": 2,
+                "scanner": "momentum",
+                "ticker_a": "LIVE/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-18",
+                "last_seen_date": "2026-07-22",
+                "observation_count": 5,
+                "status": "active",
+            },
+        ],
+        {
+            "OLD/USD": [
+                (f"2026-07-{day:02d}", 100 + day)
+                for day in range(1, 7)
+            ],
+            "LIVE/USD": [
+                ("2026-07-18", 80),
+                ("2026-07-19", 90),
+                ("2026-07-20", 100),
+                ("2026-07-21", 105),
+                ("2026-07-22", 110),
+            ],
+        },
+        "2026-07-22",
+        tracking_start_date="2026-07-20",
+    )
+
+    assert [item["ticker"] for item in report["rows"]] == ["LIVE/USD"]
+    assert report["rows"][0]["start_date"] == "2026-07-20"
+    assert report["rows"][0]["result_date"] == "2026-07-22"
+    assert report["rows"][0]["return_pct"] == 10.0
