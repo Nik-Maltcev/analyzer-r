@@ -253,7 +253,7 @@ def test_crypto_signal_export_includes_completed_closed_and_active_results():
     assert rows["ETH/USD"]["return_pct"] == -10.0
     assert rows["SOL/USD"]["status"] == "active"
     assert rows["SOL/USD"]["return_pct"] == 20.0
-    assert report["summary"]["signals_total"] == 3
+    assert report["summary"]["positions_total"] == 3
     assert report["summary"]["total_invested"] == 300.0
     assert report["summary"]["total_result"] == 20.0
     assert report["summary"]["portfolio_return_pct"] == 6.6667
@@ -305,3 +305,57 @@ def test_crypto_signal_export_excludes_pre_section_history_and_clamps_entry():
     assert report["rows"][0]["start_date"] == "2026-07-20"
     assert report["rows"][0]["result_date"] == "2026-07-22"
     assert report["rows"][0]["return_pct"] == 10.0
+
+
+def test_crypto_signal_export_merges_overlapping_scanners_into_one_position():
+    report = build_crypto_signal_export(
+        [
+            {
+                "id": 10,
+                "scanner": "momentum",
+                "ticker_a": "XMR/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-20",
+                "last_seen_date": "2026-07-24",
+                "observation_count": 5,
+                "status": "closed",
+                "ended_date": "2026-07-25",
+            },
+            {
+                "id": 11,
+                "scanner": "drawdown",
+                "ticker_a": "XMR/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-22",
+                "last_seen_date": "2026-07-25",
+                "observation_count": 4,
+                "status": "closed",
+                "ended_date": "2026-07-26",
+            },
+        ],
+        {
+            "XMR/USD": [
+                ("2026-07-20", 100),
+                ("2026-07-21", 102),
+                ("2026-07-22", 104),
+                ("2026-07-23", 106),
+                ("2026-07-24", 108),
+                ("2026-07-25", 110),
+                ("2026-07-26", 120),
+            ],
+        },
+        "2026-07-26",
+        tracking_start_date="2026-07-20",
+    )
+
+    assert report["summary"]["positions_total"] == 1
+    position = report["rows"][0]
+    assert position["ticker"] == "XMR/USD"
+    assert position["scanner_labels"] == "Drawdown + Momentum"
+    assert position["start_date"] == "2026-07-20"
+    assert position["result_date"] == "2026-07-26"
+    assert position["stake"] == 100.0
+    assert position["quantity"] == 1.0
+    assert position["position_value"] == 120.0
+    assert position["cash_result"] == 20.0
+    assert position["return_pct"] == 20.0

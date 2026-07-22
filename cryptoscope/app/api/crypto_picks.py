@@ -81,16 +81,17 @@ async def export_crypto_picks_csv(request: Request):
 
     output = io.StringIO(newline="")
     writer = csv.writer(output, delimiter=";", lineterminator="\r\n")
-    writer.writerow(["MEANX: журнал LONG-сигналов раздела Крипта"])
+    writer.writerow(["MEANX: позиции раздела Крипта"])
     writer.writerow(["Данные на", data_date])
     writer.writerow(["История раздела с", CRYPTO_PICKS_TRACKING_START])
     writer.writerow([
         "Методика",
-        "$100 на каждый сигнал; без комиссий, проскальзывания и налогов",
+        "$100 на каждую монету; пересекающиеся сигналы сканеров объединены; "
+        "без комиссий, проскальзывания и налогов",
     ])
-    writer.writerow(["Всего сигналов", summary["signals_total"]])
-    writer.writerow(["Активных сигналов", summary["signals_active"]])
-    writer.writerow(["Сигналов в плюсе", summary["signals_profitable"]])
+    writer.writerow(["Всего позиций", summary["positions_total"]])
+    writer.writerow(["Активных позиций", summary["positions_active"]])
+    writer.writerow(["Позиций в плюсе", summary["positions_profitable"]])
     writer.writerow(["Условно вложено, USD", _csv_number(summary["total_invested"], 2)])
     writer.writerow(["Текущая стоимость, USD", _csv_number(summary["portfolio_value"], 2)])
     writer.writerow(["Общий результат, USD", _csv_number(summary["total_result"], 2)])
@@ -99,40 +100,46 @@ async def export_crypto_picks_csv(request: Request):
     writer.writerow(["Текущий результат активных, USD", _csv_number(summary["unrealized_result"], 2)])
     writer.writerow([])
     writer.writerow([
-        "ID сигнала",
+        "ID позиции",
+        "ID сигналов",
         "Монета",
         "Пара",
-        "Сканер",
+        "Сканеры",
         "Статус",
-        "Дата начала",
-        "Дата результата",
-        "Горизонт, дн.",
-        "Фактически, дн.",
-        "Цена начала, USD",
-        "Цена результата, USD",
-        "Изменение, %",
-        "Результат на $100, USD",
+        "Дата покупки",
+        "Дата продажи/расчёта",
+        "Дней в позиции",
+        "Вложено, USD",
+        "Цена покупки, USD",
+        "Цена продажи/сейчас, USD",
+        "Количество монет",
+        "Стоимость позиции, USD",
+        "Результат, USD",
+        "Результат, %",
         "Тип результата",
     ])
     for item in report["rows"]:
         writer.writerow([
-            item["period_id"],
+            item["position_id"],
+            item["period_ids"],
             item["symbol"],
             item["ticker"],
-            item["scanner_label"],
+            item["scanner_labels"],
             item["status_label"],
             item["start_date"],
             item["result_date"],
-            item["horizon_days"],
             item["held_days"],
+            _csv_number(item["stake"], 2),
             _csv_number(item["start_price"], 8),
             _csv_number(item["result_price"], 8),
-            _csv_number(item["return_pct"], 4),
+            _csv_number(item["quantity"], 8),
+            _csv_number(item["position_value"], 4),
             _csv_number(item["cash_result"], 4),
+            _csv_number(item["return_pct"], 4),
             item["result_type"],
         ])
 
-    filename = f"meanx-crypto-signals-{data_date}.csv"
+    filename = f"meanx-crypto-positions-{data_date}.csv"
     return Response(
         content="\ufeff" + output.getvalue(),
         media_type="text/csv; charset=utf-8",

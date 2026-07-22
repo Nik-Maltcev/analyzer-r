@@ -260,7 +260,7 @@ def build_crypto_signal_export(
     stake_per_signal: float = 100.0,
     tracking_start_date: Any = CRYPTO_PICKS_TRACKING_START,
 ) -> dict[str, Any]:
-    """Build an auditable journal and equal-stake result for every LONG signal."""
+    """Build coin positions from LONG scanner periods with equal USD stakes."""
     target_date = _date_key(data_date)
     latest_date = target_date[1] if target_date[0] == 0 else "9999-12-31"
     tracking_start = _date_key(tracking_start_date)
@@ -286,7 +286,7 @@ def build_crypto_signal_export(
                 normalized.append((date_key[1], price))
         price_cache[ticker] = sorted(normalized, key=lambda item: item[0])
 
-    rows: list[dict[str, Any]] = []
+    signal_rows: list[dict[str, Any]] = []
     for period in periods:
         scanner = str(period.get("scanner") or "")
         horizon = CRYPTO_PICK_HORIZONS.get(scanner)
@@ -365,7 +365,7 @@ def build_crypto_signal_export(
         )
         return_pct = (result_price / start_price - 1) * 100
         cash_result = stake_per_signal * return_pct / 100
-        rows.append({
+        signal_rows.append({
             "period_id": period.get("id"),
             "ticker": ticker,
             "symbol": _ticker_symbol(ticker),
@@ -385,12 +385,12 @@ def build_crypto_signal_export(
             "is_profitable": return_pct > 0,
         })
 
+    rows = _merge_crypto_signal_positions(signal_rows, stake_per_signal)
     rows.sort(
         key=lambda item: (
             item["start_date"],
             item["symbol"],
-            item["scanner"],
-            item.get("period_id") or 0,
+            item["position_id"],
         ),
         reverse=True,
     )
@@ -403,9 +403,9 @@ def build_crypto_signal_export(
     )
     unrealized_result = total_result - realized_result
     summary = {
-        "signals_total": len(rows),
-        "signals_active": sum(1 for item in rows if item["status"] == "active"),
-        "signals_profitable": sum(1 for item in rows if item["is_profitable"]),
+        "positions_total": len(rows),
+        "positions_active": sum(1 for item in rows if item["status"] == "active"),
+        "positions_profitable": sum(1 for item in rows if item["is_profitable"]),
         "stake_per_signal": stake_per_signal,
         "total_invested": round(total_invested, 2),
         "portfolio_value": round(total_invested + total_result, 2),
@@ -418,6 +418,103 @@ def build_crypto_signal_export(
         ) if total_invested else 0.0,
     }
     return {"rows": rows, "summary": summary}
+
+
+def _merge_crypto_signal_positions(
+    signal_rows: Iterable[dict[str, Any]],
+    stake_per_position: float,
+) -> list[dict[str, Any]]:
+    """Merge overlapping scanner rows into one buy/sell position per coin."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in signal_rows:
+        grouped.setdefault(str(row["ticker"]), []).append(row)
+
+    positions: list[dict[str, Any]] = []
+    for ticker, ticker_rows in grouped.items():
+        ticker_rows.sort(
+            key=lambda item: (
+                item["start_date"],
+                item["result_date"],
+                item["scanner"],
+            )
+        )
+        episodes: list[list[dict[str, Any]]] = []
+        for row in ticker_rows:
+            if not episodes:
+                episodes.append([row])
+                continue
+            episode_end = max(item["result_date"] for item in episodes[-1])
+            if row["start_date"] <= episode_end:
+                episodes[-1].append(row)
+            else:
+                episodes.append([row])
+
+        for sequence, episode in enumerate(episodes, start=1):
+            start_row = min(
+                episode,
+                key=lambda item: (item["start_date"], item["scanner"]),
+            )
+            end_row = max(
+                episode,
+                key=lambda item: (item["result_date"], item["scanner"]),
+            )
+            start_price = float(start_row["start_price"])
+            result_price = float(end_row["result_price"])
+            return_pct = (result_price / start_price - 1) * 100
+            cash_result = stake_per_position * return_pct / 100
+            is_active = any(item["status"] == "active" for item in episode)
+            completed_on_horizon = any(
+                item["status"] == "completed" for item in episode
+            )
+            position_status = (
+                "active"
+                if is_active
+                else "completed"
+                if completed_on_horizon
+                else "closed_early"
+            )
+            status_label = {
+                "active": "Активна",
+                "completed": "Продана",
+                "closed_early": "Продана раньше срока",
+            }[position_status]
+            start_dt = datetime.strptime(start_row["start_date"], "%Y-%m-%d")
+            result_dt = datetime.strptime(end_row["result_date"], "%Y-%m-%d")
+            scanner_names = sorted({item["scanner_label"] for item in episode})
+            period_ids = sorted(
+                str(item["period_id"])
+                for item in episode
+                if item.get("period_id") is not None
+            )
+            quantity = stake_per_position / start_price
+
+            positions.append({
+                "position_id": (
+                    f"{start_row['symbol']}-{start_row['start_date']}-{sequence}"
+                ),
+                "period_ids": ",".join(period_ids),
+                "ticker": ticker,
+                "symbol": start_row["symbol"],
+                "scanners": scanner_names,
+                "scanner_labels": " + ".join(scanner_names),
+                "source_signals": len(episode),
+                "status": position_status,
+                "status_label": status_label,
+                "result_type": "текущий" if is_active else "реализованный",
+                "held_days": (result_dt - start_dt).days + 1,
+                "start_date": start_row["start_date"],
+                "result_date": end_row["result_date"],
+                "start_price": start_price,
+                "result_price": result_price,
+                "stake": stake_per_position,
+                "quantity": quantity,
+                "position_value": stake_per_position + cash_result,
+                "return_pct": round(return_pct, 4),
+                "cash_result": round(cash_result, 4),
+                "is_profitable": return_pct > 0,
+            })
+
+    return positions
 
 
 def aggregate_crypto_long_picks(
