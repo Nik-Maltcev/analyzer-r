@@ -35,9 +35,9 @@ ENABLED_MARKETS = {
     market.strip()
     for market in os.environ.get(
         "ENABLED_MARKETS",
-        "crypto,stocks,ru,br,id,au,ca,my,za",
+        "crypto,stocks,ru,br,id,au,ca,my",
     ).split(",")
-    if market.strip()
+    if market.strip() in ALL_MARKETS
 }
 
 

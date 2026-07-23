@@ -16,10 +16,10 @@ AUTH_ADMIN_EMAILS=second-admin@example.com
 
 Regular users see crypto, US stocks/ETF, and Russia. The global service also
 updates administrator-only markets, and the account matching
-`AUTH_LEGACY_OWNER_EMAIL` sees Brazil, Indonesia, Australia, Canada, Malaysia,
-and South Africa in the same terminal.
+`AUTH_LEGACY_OWNER_EMAIL` sees Brazil, Indonesia, Australia, Canada, and
+Malaysia in the same terminal.
 Leave `ENABLED_MARKETS` unset on this service, or set it to
-`crypto,stocks,ru,br,id,au,ca,my,za`, so the admin-only markets keep receiving
+`crypto,stocks,ru,br,id,au,ca,my`, so the admin-only markets keep receiving
 updates.
 `INTERNATIONAL_HISTORY_YEARS` defaults to `3`.
 

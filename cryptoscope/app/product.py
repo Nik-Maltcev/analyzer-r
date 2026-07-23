@@ -18,7 +18,6 @@ ALL_MARKETS = (
     "au",
     "ca",
     "my",
-    "za",
 )
 MARKET_NAMES = {
     "crypto": "Crypto",
@@ -29,7 +28,6 @@ MARKET_NAMES = {
     "au": "AU · ASX",
     "ca": "CA · TSX",
     "my": "MY · Bursa",
-    "za": "ZA · JSE",
 }
 
 

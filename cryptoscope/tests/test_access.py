@@ -101,7 +101,6 @@ async def test_global_admin_can_open_every_market(
     assert 'data-market="au"' in terminal.text
     assert 'data-market="ca"' in terminal.text
     assert 'data-market="my"' in terminal.text
-    assert 'data-market="za"' in terminal.text
     assert indonesia.status_code == 200
 
 
@@ -152,7 +151,6 @@ async def test_regular_global_user_cannot_open_regional_markets(
     assert 'data-market="au"' not in terminal.text
     assert 'data-market="ca"' not in terminal.text
     assert 'data-market="my"' not in terminal.text
-    assert 'data-market="za"' not in terminal.text
     assert brazil.status_code == 404
 
 

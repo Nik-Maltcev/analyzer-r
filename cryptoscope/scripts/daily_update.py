@@ -31,6 +31,7 @@ from app.data.moex import (
 )
 from app.data.us_stocks import fetch_us_stock_prices, upsert_us_stock_prices
 from app.data.tickers import (
+    ALL_MARKETS,
     BRAZIL_TICKERS,
     CRYPTO_TICKERS,
     INDONESIA_TICKERS,
@@ -45,9 +46,9 @@ ENABLED_MARKETS = {
     market.strip()
     for market in os.environ.get(
         "ENABLED_MARKETS",
-        "crypto,stocks,ru,br,id,au,ca,my,za",
+        "crypto,stocks,ru,br,id,au,ca,my",
     ).split(",")
-    if market.strip()
+    if market.strip() in ALL_MARKETS
 }
 BRAZIL_HISTORY_YEARS = int(os.environ.get("BRAZIL_HISTORY_YEARS", "3"))
 INDONESIA_HISTORY_YEARS = int(os.environ.get("INDONESIA_HISTORY_YEARS", "3"))

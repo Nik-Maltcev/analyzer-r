@@ -20,7 +20,6 @@ from app.data.tickers import ALL_MARKETS
         ("au", ".AX"),
         ("ca", ".TO"),
         ("my", ".KL"),
-        ("za", ".JO"),
     ],
 )
 def test_international_universes_use_full_yahoo_symbols(market, suffix):
@@ -139,4 +138,4 @@ def test_unknown_international_market_is_rejected():
 
 
 def test_registered_international_markets_are_expected():
-    assert tuple(INTERNATIONAL_MARKETS) == ("au", "ca", "my", "za")
+    assert tuple(INTERNATIONAL_MARKETS) == ("au", "ca", "my")

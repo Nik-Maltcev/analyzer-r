@@ -12,7 +12,6 @@ from app.data.tickers import (
     AUSTRALIA_TICKERS,
     CANADA_TICKERS,
     MALAYSIA_TICKERS,
-    SOUTH_AFRICA_TICKERS,
 )
 from app.data.yahoo_market import (
     DEFAULT_BATCH_SIZE,
@@ -44,11 +43,6 @@ INTERNATIONAL_MARKETS = {
         market="my",
         label="MY / Bursa",
         tickers=tuple(MALAYSIA_TICKERS),
-    ),
-    "za": YahooEquityMarket(
-        market="za",
-        label="ZA / JSE",
-        tickers=tuple(SOUTH_AFRICA_TICKERS),
     ),
 }
 

@@ -9,6 +9,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.data.tickers import ALL_MARKETS
+
 
 CSV_PATH = os.environ.get("CSV_PATH", "/opt/seed/all_markets_3yr.csv")
 RU_CSV_PATH = os.environ.get("RU_CSV_PATH", "/opt/seed/tinkoff_ru_2yr.csv")
@@ -18,9 +20,9 @@ ENABLED_MARKETS = {
     market.strip()
     for market in os.environ.get(
         "ENABLED_MARKETS",
-        "crypto,stocks,ru,br,id,au,ca,my,za",
+        "crypto,stocks,ru,br,id,au,ca,my",
     ).split(",")
-    if market.strip()
+    if market.strip() in ALL_MARKETS
 }
 
 

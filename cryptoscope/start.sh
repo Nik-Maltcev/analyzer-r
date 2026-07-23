@@ -23,14 +23,14 @@ if [ -z "${ENABLED_MARKETS:-}" ]; then
     case "${APP_VARIANT:-global}" in
         br) export ENABLED_MARKETS="crypto,stocks,br" ;;
         id) export ENABLED_MARKETS="crypto,stocks,id" ;;
-        *) export ENABLED_MARKETS="crypto,stocks,ru,br,id,au,ca,my,za" ;;
+        *) export ENABLED_MARKETS="crypto,stocks,ru,br,id,au,ca,my" ;;
     esac
 fi
 
 case "${APP_VARIANT:-global}" in
     br|id) ;;
     *)
-        for ADMIN_MARKET in au ca my za; do
+        for ADMIN_MARKET in au ca my; do
             case ",$ENABLED_MARKETS," in
                 *",$ADMIN_MARKET,"*) ;;
                 *) export ENABLED_MARKETS="$ENABLED_MARKETS,$ADMIN_MARKET" ;;

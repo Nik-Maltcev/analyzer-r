@@ -82,13 +82,6 @@ MALAYSIA_TICKERS = [
     "6888.KL", "4863.KL", "6947.KL", "1066.KL", "4197.KL",
 ]
 
-SOUTH_AFRICA_TICKERS = [
-    "NPN.JO", "PRX.JO", "BTI.JO", "CFR.JO", "GLN.JO",
-    "AGL.JO", "AMS.JO", "SBK.JO", "FSR.JO", "NED.JO",
-    "ABG.JO", "MTN.JO", "VOD.JO", "SHP.JO", "WHL.JO",
-    "CPI.JO", "CLS.JO", "MNP.JO", "IMP.JO", "REM.JO",
-]
-
 ALL_MARKETS = {
     "crypto": CRYPTO_TICKERS,
     "stocks": STOCK_TICKERS,
@@ -98,7 +91,6 @@ ALL_MARKETS = {
     "au": AUSTRALIA_TICKERS,
     "ca": CANADA_TICKERS,
     "my": MALAYSIA_TICKERS,
-    "za": SOUTH_AFRICA_TICKERS,
 }
 
 MARKET_NAMES = {
@@ -110,5 +102,4 @@ MARKET_NAMES = {
     "au": "Australia ASX",
     "ca": "Canada TSX",
     "my": "Malaysia Bursa",
-    "za": "South Africa JSE",
 }

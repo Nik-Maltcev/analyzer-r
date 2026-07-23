@@ -36,7 +36,6 @@ def product_context(request):
             "au": "AU · ASX",
             "ca": "CA · TSX",
             "my": "MY · Bursa",
-            "za": "ZA · JSE",
         },
     }
 
