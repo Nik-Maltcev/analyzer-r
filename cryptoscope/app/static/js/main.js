@@ -3,6 +3,7 @@
 // Global market state
 let currentMarket = window.CRYPTOSCOPE_INITIAL_MARKET || 'crypto';
 window.currentMarket = currentMarket;
+let activeSignalsRequest = null;
 
 const uiTranslations = window.CRYPTOSCOPE_TRANSLATIONS || {};
 const uiTranslationKeys = Object.keys(uiTranslations).sort((a, b) => b.length - a.length);
@@ -46,6 +47,34 @@ function setViewMode(mode) {
 window.setViewMode = setViewMode;
 applyViewMode();
 
+function selectedMarket() {
+    return document.querySelector('.market-btn.active')?.dataset.market
+        || window.currentMarket
+        || currentMarket
+        || 'crypto';
+}
+
+function signalsWorkspacePath(button, market) {
+    const scanner = button?.dataset.scanner;
+    return scanner
+        ? `/tab/scanner/${encodeURIComponent(scanner)}?market=${encodeURIComponent(market)}`
+        : `/tab/signals?mode=${encodeURIComponent(button?.dataset.mode || 'all')}&market=${encodeURIComponent(market)}`;
+}
+
+function loadSignalsWorkspace(button, market = selectedMarket()) {
+    if (!button || typeof htmx === 'undefined') return;
+    document.querySelectorAll('.mode-btn').forEach(item => {
+        item.classList.toggle('active', item === button);
+    });
+    const filters = document.getElementById('mode-filters');
+    if (filters) filters.hidden = Boolean(button.dataset.scanner);
+    htmx.ajax('GET', signalsWorkspacePath(button, market), {
+        source: button,
+        target: '#signals-content',
+        swap: 'innerHTML'
+    });
+}
+
 function switchMarket(market) {
     currentMarket = market;
     window.currentMarket = market;
@@ -53,21 +82,12 @@ function switchMarket(market) {
         b.classList.toggle('active', b.dataset.market === market);
     });
     const activeMode = document.querySelector('.mode-btn.active');
-    const scanner = activeMode?.dataset.scanner;
-    const path = scanner
-        ? `/tab/scanner/${encodeURIComponent(scanner)}?market=${encodeURIComponent(market)}`
-        : `/tab/signals?mode=${encodeURIComponent(activeMode?.dataset.mode || 'all')}&market=${encodeURIComponent(market)}`;
-    htmx.ajax('GET', path, {target: '#signals-content', swap: 'innerHTML'});
+    loadSignalsWorkspace(activeMode, market);
 }
 window.switchMarket = switchMarket;
 
 function selectSignalsWorkspace(button) {
-    if (!button) return;
-    document.querySelectorAll('.mode-btn').forEach(item => {
-        item.classList.toggle('active', item === button);
-    });
-    const filters = document.getElementById('mode-filters');
-    if (filters) filters.hidden = Boolean(button.dataset.scanner);
+    loadSignalsWorkspace(button, selectedMarket());
 }
 window.selectSignalsWorkspace = selectSignalsWorkspace;
 
@@ -134,7 +154,7 @@ window.storeFavoritePnlSettings = storeFavoritePnlSettings;
 document.body.addEventListener('htmx:configRequest', event => {
     if (event.detail.target?.id === 'signals-content') {
         const activeMode = document.querySelector('.mode-btn.active');
-        event.detail.parameters.market = window.currentMarket || 'crypto';
+        event.detail.parameters.market = selectedMarket();
         if (!activeMode?.dataset.scanner) {
             event.detail.parameters.mode = activeMode?.dataset.mode || 'all';
         }
@@ -147,6 +167,39 @@ document.body.addEventListener('htmx:configRequest', event => {
             event.detail.parameters[key] = value;
         }
     });
+});
+
+document.body.addEventListener('htmx:beforeRequest', event => {
+    if (event.detail.target?.id !== 'signals-content') return;
+    const nextRequest = event.detail.xhr;
+    if (
+        activeSignalsRequest
+        && activeSignalsRequest !== nextRequest
+        && activeSignalsRequest.readyState !== 4
+    ) {
+        activeSignalsRequest.abort();
+    }
+    activeSignalsRequest = nextRequest;
+});
+
+document.body.addEventListener('htmx:beforeSwap', event => {
+    if (event.detail.target?.id !== 'signals-content') return;
+    const responseUrl = event.detail.xhr?.responseURL;
+    if (!responseUrl) return;
+
+    const requestedMarkets = new URL(responseUrl, window.location.origin)
+        .searchParams
+        .getAll('market');
+    const requestedMarket = requestedMarkets.at(-1);
+    if (requestedMarket && requestedMarket !== selectedMarket()) {
+        event.detail.shouldSwap = false;
+    }
+});
+
+document.body.addEventListener('htmx:afterRequest', event => {
+    if (event.detail.xhr === activeSignalsRequest) {
+        activeSignalsRequest = null;
+    }
 });
 
 document.body.addEventListener('htmx:afterSwap', () => applyViewMode());
@@ -815,7 +868,7 @@ function ensureInitialSignalsLoaded() {
     if (typeof htmx === 'undefined') return;
 
     content.dataset.fallbackLoading = '1';
-    const market = currentMarket || 'crypto';
+    const market = selectedMarket();
     htmx.ajax('GET', `/tab/signals?mode=all&market=${encodeURIComponent(market)}`, {
         target: '#signals-content',
         swap: 'innerHTML'

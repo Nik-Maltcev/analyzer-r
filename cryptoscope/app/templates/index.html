@@ -11,24 +11,19 @@
 
     <div class="signals-mode-bar">
         <div class="mode-switcher">
-            <button class="mode-btn active" data-mode="all"
-                    hx-get="/tab/signals?mode=all" hx-target="#signals-content" hx-swap="innerHTML"
-                    hx-vals='js:{market: currentMarket}'
+            <button class="mode-btn active" data-mode="all" type="button"
                     onclick="selectSignalsWorkspace(this)">
                 <i data-lucide="list-filter"></i><span>Все сигналы</span>
             </button>
-            <button class="mode-btn" data-scanner="corrbreak"
-                    hx-get="/tab/scanner/corrbreak" hx-target="#signals-content" hx-swap="innerHTML"
+            <button class="mode-btn" data-scanner="corrbreak" type="button"
                     onclick="selectSignalsWorkspace(this)">
                 <i data-lucide="unlink"></i><span>Corr Breakdown</span>
             </button>
-            <button class="mode-btn" data-scanner="momentum"
-                    hx-get="/tab/scanner/momentum" hx-target="#signals-content" hx-swap="innerHTML"
+            <button class="mode-btn" data-scanner="momentum" type="button"
                     onclick="selectSignalsWorkspace(this)">
                 <i data-lucide="trending-up"></i><span>Momentum</span>
             </button>
-            <button class="mode-btn" data-scanner="drawdown"
-                    hx-get="/tab/scanner/drawdown" hx-target="#signals-content" hx-swap="innerHTML"
+            <button class="mode-btn" data-scanner="drawdown" type="button"
                     onclick="selectSignalsWorkspace(this)">
                 <i data-lucide="chart-no-axes-column-decreasing"></i><span>Drawdown</span>
             </button>
