@@ -161,6 +161,7 @@ async def crypto_picks_tab(request: Request):
         "history_win_rate": None,
         "sell_actions": [],
         "sell_total": 0,
+        "weekly_summary": None,
     }
 
     try:
@@ -245,6 +246,11 @@ async def crypto_picks_tab(request: Request):
             completed_periods,
             prices_by_ticker,
         )
+        weekly_summary = build_crypto_signal_export(
+            completed_periods,
+            prices_by_ticker,
+            data_date,
+        )["weekly_summary"]
         history_profitable = sum(
             1 for item in history if item["is_profitable"]
         )
@@ -267,6 +273,7 @@ async def crypto_picks_tab(request: Request):
                 ),
                 "sell_actions": sell_actions,
                 "sell_total": len(sell_actions),
+                "weekly_summary": weekly_summary,
             },
         )
     except HTTPException:

@@ -16,6 +16,52 @@
         </div>
     </div>
 
+    {% if weekly_summary %}
+    <section class="crypto-weekly-summary" aria-label="Статистика криптопозиций за 7 дней">
+        <header class="crypto-weekly-summary-head">
+            <div>
+                <span class="section-kicker">Последние 7 дней</span>
+                <h3>Результаты стратегии</h3>
+            </div>
+            <span>{{ weekly_summary.start_date_display }}–{{ weekly_summary.end_date_display }}</span>
+        </header>
+        <div class="crypto-weekly-metrics">
+            <div class="crypto-weekly-metric">
+                <span>Открыто позиций</span>
+                <strong>{{ weekly_summary.positions_total }}</strong>
+                <small>$100 на каждую</small>
+            </div>
+            <div class="crypto-weekly-metric">
+                <span>Закрыто в плюсе</span>
+                <strong class="positive">{{ weekly_summary.positions_profitable }}</strong>
+                <small>из завершённых</small>
+            </div>
+            <div class="crypto-weekly-metric">
+                <span>Закрыто в минусе</span>
+                <strong class="negative">{{ weekly_summary.positions_unprofitable }}</strong>
+                <small>из завершённых</small>
+            </div>
+            <div class="crypto-weekly-metric">
+                <span>Ещё активны</span>
+                <strong>{{ weekly_summary.positions_active }}</strong>
+                <small>по текущей цене</small>
+            </div>
+            <div class="crypto-weekly-metric crypto-weekly-result">
+                <span>Общий результат</span>
+                <strong class="{% if weekly_summary.total_result > 0 %}positive{% elif weekly_summary.total_result < 0 %}negative{% endif %}">
+                    {{ weekly_summary.result_display }}
+                </strong>
+                <small class="{% if weekly_summary.portfolio_return_pct > 0 %}positive{% elif weekly_summary.portfolio_return_pct < 0 %}negative{% endif %}">
+                    {{ weekly_summary.return_display }}
+                </small>
+            </div>
+        </div>
+        <footer>
+            Позиции, открытые за этот период. Итог включает зафиксированный результат закрытых и текущую оценку активных. Комиссии и проскальзывание не учитываются.
+        </footer>
+    </section>
+    {% endif %}
+
     {% if error %}
     <div class="error-msg">{{ error }}</div>
     {% elif picks %}

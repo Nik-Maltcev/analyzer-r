@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Iterable
 
 
@@ -417,7 +417,118 @@ def build_crypto_signal_export(
             4,
         ) if total_invested else 0.0,
     }
-    return {"rows": rows, "summary": summary}
+    return {
+        "rows": rows,
+        "summary": summary,
+        "weekly_summary": build_crypto_window_summary(
+            rows,
+            data_date,
+            days=7,
+        ),
+    }
+
+
+def build_crypto_window_summary(
+    rows: Iterable[dict[str, Any]],
+    data_date: Any,
+    days: int = 7,
+) -> dict[str, Any]:
+    """Summarize the cohort of positions opened in a trailing date window."""
+    target_key = _date_key(data_date)
+    window_days = max(1, _safe_int(days, 7))
+    if target_key[0] != 0:
+        return {
+            "days": window_days,
+            "positions_total": 0,
+            "positions_active": 0,
+            "positions_completed": 0,
+            "positions_profitable": 0,
+            "positions_unprofitable": 0,
+            "positions_flat": 0,
+            "total_invested": 0.0,
+            "total_result": 0.0,
+            "realized_result": 0.0,
+            "unrealized_result": 0.0,
+            "portfolio_return_pct": 0.0,
+            "start_date": None,
+            "end_date": None,
+            "start_date_display": "—",
+            "end_date_display": "—",
+            "result_display": "$0.00",
+            "return_display": "+0.00%",
+        }
+
+    end_date = datetime.strptime(target_key[1], "%Y-%m-%d")
+    start_date = end_date - timedelta(days=window_days - 1)
+    start_iso = start_date.strftime("%Y-%m-%d")
+    end_iso = end_date.strftime("%Y-%m-%d")
+    relevant: list[dict[str, Any]] = []
+
+    for row in rows:
+        position_start = _date_key(row.get("start_date"))
+        position_end = _date_key(row.get("result_date"))
+        if (
+            position_start[0] == 0
+            and position_end[0] == 0
+            and position_start[1] >= start_iso
+            and position_start[1] <= end_iso
+        ):
+            relevant.append(row)
+
+    completed = [
+        row for row in relevant if row.get("status") != "active"
+    ]
+    active = [
+        row for row in relevant if row.get("status") == "active"
+    ]
+    total_invested = sum(float(row.get("stake") or 0) for row in relevant)
+    total_result = sum(float(row.get("cash_result") or 0) for row in relevant)
+    realized_result = sum(
+        float(row.get("cash_result") or 0) for row in completed
+    )
+    unrealized_result = sum(
+        float(row.get("cash_result") or 0) for row in active
+    )
+
+    return {
+        "days": window_days,
+        "positions_total": len(relevant),
+        "positions_active": len(active),
+        "positions_completed": len(completed),
+        "positions_profitable": sum(
+            1 for row in completed if float(row.get("return_pct") or 0) > 0
+        ),
+        "positions_unprofitable": sum(
+            1 for row in completed if float(row.get("return_pct") or 0) < 0
+        ),
+        "positions_flat": sum(
+            1 for row in completed if float(row.get("return_pct") or 0) == 0
+        ),
+        "total_invested": round(total_invested, 2),
+        "total_result": round(total_result, 2),
+        "realized_result": round(realized_result, 2),
+        "unrealized_result": round(unrealized_result, 2),
+        "portfolio_return_pct": round(
+            total_result / total_invested * 100,
+            4,
+        ) if total_invested else 0.0,
+        "start_date": start_iso,
+        "end_date": end_iso,
+        "start_date_display": start_date.strftime("%d.%m"),
+        "end_date_display": end_date.strftime("%d.%m"),
+        "result_display": (
+            f"+${total_result:.2f}"
+            if total_result > 0
+            else f"-${abs(total_result):.2f}"
+            if total_result < 0
+            else "$0.00"
+        ),
+        "return_display": (
+            f"{total_result / total_invested * 100:+.2f}%"
+            if total_invested
+            else "+0.00%"
+        ),
+    }
 
 
 def _merge_crypto_signal_positions(

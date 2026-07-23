@@ -2,9 +2,72 @@ from app.core.crypto_picks import (
     aggregate_crypto_long_picks,
     build_completed_crypto_history,
     build_crypto_signal_export,
+    build_crypto_window_summary,
     build_price_progress,
     select_crypto_sell_actions,
 )
+
+
+def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
+    summary = build_crypto_window_summary(
+        [
+            {
+                "status": "completed",
+                "start_date": "2026-07-17",
+                "result_date": "2026-07-18",
+                "stake": 100,
+                "return_pct": 10,
+                "cash_result": 10,
+            },
+            {
+                "status": "completed",
+                "start_date": "2026-07-10",
+                "result_date": "2026-07-16",
+                "stake": 100,
+                "return_pct": 20,
+                "cash_result": 20,
+            },
+            {
+                "status": "active",
+                "start_date": "2026-07-19",
+                "result_date": "2026-07-23",
+                "stake": 100,
+                "return_pct": -5,
+                "cash_result": -5,
+            },
+            {
+                "status": "closed_early",
+                "start_date": "2026-07-20",
+                "result_date": "2026-07-22",
+                "stake": 100,
+                "return_pct": -10,
+                "cash_result": -10,
+            },
+            {
+                "status": "completed",
+                "start_date": "2026-07-21",
+                "result_date": "2026-07-23",
+                "stake": 100,
+                "return_pct": 0,
+                "cash_result": 0,
+            },
+        ],
+        "2026-07-23",
+    )
+
+    assert summary["start_date"] == "2026-07-17"
+    assert summary["end_date"] == "2026-07-23"
+    assert summary["positions_total"] == 4
+    assert summary["positions_active"] == 1
+    assert summary["positions_completed"] == 3
+    assert summary["positions_profitable"] == 1
+    assert summary["positions_unprofitable"] == 1
+    assert summary["positions_flat"] == 1
+    assert summary["total_invested"] == 400
+    assert summary["total_result"] == -5
+    assert summary["realized_result"] == 0
+    assert summary["unrealized_result"] == -5
+    assert summary["portfolio_return_pct"] == -1.25
 
 
 def test_crypto_picks_merge_scanners_and_use_shortest_horizon():

@@ -83,6 +83,99 @@
     height: 15px;
 }
 
+.crypto-weekly-summary {
+    margin-bottom: 18px;
+    background: var(--surface-1);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
+.crypto-weekly-summary-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px 12px;
+}
+
+.crypto-weekly-summary-head h3 {
+    margin: 3px 0 0;
+    color: var(--text-bright);
+    font-size: 16px;
+}
+
+.crypto-weekly-summary .section-kicker {
+    color: var(--green);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+}
+
+.crypto-weekly-summary-head > span {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.crypto-weekly-metrics {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    border-top: 1px solid var(--border-subtle);
+}
+
+.crypto-weekly-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    min-height: 92px;
+    padding: 14px 16px;
+    border-right: 1px solid var(--border-subtle);
+}
+
+.crypto-weekly-metric:last-child {
+    border-right: 0;
+}
+
+.crypto-weekly-metric > span {
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.crypto-weekly-metric strong {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 24px;
+    line-height: 1.15;
+}
+
+.crypto-weekly-metric strong.positive,
+.crypto-weekly-metric small.positive {
+    color: var(--green);
+}
+
+.crypto-weekly-metric strong.negative,
+.crypto-weekly-metric small.negative {
+    color: var(--red);
+}
+
+.crypto-weekly-metric small {
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
+.crypto-weekly-result {
+    background: var(--surface-2);
+}
+
+.crypto-weekly-summary > footer {
+    padding: 9px 16px 11px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border-subtle);
+    font-size: 10px;
+}
+
 .crypto-picks-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
@@ -543,6 +636,32 @@
 
     .crypto-export-button {
         width: 100%;
+    }
+
+    .crypto-weekly-summary-head {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .crypto-weekly-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .crypto-weekly-metric {
+        min-height: 86px;
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .crypto-weekly-metric:nth-child(2n) {
+        border-right: 0;
+    }
+
+    .crypto-weekly-result {
+        grid-column: 1 / -1;
+        min-height: 76px;
+        border-bottom: 0;
+        border-right: 0;
     }
 
     .crypto-picks-grid {
