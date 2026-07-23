@@ -56,6 +56,44 @@
                 </small>
             </div>
         </div>
+        <section class="crypto-confidence-summary" aria-label="Результаты по уровню уверенности">
+            <header>
+                <div>
+                    <span class="section-kicker">Проверка гипотезы</span>
+                    <h4>Зависимость от уверенности</h4>
+                </div>
+                <span>Только завершённые позиции</span>
+            </header>
+            <div class="crypto-confidence-grid">
+                {% for group in weekly_summary.confidence_breakdown %}
+                <article class="crypto-confidence-row confidence-{{ group.key }}">
+                    <div class="crypto-confidence-name">
+                        <span>Уверенность</span>
+                        <strong>{{ group.label }}</strong>
+                    </div>
+                    <div class="crypto-confidence-outcome">
+                        {% if group.positions_completed %}
+                        <strong>{{ group.positions_profitable }} из {{ group.positions_completed }} выросли</strong>
+                        <span>{{ group.win_rate_display }}% в плюсе</span>
+                        {% else %}
+                        <strong>Нет завершённых</strong>
+                        <span>точность ещё не рассчитана</span>
+                        {% endif %}
+                    </div>
+                    <div class="crypto-confidence-volume">
+                        <span>Всего {{ group.positions_total }}</span>
+                        <small>активны {{ group.positions_active }}</small>
+                    </div>
+                    <div class="crypto-confidence-result">
+                        <strong class="{% if group.realized_result > 0 %}positive{% elif group.realized_result < 0 %}negative{% endif %}">
+                            {{ group.result_display }}
+                        </strong>
+                        <span>при $100 на монету</span>
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
         <footer>
             Позиции, открытые за этот период. Итог включает зафиксированный результат закрытых и текущую оценку активных. Комиссии и проскальзывание не учитываются.
         </footer>

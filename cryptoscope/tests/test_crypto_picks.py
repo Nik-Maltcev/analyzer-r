@@ -18,6 +18,7 @@ def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
                 "stake": 100,
                 "return_pct": 10,
                 "cash_result": 10,
+                "confidence": "Высокая",
             },
             {
                 "status": "completed",
@@ -26,6 +27,7 @@ def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
                 "stake": 100,
                 "return_pct": 20,
                 "cash_result": 20,
+                "confidence": "Средняя",
             },
             {
                 "status": "active",
@@ -34,6 +36,7 @@ def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
                 "stake": 100,
                 "return_pct": -5,
                 "cash_result": -5,
+                "confidence": "Высокая",
             },
             {
                 "status": "closed_early",
@@ -42,6 +45,7 @@ def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
                 "stake": 100,
                 "return_pct": -10,
                 "cash_result": -10,
+                "confidence": "Средняя",
             },
             {
                 "status": "completed",
@@ -50,6 +54,7 @@ def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
                 "stake": 100,
                 "return_pct": 0,
                 "cash_result": 0,
+                "confidence": "Низкая",
             },
         ],
         "2026-07-23",
@@ -68,6 +73,24 @@ def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
     assert summary["realized_result"] == 0
     assert summary["unrealized_result"] == -5
     assert summary["portfolio_return_pct"] == -1.25
+    by_confidence = {
+        item["label"]: item
+        for item in summary["confidence_breakdown"]
+    }
+    assert by_confidence["Высокая"]["positions_total"] == 2
+    assert by_confidence["Высокая"]["positions_completed"] == 1
+    assert by_confidence["Высокая"]["positions_profitable"] == 1
+    assert by_confidence["Высокая"]["positions_active"] == 1
+    assert by_confidence["Высокая"]["win_rate"] == 100
+    assert by_confidence["Высокая"]["realized_result"] == 10
+    assert by_confidence["Средняя"]["positions_total"] == 1
+    assert by_confidence["Средняя"]["positions_profitable"] == 0
+    assert by_confidence["Средняя"]["win_rate"] == 0
+    assert by_confidence["Средняя"]["realized_result"] == -10
+    assert by_confidence["Низкая"]["positions_total"] == 1
+    assert by_confidence["Низкая"]["positions_flat"] == 1
+    assert by_confidence["Низкая"]["win_rate"] == 0
+    assert "Без уровня" not in by_confidence
 
 
 def test_crypto_picks_merge_scanners_and_use_shortest_horizon():
@@ -383,6 +406,7 @@ def test_crypto_signal_export_merges_overlapping_scanners_into_one_position():
                 "observation_count": 5,
                 "status": "closed",
                 "ended_date": "2026-07-25",
+                "confidence": "Средняя",
             },
             {
                 "id": 11,
@@ -394,6 +418,7 @@ def test_crypto_signal_export_merges_overlapping_scanners_into_one_position():
                 "observation_count": 4,
                 "status": "closed",
                 "ended_date": "2026-07-26",
+                "confidence": "Высокая",
             },
         ],
         {
@@ -422,3 +447,4 @@ def test_crypto_signal_export_merges_overlapping_scanners_into_one_position():
     assert position["position_value"] == 120.0
     assert position["cash_result"] == 20.0
     assert position["return_pct"] == 20.0
+    assert position["confidence"] == "Средняя"

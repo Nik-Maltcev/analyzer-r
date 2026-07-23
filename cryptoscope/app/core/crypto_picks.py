@@ -25,12 +25,20 @@ CONFIDENCE_RANK = {
     "Высокая": 3,
 }
 
+CONFIDENCE_LEVELS = ("Низкая", "Средняя", "Высокая")
+UNKNOWN_CONFIDENCE = "Без уровня"
+
 
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_confidence(value: Any) -> str:
+    confidence = str(value or "").strip()
+    return confidence if confidence in CONFIDENCE_RANK else UNKNOWN_CONFIDENCE
 
 
 def _ticker_symbol(ticker: str) -> str:
@@ -371,6 +379,7 @@ def build_crypto_signal_export(
             "symbol": _ticker_symbol(ticker),
             "scanner": scanner,
             "scanner_label": SCANNER_LABELS[scanner],
+            "confidence": _normalize_confidence(period.get("confidence")),
             "status": status,
             "status_label": status_label,
             "result_type": result_type,
@@ -456,6 +465,7 @@ def build_crypto_window_summary(
             "end_date_display": "—",
             "result_display": "$0.00",
             "return_display": "+0.00%",
+            "confidence_breakdown": _build_confidence_breakdown([]),
         }
 
     end_date = datetime.strptime(target_key[1], "%Y-%m-%d")
@@ -528,7 +538,81 @@ def build_crypto_window_summary(
             if total_invested
             else "+0.00%"
         ),
+        "confidence_breakdown": _build_confidence_breakdown(relevant),
     }
+
+
+def _build_confidence_breakdown(
+    rows: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    grouped = {
+        level: []
+        for level in (*CONFIDENCE_LEVELS, UNKNOWN_CONFIDENCE)
+    }
+    for row in rows:
+        grouped[_normalize_confidence(row.get("confidence"))].append(row)
+
+    result: list[dict[str, Any]] = []
+    for confidence in (*CONFIDENCE_LEVELS, UNKNOWN_CONFIDENCE):
+        items = grouped[confidence]
+        if confidence == UNKNOWN_CONFIDENCE and not items:
+            continue
+        completed = [
+            item for item in items if item.get("status") != "active"
+        ]
+        active = [
+            item for item in items if item.get("status") == "active"
+        ]
+        profitable = sum(
+            1
+            for item in completed
+            if float(item.get("return_pct") or 0) > 0
+        )
+        unprofitable = sum(
+            1
+            for item in completed
+            if float(item.get("return_pct") or 0) < 0
+        )
+        flat = len(completed) - profitable - unprofitable
+        realized_result = sum(
+            float(item.get("cash_result") or 0)
+            for item in completed
+        )
+        win_rate = (
+            round(profitable / len(completed) * 100, 1)
+            if completed
+            else None
+        )
+        result.append({
+            "key": {
+                "Низкая": "low",
+                "Средняя": "medium",
+                "Высокая": "high",
+                UNKNOWN_CONFIDENCE: "unknown",
+            }[confidence],
+            "label": confidence,
+            "positions_total": len(items),
+            "positions_active": len(active),
+            "positions_completed": len(completed),
+            "positions_profitable": profitable,
+            "positions_unprofitable": unprofitable,
+            "positions_flat": flat,
+            "win_rate": win_rate,
+            "win_rate_display": (
+                f"{win_rate:.1f}".rstrip("0").rstrip(".")
+                if win_rate is not None
+                else "—"
+            ),
+            "realized_result": round(realized_result, 2),
+            "result_display": (
+                f"+${realized_result:.2f}"
+                if realized_result > 0
+                else f"-${abs(realized_result):.2f}"
+                if realized_result < 0
+                else "$0.00"
+            ),
+        })
+    return result
 
 
 def _merge_crypto_signal_positions(
@@ -564,6 +648,19 @@ def _merge_crypto_signal_positions(
             start_row = min(
                 episode,
                 key=lambda item: (item["start_date"], item["scanner"]),
+            )
+            entry_rows = [
+                item
+                for item in episode
+                if item["start_date"] == start_row["start_date"]
+            ]
+            entry_confidence = max(
+                (
+                    _normalize_confidence(item.get("confidence"))
+                    for item in entry_rows
+                ),
+                key=lambda value: CONFIDENCE_RANK.get(value, 0),
+                default=UNKNOWN_CONFIDENCE,
             )
             end_row = max(
                 episode,
@@ -609,6 +706,7 @@ def _merge_crypto_signal_positions(
                 "scanners": scanner_names,
                 "scanner_labels": " + ".join(scanner_names),
                 "source_signals": len(episode),
+                "confidence": entry_confidence,
                 "status": position_status,
                 "status_label": status_label,
                 "result_type": "текущий" if is_active else "реализованный",

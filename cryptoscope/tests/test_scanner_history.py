@@ -15,6 +15,7 @@ async def test_scanner_signal_period_closes_and_restarts(temp_db):
         "ticker_a": "SPY",
         "ticker_b": "",
         "direction": "long",
+        "confidence": "Высокая",
     }
 
     async with aiosqlite.connect(temp_db) as conn:
@@ -24,15 +25,18 @@ async def test_scanner_signal_period_closes_and_restarts(temp_db):
             conn, "stocks", "momentum", "2026-07-09", [signal]
         )
         assert periods["SPY"]["observation_count"] == 1
+        assert periods["SPY"]["confidence"] == "Высокая"
 
         periods = await sync_scanner_periods(
             conn, "stocks", "momentum", "2026-07-09", [signal]
         )
         assert periods["SPY"]["observation_count"] == 1
 
+        changed_confidence = {**signal, "confidence": "Средняя"}
         periods = await sync_scanner_periods(
-            conn, "stocks", "momentum", "2026-07-10", [signal]
+            conn, "stocks", "momentum", "2026-07-10", [changed_confidence]
         )
+        assert periods["SPY"]["confidence"] == "Высокая"
         annotated = annotate_scanner_results(
             [{"ticker": "SPY"}], "momentum", periods
         )

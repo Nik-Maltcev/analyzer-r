@@ -105,14 +105,26 @@ def build_scanner_snapshot(
             "ticker_a": ticker_a,
             "ticker_b": ticker_b,
             "direction": direction,
+            "confidence": (
+                str(row.get("confidence") or "").strip()
+                if scanner != "corrbreak"
+                else ""
+            ),
         })
     return frame, active
 
 
 async def ensure_scanner_history_schema(conn) -> None:
     await conn.execute(CREATE_SCANNER_SIGNAL_PERIODS)
+    cursor = await conn.execute("PRAGMA table_info(scanner_signal_periods)")
+    columns = {str(row["name"]) for row in await cursor.fetchall()}
+    if "confidence" not in columns:
+        await conn.execute(
+            "ALTER TABLE scanner_signal_periods ADD COLUMN confidence TEXT"
+        )
     for statement in CREATE_SCANNER_SIGNAL_INDICES:
         await conn.execute(statement)
+    await conn.commit()
 
 
 async def sync_scanner_periods(
@@ -145,6 +157,7 @@ async def sync_scanner_periods(
     for signal_key, signal in current.items():
         previous = active_rows.get(signal_key)
         direction = str(signal["direction"])
+        confidence = str(signal.get("confidence") or "").strip() or None
         if previous and str(previous["direction"]) != direction:
             await conn.execute(
                 """
@@ -157,6 +170,15 @@ async def sync_scanner_periods(
             previous = None
 
         if previous:
+            if confidence and not str(previous.get("confidence") or "").strip():
+                await conn.execute(
+                    """
+                    UPDATE scanner_signal_periods
+                    SET confidence = ?, updated_at = datetime('now')
+                    WHERE id = ?
+                    """,
+                    (confidence, int(previous["id"])),
+                )
             if data_date > str(previous["last_seen_date"]):
                 await conn.execute(
                     """
@@ -174,8 +196,9 @@ async def sync_scanner_periods(
             """
             INSERT INTO scanner_signal_periods (
                 market, scanner, signal_key, ticker_a, ticker_b, direction,
-                first_seen_date, last_seen_date, observation_count, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'active')
+                confidence, first_seen_date, last_seen_date,
+                observation_count, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active')
             """,
             (
                 market,
@@ -184,6 +207,7 @@ async def sync_scanner_periods(
                 signal["ticker_a"],
                 signal.get("ticker_b", ""),
                 direction,
+                confidence,
                 data_date,
                 data_date,
             ),
