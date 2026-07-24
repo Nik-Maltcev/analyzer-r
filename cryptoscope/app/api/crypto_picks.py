@@ -396,6 +396,7 @@ async def crypto_picks_tab(
             report["rows"],
             data_date,
             days=window_days,
+            prices_by_ticker=prices_by_ticker,
         )
         history_profitable = sum(
             1 for item in history if item["is_profitable"]

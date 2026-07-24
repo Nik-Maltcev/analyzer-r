@@ -99,32 +99,69 @@ def test_crypto_window_summary_supports_longer_windows():
     rows = [
         {
             "status": "completed",
+            "ticker": "BTC/USD",
             "start_date": "2026-07-12",
             "result_date": "2026-07-16",
             "stake": 100,
+            "start_price": 100,
+            "quantity": 1,
             "return_pct": 5,
             "cash_result": 5,
             "confidence": "Высокая",
         },
         {
             "status": "active",
+            "ticker": "ETH/USD",
             "start_date": "2026-07-22",
             "result_date": "2026-07-24",
             "stake": 100,
+            "start_price": 100,
+            "quantity": 1,
             "return_pct": -2,
             "cash_result": -2,
             "confidence": "Средняя",
         },
     ]
+    prices = {
+        "BTC/USD": [
+            ("2026-07-12", 100),
+            ("2026-07-13", 102),
+            ("2026-07-14", 103),
+            ("2026-07-15", 104),
+            ("2026-07-16", 105),
+        ],
+        "ETH/USD": [
+            ("2026-07-22", 100),
+            ("2026-07-23", 99),
+            ("2026-07-24", 98),
+        ],
+    }
 
-    seven_days = build_crypto_window_summary(rows, "2026-07-24", days=7)
-    fourteen_days = build_crypto_window_summary(rows, "2026-07-24", days=14)
-    thirty_days = build_crypto_window_summary(rows, "2026-07-24", days=30)
+    seven_days = build_crypto_window_summary(
+        rows,
+        "2026-07-24",
+        days=7,
+        prices_by_ticker=prices,
+    )
+    fourteen_days = build_crypto_window_summary(
+        rows,
+        "2026-07-24",
+        days=14,
+        prices_by_ticker=prices,
+    )
+    thirty_days = build_crypto_window_summary(
+        rows,
+        "2026-07-24",
+        days=30,
+        prices_by_ticker=prices,
+    )
 
     assert seven_days["positions_total"] == 1
     assert fourteen_days["positions_total"] == 2
     assert thirty_days["positions_total"] == 2
     assert fourteen_days["total_result"] == 3
+    assert seven_days["result_timeline"][-1]["result"] == -2
+    assert fourteen_days["result_timeline"][-1]["result"] == 3
 
 
 def test_crypto_picks_merge_scanners_and_use_shortest_horizon():

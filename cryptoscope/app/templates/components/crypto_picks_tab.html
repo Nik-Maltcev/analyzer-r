@@ -126,6 +126,32 @@
                 </small>
             </div>
         </div>
+        <div class="crypto-chart-grid">
+            <section class="crypto-chart-panel" aria-labelledby="crypto-result-chart-title">
+                <header>
+                    <div>
+                        <span class="section-kicker">Динамика</span>
+                        <h4 id="crypto-result-chart-title">Результат портфеля</h4>
+                    </div>
+                    <span>закрытые зафиксированы · активные по рынку</span>
+                </header>
+                <div class="crypto-chart-canvas">
+                    <canvas id="crypto-result-timeline-chart"></canvas>
+                </div>
+            </section>
+            <section class="crypto-chart-panel" aria-labelledby="crypto-confidence-chart-title">
+                <header>
+                    <div>
+                        <span class="section-kicker">Сравнение</span>
+                        <h4 id="crypto-confidence-chart-title">Результат по уверенности</h4>
+                    </div>
+                    <span>только закрытые · $100 на монету</span>
+                </header>
+                <div class="crypto-chart-canvas">
+                    <canvas id="crypto-confidence-result-chart"></canvas>
+                </div>
+            </section>
+        </div>
         <section class="crypto-confidence-summary" aria-label="Результаты по уровню уверенности">
             <header>
                 <div>
@@ -395,3 +421,164 @@
     </section>
     {% endif %}
 </div>
+{% if weekly_summary %}
+<script>
+(() => {
+    if (typeof Chart === 'undefined') return;
+
+    const timeline = {{ weekly_summary.result_timeline | tojson }};
+    const confidence = {{ weekly_summary.confidence_breakdown | tojson }};
+    const green = '#45d6ad';
+    const red = '#ff7183';
+    const blue = '#77a8ff';
+    const muted = '#718092';
+    const grid = 'rgba(113, 128, 146, 0.16)';
+    const money = value => {
+        const number = Number(value || 0);
+        if (number > 0) return `+$${number.toFixed(2)}`;
+        if (number < 0) return `-$${Math.abs(number).toFixed(2)}`;
+        return '$0.00';
+    };
+
+    const timelineCanvas = document.getElementById('crypto-result-timeline-chart');
+    if (timelineCanvas) {
+        Chart.getChart(timelineCanvas)?.destroy();
+        new Chart(timelineCanvas, {
+            type: 'line',
+            data: {
+                labels: timeline.map(item => item.date_display),
+                datasets: [{
+                    label: 'Результат',
+                    data: timeline.map(item => item.result),
+                    borderColor: blue,
+                    backgroundColor: 'rgba(119, 168, 255, 0.08)',
+                    borderWidth: 2,
+                    pointRadius: timeline.length <= 14 ? 2 : 0,
+                    pointHoverRadius: 4,
+                    pointBackgroundColor: blue,
+                    fill: true,
+                    tension: 0.24,
+                    segment: {
+                        borderColor: context =>
+                            context.p1.parsed.y >= 0 ? green : red,
+                    },
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { intersect: false, mode: 'index' },
+                animation: { duration: 260 },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#11171d',
+                        borderColor: '#2a343e',
+                        borderWidth: 1,
+                        displayColors: false,
+                        callbacks: {
+                            label: context => money(context.parsed.y),
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: {
+                            color: muted,
+                            maxRotation: 0,
+                            autoSkip: true,
+                            maxTicksLimit: 8,
+                            font: { size: 10 },
+                        },
+                    },
+                    y: {
+                        grid: {
+                            color: context => context.tick.value === 0
+                                ? 'rgba(113, 128, 146, 0.4)'
+                                : grid,
+                        },
+                        ticks: {
+                            color: muted,
+                            callback: value => money(value),
+                            font: { size: 10 },
+                        },
+                    },
+                },
+            },
+        });
+    }
+
+    const confidenceCanvas = document.getElementById('crypto-confidence-result-chart');
+    if (confidenceCanvas) {
+        Chart.getChart(confidenceCanvas)?.destroy();
+        new Chart(confidenceCanvas, {
+            type: 'bar',
+            data: {
+                labels: confidence.map(item => item.label),
+                datasets: [{
+                    label: 'Закрытый результат',
+                    data: confidence.map(item => item.realized_result),
+                    backgroundColor: confidence.map(item =>
+                        item.realized_result >= 0
+                            ? 'rgba(69, 214, 173, 0.72)'
+                            : 'rgba(255, 113, 131, 0.72)'
+                    ),
+                    borderColor: confidence.map(item =>
+                        item.realized_result >= 0 ? green : red
+                    ),
+                    borderWidth: 1,
+                    borderRadius: 2,
+                    barPercentage: 0.62,
+                }],
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 260 },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#11171d',
+                        borderColor: '#2a343e',
+                        borderWidth: 1,
+                        displayColors: false,
+                        callbacks: {
+                            label: context => {
+                                const item = confidence[context.dataIndex];
+                                const rate = item.win_rate === null
+                                    ? 'нет завершённых'
+                                    : `${item.win_rate_display}% в плюсе`;
+                                return `${money(context.parsed.x)} · ${rate}`;
+                            },
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: context => context.tick.value === 0
+                                ? 'rgba(113, 128, 146, 0.4)'
+                                : grid,
+                        },
+                        ticks: {
+                            color: muted,
+                            callback: value => money(value),
+                            font: { size: 10 },
+                        },
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: {
+                            color: '#dce5ed',
+                            font: { size: 10, weight: 600 },
+                        },
+                    },
+                },
+            },
+        });
+    }
+})();
+</script>
+{% endif %}
