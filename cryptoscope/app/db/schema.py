@@ -144,6 +144,9 @@ CREATE TABLE IF NOT EXISTS scanner_signal_periods (
     observation_count INTEGER NOT NULL DEFAULT 1,
     status            TEXT NOT NULL DEFAULT 'active',
     ended_date        TEXT,
+    close_reason      TEXT,
+    closed_price      REAL,
+    closed_at         TEXT,
     created_at        TEXT DEFAULT (datetime('now')),
     updated_at        TEXT DEFAULT (datetime('now')),
     UNIQUE (market, scanner, signal_key, direction, first_seen_date)

@@ -7,7 +7,7 @@ import io
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 
 from app.access import is_admin_user
@@ -21,8 +21,10 @@ from app.core.crypto_picks import (
     select_crypto_sell_actions,
 )
 from app.core.scanner_history import (
+    auto_close_crypto_positions,
     annotate_scanner_results,
     build_scanner_snapshot,
+    close_crypto_ticker_periods,
     ensure_scanner_history_schema,
     format_scanner_date,
     is_scanner_signal_within_horizon,
@@ -85,6 +87,43 @@ async def _refresh_crypto_prices_for_today(conn, prices) -> dict:
         "updated": len(live_prices),
         "data_date": current_date,
     }
+
+
+@router.post("/close", response_class=HTMLResponse)
+async def close_crypto_pick(
+    request: Request,
+    ticker: str = Form(...),
+):
+    await _require_admin(request)
+    normalized_ticker = str(ticker or "").strip().upper()
+    if not normalized_ticker or len(normalized_ticker) > 40:
+        raise HTTPException(status_code=400, detail="Invalid ticker")
+
+    async with get_connection() as conn:
+        prices = await fetch_prices(conn, "crypto")
+        if prices.empty:
+            raise HTTPException(status_code=409, detail="No crypto data")
+        ticker_prices = prices[prices["ticker"] == normalized_ticker]
+        if ticker_prices.empty:
+            raise HTTPException(status_code=404, detail="Ticker not found")
+        ticker_prices = ticker_prices.sort_values("date")
+        close_date = str(ticker_prices.iloc[-1]["date"])[:10]
+        close_price = float(ticker_prices.iloc[-1]["close"])
+        affected = await close_crypto_ticker_periods(
+            conn,
+            normalized_ticker,
+            close_date,
+            close_price,
+            "manual",
+        )
+
+    request.state.crypto_close_result = {
+        "ticker": normalized_ticker,
+        "affected": affected,
+        "close_price": close_price,
+        "close_price_display": f"${close_price:.8f}".rstrip("0").rstrip("."),
+    }
+    return await crypto_picks_tab(request, refresh=False)
 
 
 @router.get("/export.csv")
@@ -208,6 +247,12 @@ async def crypto_picks_tab(
         "weekly_summary": None,
         "refresh_result": None,
         "refresh_error": None,
+        "close_result": getattr(
+            request.state,
+            "crypto_close_result",
+            None,
+        ),
+        "auto_close_result": [],
     }
 
     try:
@@ -250,6 +295,11 @@ async def crypto_picks_tab(
             wide = prices.pivot(index="date", columns="ticker", values="close")
             wide = wide.sort_index()
             data_date = str(max(wide.index))[:10]
+            context["auto_close_result"] = await auto_close_crypto_positions(
+                conn,
+                wide,
+                data_date,
+            )
             scanner_results = {}
 
             for scanner in ("momentum", "drawdown"):
@@ -271,6 +321,7 @@ async def crypto_picks_tab(
                     record
                     for record in records
                     if record.get("recommendation_class") == "long"
+                    and not record.get("signal_suppressed")
                     and is_scanner_signal_within_horizon(
                         scanner,
                         record.get("signal_age_days"),

@@ -23,6 +23,7 @@ SCANNER_HORIZONS = {
     "momentum": 5,
     "drawdown": 10,
 }
+CRYPTO_AUTO_CLOSE_DAILY_GAIN_PCT = 30.0
 
 
 def is_scanner_signal_within_horizon(scanner: str, age_days: Any) -> bool:
@@ -118,13 +119,112 @@ async def ensure_scanner_history_schema(conn) -> None:
     await conn.execute(CREATE_SCANNER_SIGNAL_PERIODS)
     cursor = await conn.execute("PRAGMA table_info(scanner_signal_periods)")
     columns = {str(row["name"]) for row in await cursor.fetchall()}
-    if "confidence" not in columns:
-        await conn.execute(
-            "ALTER TABLE scanner_signal_periods ADD COLUMN confidence TEXT"
-        )
+    migrations = {
+        "confidence": "TEXT",
+        "close_reason": "TEXT",
+        "closed_price": "REAL",
+        "closed_at": "TEXT",
+    }
+    for column, column_type in migrations.items():
+        if column not in columns:
+            await conn.execute(
+                f"ALTER TABLE scanner_signal_periods "
+                f"ADD COLUMN {column} {column_type}"
+            )
     for statement in CREATE_SCANNER_SIGNAL_INDICES:
         await conn.execute(statement)
     await conn.commit()
+
+
+async def close_crypto_ticker_periods(
+    conn,
+    ticker: str,
+    close_date: str,
+    close_price: float,
+    reason: str,
+) -> int:
+    """Close every active LONG scanner period represented by one crypto position."""
+    await ensure_scanner_history_schema(conn)
+    cursor = await conn.execute(
+        """
+        UPDATE scanner_signal_periods
+        SET status = 'suppressed',
+            ended_date = ?,
+            close_reason = ?,
+            closed_price = ?,
+            closed_at = datetime('now'),
+            updated_at = datetime('now')
+        WHERE market = 'crypto'
+          AND scanner IN ('momentum', 'drawdown')
+          AND direction = 'long'
+          AND ticker_a = ?
+          AND status = 'active'
+          AND (
+              (
+                  last_seen_date = ?
+                  AND observation_count <= CASE scanner
+                      WHEN 'momentum' THEN 5
+                      ELSE 10
+                  END
+              )
+              OR (
+                  last_seen_date < ?
+                  AND observation_count < CASE scanner
+                      WHEN 'momentum' THEN 5
+                      ELSE 10
+                  END
+              )
+          )
+        """,
+        (
+            close_date,
+            reason,
+            float(close_price),
+            ticker,
+            close_date,
+            close_date,
+        ),
+    )
+    await conn.commit()
+    return max(0, int(cursor.rowcount or 0))
+
+
+async def auto_close_crypto_positions(
+    conn,
+    wide: pd.DataFrame,
+    data_date: str,
+) -> list[dict[str, Any]]:
+    """Close existing crypto positions after a 30% or larger daily rise."""
+    closed: list[dict[str, Any]] = []
+    normalized_data_date = _iso_date(data_date)
+    for ticker in wide.columns:
+        series = wide[ticker].dropna()
+        if len(series) < 2:
+            continue
+        ticker_data_date = _iso_date(series.index[-1])
+        if ticker_data_date != normalized_data_date:
+            continue
+        previous_price = float(series.iloc[-2])
+        current_price = float(series.iloc[-1])
+        if previous_price <= 0 or current_price <= 0:
+            continue
+        daily_change_pct = (current_price / previous_price - 1) * 100
+        if daily_change_pct < CRYPTO_AUTO_CLOSE_DAILY_GAIN_PCT:
+            continue
+        affected = await close_crypto_ticker_periods(
+            conn,
+            str(ticker),
+            ticker_data_date,
+            current_price,
+            "auto_30_daily",
+        )
+        if affected:
+            closed.append({
+                "ticker": str(ticker),
+                "daily_change_pct": round(daily_change_pct, 2),
+                "close_price": current_price,
+            })
+    return closed
 
 
 async def sync_scanner_periods(
@@ -149,6 +249,18 @@ async def sync_scanner_periods(
         str(row["signal_key"]): dict(row)
         for row in await cursor.fetchall()
     }
+    cursor = await conn.execute(
+        """
+        SELECT *
+        FROM scanner_signal_periods
+        WHERE market = ? AND scanner = ? AND status = 'suppressed'
+        """,
+        (market, scanner),
+    )
+    suppressed_rows = {
+        str(row["signal_key"]): dict(row)
+        for row in await cursor.fetchall()
+    }
     current = {
         str(signal["signal_key"]): signal
         for signal in active_signals
@@ -158,6 +270,35 @@ async def sync_scanner_periods(
         previous = active_rows.get(signal_key)
         direction = str(signal["direction"])
         confidence = str(signal.get("confidence") or "").strip() or None
+        suppressed = suppressed_rows.get(signal_key)
+        if suppressed and str(suppressed["direction"]) == direction:
+            if data_date > str(suppressed["last_seen_date"]):
+                await conn.execute(
+                    """
+                    UPDATE scanner_signal_periods
+                    SET last_seen_date = ?,
+                        observation_count = observation_count + 1,
+                        updated_at = datetime('now')
+                    WHERE id = ?
+                    """,
+                    (data_date, int(suppressed["id"])),
+                )
+                suppressed["last_seen_date"] = data_date
+                suppressed["observation_count"] = (
+                    int(suppressed.get("observation_count") or 0) + 1
+                )
+            continue
+        if suppressed:
+            await conn.execute(
+                """
+                UPDATE scanner_signal_periods
+                SET status = 'closed', updated_at = datetime('now')
+                WHERE id = ?
+                """,
+                (int(suppressed["id"]),),
+            )
+            suppressed_rows.pop(signal_key, None)
+
         if previous and str(previous["direction"]) != direction:
             await conn.execute(
                 """
@@ -227,12 +368,25 @@ async def sync_scanner_periods(
             (data_date, int(previous["id"])),
         )
 
+    for signal_key, suppressed in suppressed_rows.items():
+        if signal_key in current:
+            continue
+        await conn.execute(
+            """
+            UPDATE scanner_signal_periods
+            SET status = 'closed', updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (int(suppressed["id"]),),
+        )
+
     await conn.commit()
     cursor = await conn.execute(
         """
         SELECT *
         FROM scanner_signal_periods
-        WHERE market = ? AND scanner = ? AND status = 'active'
+        WHERE market = ? AND scanner = ?
+          AND status IN ('active', 'suppressed')
         """,
         (market, scanner),
     )
@@ -273,6 +427,7 @@ def annotate_scanner_results(
                 scanner,
                 age,
             ),
+            "signal_suppressed": period.get("status") == "suppressed",
         })
     return records
 
@@ -301,6 +456,12 @@ async def sync_all_scanner_states(
             prices = pd.DataFrame([dict(row) for row in rows])
             wide = prices.pivot(index="date", columns="ticker", values="close")
             data_date = _iso_date(max(wide.index))
+            if market == "crypto":
+                await auto_close_crypto_positions(
+                    conn,
+                    wide,
+                    data_date,
+                )
             for scanner in SCANNER_HORIZONS:
                 _, active = build_scanner_snapshot(wide, scanner)
                 await sync_scanner_periods(

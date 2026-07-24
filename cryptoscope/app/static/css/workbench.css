@@ -511,6 +511,27 @@
     font-size: 11px;
 }
 
+.crypto-pick-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.crypto-pick-controls .btn {
+    flex: 0 0 auto;
+}
+
+.crypto-pick-controls > span {
+    color: var(--text-muted);
+    font-size: 10px;
+    line-height: 1.4;
+    text-align: right;
+}
+
 .crypto-picks-note {
     max-width: 780px;
     margin: 14px 0 0;
@@ -2945,6 +2966,20 @@ html[data-view-mode='beginner'] .signals-page {
     .signal-timing-item + .signal-timing-item {
         border-top: 1px solid var(--border-subtle);
         border-left: 0;
+    }
+
+    .crypto-pick-controls {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .crypto-pick-controls .btn {
+        justify-content: center;
+        width: 100%;
+    }
+
+    .crypto-pick-controls > span {
+        text-align: left;
     }
 }
 

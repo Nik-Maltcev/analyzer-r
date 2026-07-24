@@ -36,6 +36,14 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _safe_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _normalize_confidence(value: Any) -> str:
     confidence = str(value or "").strip()
     return confidence if confidence in CONFIDENCE_RANK else UNKNOWN_CONFIDENCE
@@ -176,10 +184,12 @@ def build_completed_crypto_history(
         scanner = str(period.get("scanner") or "")
         horizon = CRYPTO_PICK_HORIZONS.get(scanner)
         observations = _safe_int(period.get("observation_count"), 0)
+        close_reason = str(period.get("close_reason") or "")
+        forced_close = close_reason in {"manual", "auto_30_daily"}
         if (
             horizon is None
             or str(period.get("direction") or "") != "long"
-            or observations < horizon
+            or (observations < horizon and not forced_close)
         ):
             continue
 
@@ -194,11 +204,27 @@ def build_completed_crypto_history(
             for price_date, price in price_cache.get(ticker, [])
             if start_key[1] <= price_date <= last_key[1]
         ]
-        if len(dated_prices) < horizon:
+        if not dated_prices or (len(dated_prices) < horizon and not forced_close):
             continue
 
         start_date, start_price = dated_prices[0]
-        end_date, end_price = dated_prices[horizon - 1]
+        if forced_close:
+            close_key = _date_key(
+                period.get("ended_date") or period.get("last_seen_date")
+            )
+            end_date = close_key[1] if close_key[0] == 0 else dated_prices[-1][0]
+            end_price = _safe_float(period.get("closed_price"))
+            if end_price is None or end_price <= 0:
+                available = [
+                    (price_date, price)
+                    for price_date, price in price_cache.get(ticker, [])
+                    if price_date <= end_date
+                ]
+                if not available:
+                    continue
+                end_date, end_price = available[-1]
+        else:
+            end_date, end_price = dated_prices[horizon - 1]
         return_pct = (end_price / start_price - 1) * 100
         if return_pct > 0:
             result_label = "В плюсе"
@@ -214,6 +240,7 @@ def build_completed_crypto_history(
             "scanner": scanner,
             "scanner_label": SCANNER_LABELS[scanner],
             "horizon_days": horizon,
+            "close_reason": close_reason or None,
             "start_date": start_date,
             "start_date_display": datetime.strptime(
                 start_date,
@@ -258,6 +285,7 @@ def select_crypto_sell_actions(
         item
         for item in history
         if _date_key(item.get("end_date")) == target
+        and item.get("close_reason") != "manual"
     ]
 
 
@@ -316,6 +344,8 @@ def build_crypto_signal_export(
 
         observations = _safe_int(period.get("observation_count"), 0)
         raw_status = str(period.get("status") or "active")
+        close_reason = str(period.get("close_reason") or "")
+        forced_close = close_reason in {"manual", "auto_30_daily"}
         horizon_result = (
             original_prices[horizon - 1]
             if observations >= horizon and len(original_prices) >= horizon
@@ -338,7 +368,35 @@ def build_crypto_signal_export(
         if not dated_prices:
             continue
 
-        if horizon_result is not None:
+        if forced_close:
+            close_key = _date_key(
+                period.get("ended_date") or period.get("last_seen_date")
+            )
+            close_date = close_key[1] if close_key[0] == 0 else latest_date
+            available = [
+                (price_date, price)
+                for price_date, price in dated_prices
+                if price_date <= close_date
+            ]
+            result_price = _safe_float(period.get("closed_price"))
+            if result_price is None or result_price <= 0:
+                if not available:
+                    continue
+                result_date, result_price = available[-1]
+            else:
+                result_date = close_date
+            status = (
+                "closed_manual"
+                if close_reason == "manual"
+                else "closed_auto"
+            )
+            status_label = (
+                "Закрыта вручную"
+                if close_reason == "manual"
+                else "Автозакрытие: +30% за день"
+            )
+            result_type = "реализованный"
+        elif horizon_result is not None:
             result_date, result_price = horizon_result
             if result_date < dated_prices[0][0]:
                 continue
@@ -392,6 +450,7 @@ def build_crypto_signal_export(
             "return_pct": round(return_pct, 4),
             "cash_result": round(cash_result, 4),
             "is_profitable": return_pct > 0,
+            "close_reason": close_reason or None,
         })
 
     rows = _merge_crypto_signal_positions(signal_rows, stake_per_signal)
@@ -671,12 +730,22 @@ def _merge_crypto_signal_positions(
             return_pct = (result_price / start_price - 1) * 100
             cash_result = stake_per_position * return_pct / 100
             is_active = any(item["status"] == "active" for item in episode)
+            closed_manually = any(
+                item["status"] == "closed_manual" for item in episode
+            )
+            closed_automatically = any(
+                item["status"] == "closed_auto" for item in episode
+            )
             completed_on_horizon = any(
                 item["status"] == "completed" for item in episode
             )
             position_status = (
                 "active"
                 if is_active
+                else "closed_manual"
+                if closed_manually
+                else "closed_auto"
+                if closed_automatically
                 else "completed"
                 if completed_on_horizon
                 else "closed_early"
@@ -685,6 +754,8 @@ def _merge_crypto_signal_positions(
                 "active": "Активна",
                 "completed": "Продана",
                 "closed_early": "Продана раньше срока",
+                "closed_manual": "Закрыта вручную",
+                "closed_auto": "Автозакрытие: +30% за день",
             }[position_status]
             start_dt = datetime.strptime(start_row["start_date"], "%Y-%m-%d")
             result_dt = datetime.strptime(end_row["result_date"], "%Y-%m-%d")

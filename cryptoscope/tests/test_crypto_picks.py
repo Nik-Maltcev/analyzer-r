@@ -268,6 +268,66 @@ def test_sell_actions_only_include_signals_completed_today():
     assert [item["ticker"] for item in actions] == ["LTC/USD"]
 
 
+def test_sell_actions_include_auto_close_but_not_manual_close():
+    history = [
+        {
+            "ticker": "XMR/USD",
+            "end_date": "2026-07-24",
+            "close_reason": "manual",
+        },
+        {
+            "ticker": "LTC/USD",
+            "end_date": "2026-07-24",
+            "close_reason": "auto_30_daily",
+        },
+    ]
+
+    actions = select_crypto_sell_actions(history, "2026-07-24")
+
+    assert [item["ticker"] for item in actions] == ["LTC/USD"]
+
+
+def test_crypto_signal_export_keeps_manual_close_price_fixed():
+    report = build_crypto_signal_export(
+        [
+            {
+                "id": 20,
+                "scanner": "momentum",
+                "ticker_a": "XMR/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-20",
+                "last_seen_date": "2026-07-22",
+                "observation_count": 3,
+                "status": "suppressed",
+                "ended_date": "2026-07-22",
+                "close_reason": "manual",
+                "closed_price": 125,
+                "confidence": "Высокая",
+            }
+        ],
+        {
+            "XMR/USD": [
+                ("2026-07-20", 100),
+                ("2026-07-21", 110),
+                ("2026-07-22", 125),
+                ("2026-07-23", 200),
+            ],
+        },
+        "2026-07-23",
+        tracking_start_date="2026-07-20",
+    )
+
+    assert report["summary"]["positions_total"] == 1
+    position = report["rows"][0]
+    assert position["status"] == "closed_manual"
+    assert position["result_date"] == "2026-07-22"
+    assert position["result_price"] == 125
+    assert position["return_pct"] == 25
+    assert position["cash_result"] == 25
+    assert report["summary"]["realized_result"] == 25
+    assert report["summary"]["unrealized_result"] == 0
+
+
 def test_crypto_signal_export_includes_completed_closed_and_active_results():
     report = build_crypto_signal_export(
         [

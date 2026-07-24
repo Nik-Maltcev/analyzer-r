@@ -36,6 +36,25 @@
     </div>
     {% endif %}
 
+    {% if close_result %}
+    <div class="crypto-refresh-message {% if close_result.affected %}is-success{% else %}is-error{% endif %}" role="status">
+        {% if close_result.affected %}
+        {{ close_result.ticker }} закрыта вручную по цене {{ close_result.close_price_display }}. Результат зафиксирован.
+        {% else %}
+        {{ close_result.ticker }} уже закрыта или активная позиция не найдена.
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if auto_close_result %}
+    <div class="crypto-refresh-message is-success" role="status">
+        Автоматически закрыто по правилу +30% за день:
+        {% for item in auto_close_result %}
+        {{ item.ticker }} ({{ "%+.2f"|format(item.daily_change_pct) }}%){% if not loop.last %}, {% endif %}
+        {% endfor %}.
+    </div>
+    {% endif %}
+
     {% if weekly_summary %}
     <section class="crypto-weekly-summary" aria-label="Статистика криптопозиций за 7 дней">
         <header class="crypto-weekly-summary-head">
@@ -192,6 +211,20 @@
                 <span>с {{ pick.signal_first_seen_date }}</span>
                 {% endif %}
             </footer>
+            <div class="crypto-pick-controls">
+                <button class="btn btn-sm btn-danger"
+                        type="button"
+                        hx-post="/tab/crypto/close"
+                        hx-vals='{"ticker":"{{ pick.ticker }}"}'
+                        hx-target="#main-content"
+                        hx-swap="innerHTML"
+                        hx-confirm="Закрыть позицию {{ pick.symbol }} по текущей расчётной цене?"
+                        hx-disabled-elt="this">
+                    <i data-lucide="circle-x"></i>
+                    Закрыть вручную
+                </button>
+                <span>Автозакрытие при росте за день ≥ 30%</span>
+            </div>
         </article>
         {% endfor %}
     </div>
@@ -213,7 +246,7 @@
         <header class="crypto-sell-header">
             <div>
                 <h3><i data-lucide="badge-check"></i>Продать сегодня</h3>
-                <p>Эти LONG-сигналы достигли своего полного срока на свежем расчёте.</p>
+                <p>Эти LONG-сигналы достигли срока или правила автозакрытия на свежем расчёте.</p>
             </div>
             <span class="crypto-sell-count">{{ sell_total }} завершено</span>
         </header>
@@ -225,7 +258,13 @@
                         <strong>{{ item.symbol }}</strong>
                         <span>{{ item.ticker }}</span>
                     </div>
-                    <span class="badge badge-red">{{ item.scanner_label }} · {{ item.horizon_days }} дней</span>
+                    <span class="badge badge-red">
+                        {% if item.close_reason == "auto_30_daily" %}
+                        Авто: +30% за день
+                        {% else %}
+                        {{ item.scanner_label }} · {{ item.horizon_days }} дней
+                        {% endif %}
+                    </span>
                 </header>
                 <div class="crypto-sell-action">Продать {{ item.symbol }}</div>
                 <dl>
@@ -245,7 +284,13 @@
                         <span>{{ item.result_label }}</span>
                     </div>
                 </dl>
-                <footer>Если позиция была открыта по этому сигналу, её расчётный срок завершён.</footer>
+                <footer>
+                    {% if item.close_reason == "auto_30_daily" %}
+                    Позиция автоматически закрыта после роста цены не менее чем на 30% за сутки.
+                    {% else %}
+                    Если позиция была открыта по этому сигналу, её расчётный срок завершён.
+                    {% endif %}
+                </footer>
             </article>
             {% endfor %}
         </div>
@@ -256,7 +301,7 @@
         <header class="crypto-history-header">
             <div>
                 <h3><i data-lucide="history"></i>История завершённых сигналов</h3>
-                <p>Результат фиксируется в конце окна: 5 дней для Momentum, 10 дней для Drawdown. Комиссии и цена исполнения сделки не учитываются.</p>
+                <p>Результат фиксируется в конце окна, при ручном закрытии или после роста не менее чем на 30% за сутки. Комиссии и цена исполнения сделки не учитываются.</p>
             </div>
             <div class="crypto-history-summary">
                 <span><strong>{{ history_total }}</strong> завершено</span>
@@ -282,7 +327,13 @@
                 </div>
                 <div class="crypto-history-cell crypto-history-scanner" data-label="Сканер">
                     <strong>{{ item.scanner_label }}</strong>
+                    {% if item.close_reason == "manual" %}
+                    <span>закрыто вручную</span>
+                    {% elif item.close_reason == "auto_30_daily" %}
+                    <span>авто: +30% за день</span>
+                    {% else %}
                     <span>{{ item.horizon_days }} дней</span>
+                    {% endif %}
                 </div>
                 <div class="crypto-history-cell crypto-history-period" data-label="Период">
                     <strong>{{ item.start_date_display }}</strong>
