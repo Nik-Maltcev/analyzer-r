@@ -85,8 +85,24 @@
                 <strong>{{ weekly_summary.positions_active }}</strong>
                 <small>по текущей цене</small>
             </div>
-            <div class="crypto-weekly-metric crypto-weekly-result">
-                <span>Общий результат</span>
+        </div>
+        <div class="crypto-weekly-results">
+            <div class="crypto-weekly-result-item">
+                <span>Закрытые позиции</span>
+                <strong class="{% if weekly_summary.realized_result > 0 %}positive{% elif weekly_summary.realized_result < 0 %}negative{% endif %}">
+                    {{ weekly_summary.realized_result_display }}
+                </strong>
+                <small>зафиксированный результат</small>
+            </div>
+            <div class="crypto-weekly-result-item">
+                <span>Активные позиции</span>
+                <strong class="{% if weekly_summary.unrealized_result > 0 %}positive{% elif weekly_summary.unrealized_result < 0 %}negative{% endif %}">
+                    {{ weekly_summary.unrealized_result_display }}
+                </strong>
+                <small>текущий результат</small>
+            </div>
+            <div class="crypto-weekly-result-item is-total">
+                <span>Итого</span>
                 <strong class="{% if weekly_summary.total_result > 0 %}positive{% elif weekly_summary.total_result < 0 %}negative{% endif %}">
                     {{ weekly_summary.result_display }}
                 </strong>

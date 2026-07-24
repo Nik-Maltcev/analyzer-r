@@ -72,6 +72,8 @@ def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
     assert summary["total_result"] == -5
     assert summary["realized_result"] == 0
     assert summary["unrealized_result"] == -5
+    assert summary["realized_result_display"] == "$0.00"
+    assert summary["unrealized_result_display"] == "-$5.00"
     assert summary["portfolio_return_pct"] == -1.25
     by_confidence = {
         item["label"]: item

@@ -491,6 +491,20 @@ def build_crypto_signal_export(
         "total_result": round(total_result, 2),
         "realized_result": round(realized_result, 2),
         "unrealized_result": round(unrealized_result, 2),
+        "realized_result_display": (
+            f"+${realized_result:.2f}"
+            if realized_result > 0
+            else f"-${abs(realized_result):.2f}"
+            if realized_result < 0
+            else "$0.00"
+        ),
+        "unrealized_result_display": (
+            f"+${unrealized_result:.2f}"
+            if unrealized_result > 0
+            else f"-${abs(unrealized_result):.2f}"
+            if unrealized_result < 0
+            else "$0.00"
+        ),
         "portfolio_return_pct": round(
             total_result / total_invested * 100,
             4,
@@ -528,6 +542,8 @@ def build_crypto_window_summary(
             "total_result": 0.0,
             "realized_result": 0.0,
             "unrealized_result": 0.0,
+            "realized_result_display": "$0.00",
+            "unrealized_result_display": "$0.00",
             "portfolio_return_pct": 0.0,
             "start_date": None,
             "end_date": None,
@@ -588,6 +604,20 @@ def build_crypto_window_summary(
         "total_result": round(total_result, 2),
         "realized_result": round(realized_result, 2),
         "unrealized_result": round(unrealized_result, 2),
+        "realized_result_display": (
+            f"+${realized_result:.2f}"
+            if realized_result > 0
+            else f"-${abs(realized_result):.2f}"
+            if realized_result < 0
+            else "$0.00"
+        ),
+        "unrealized_result_display": (
+            f"+${unrealized_result:.2f}"
+            if unrealized_result > 0
+            else f"-${abs(unrealized_result):.2f}"
+            if unrealized_result < 0
+            else "$0.00"
+        ),
         "portfolio_return_pct": round(
             total_result / total_invested * 100,
             4,
