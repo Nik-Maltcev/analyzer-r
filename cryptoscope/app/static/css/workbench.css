@@ -181,10 +181,47 @@
     text-transform: uppercase;
 }
 
-.crypto-weekly-summary-head > span {
+.crypto-window-controls {
+    display: flex;
+    align-items: flex-end;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.crypto-window-controls > span {
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: 11px;
+}
+
+.crypto-window-filter {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+}
+
+.crypto-window-filter button {
+    min-width: 54px;
+    height: 28px;
+    padding: 0 9px;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
+.crypto-window-filter button:hover {
+    color: var(--text-bright);
+}
+
+.crypto-window-filter button.is-active {
+    background: var(--surface-3);
+    color: var(--green);
+    box-shadow: inset 0 -1px 0 var(--green);
 }
 
 .crypto-weekly-metrics {
@@ -874,6 +911,21 @@
         align-items: flex-start;
         flex-direction: column;
         gap: 5px;
+    }
+
+    .crypto-window-controls {
+        align-items: flex-start;
+        width: 100%;
+    }
+
+    .crypto-window-filter {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        width: 100%;
+    }
+
+    .crypto-window-filter button {
+        width: 100%;
     }
 
     .crypto-weekly-metrics {

@@ -16,6 +16,7 @@ from app.core.crypto_picks import (
     CRYPTO_PICKS_TRACKING_START,
     aggregate_crypto_long_picks,
     build_completed_crypto_history,
+    build_crypto_window_summary,
     build_price_progress,
     build_crypto_signal_export,
     select_crypto_sell_actions,
@@ -35,6 +36,11 @@ from app.db.database import fetch_prices, get_connection
 from app.ui.templates import templates
 
 router = APIRouter(prefix="/tab/crypto", tags=["crypto-picks"])
+RESULT_WINDOW_OPTIONS = (7, 14, 30)
+
+
+def _normalize_result_window(value: int) -> int:
+    return value if value in RESULT_WINDOW_OPTIONS else 7
 
 
 async def _require_admin(request: Request) -> None:
@@ -93,6 +99,7 @@ async def _refresh_crypto_prices_for_today(conn, prices) -> dict:
 async def close_crypto_pick(
     request: Request,
     ticker: str = Form(...),
+    window_days: int = Form(7),
 ):
     await _require_admin(request)
     normalized_ticker = str(ticker or "").strip().upper()
@@ -123,7 +130,11 @@ async def close_crypto_pick(
         "close_price": close_price,
         "close_price_display": f"${close_price:.8f}".rstrip("0").rstrip("."),
     }
-    return await crypto_picks_tab(request, refresh=False)
+    return await crypto_picks_tab(
+        request,
+        refresh=False,
+        window_days=_normalize_result_window(window_days),
+    )
 
 
 @router.get("/export.csv")
@@ -231,8 +242,10 @@ async def export_crypto_picks_csv(request: Request):
 async def crypto_picks_tab(
     request: Request,
     refresh: bool = Query(False),
+    window_days: int = Query(7),
 ):
     await _require_admin(request)
+    window_days = _normalize_result_window(window_days)
     context = {
         "request": request,
         "picks": [],
@@ -247,6 +260,8 @@ async def crypto_picks_tab(
         "sell_actions": [],
         "sell_total": 0,
         "weekly_summary": None,
+        "result_window_days": window_days,
+        "result_window_options": RESULT_WINDOW_OPTIONS,
         "refresh_result": None,
         "refresh_error": None,
         "close_result": getattr(
@@ -372,11 +387,16 @@ async def crypto_picks_tab(
             completed_periods,
             prices_by_ticker,
         )
-        weekly_summary = build_crypto_signal_export(
+        report = build_crypto_signal_export(
             completed_periods,
             prices_by_ticker,
             data_date,
-        )["weekly_summary"]
+        )
+        weekly_summary = build_crypto_window_summary(
+            report["rows"],
+            data_date,
+            days=window_days,
+        )
         history_profitable = sum(
             1 for item in history if item["is_profitable"]
         )

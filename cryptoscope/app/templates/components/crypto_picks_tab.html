@@ -11,7 +11,7 @@
             </div>
             <button class="btn btn-secondary crypto-refresh-button"
                     type="button"
-                    hx-get="/tab/crypto?refresh=true"
+                    hx-get="/tab/crypto?refresh=true&amp;window_days={{ result_window_days }}"
                     hx-target="#main-content"
                     hx-swap="innerHTML"
                     hx-indicator="this"
@@ -56,13 +56,28 @@
     {% endif %}
 
     {% if weekly_summary %}
-    <section class="crypto-weekly-summary" aria-label="Статистика криптопозиций за 7 дней">
+    <section class="crypto-weekly-summary" aria-label="Статистика криптопозиций за {{ result_window_days }} дней">
         <header class="crypto-weekly-summary-head">
             <div>
-                <span class="section-kicker">Последние 7 дней</span>
+                <span class="section-kicker">Последние {{ result_window_days }} дней</span>
                 <h3>Результаты стратегии</h3>
             </div>
-            <span>{{ weekly_summary.start_date_display }}–{{ weekly_summary.end_date_display }}</span>
+            <div class="crypto-window-controls">
+                <div class="crypto-window-filter" role="group" aria-label="Период статистики">
+                    {% for days in result_window_options %}
+                    <button type="button"
+                            class="{% if days == result_window_days %}is-active{% endif %}"
+                            aria-pressed="{% if days == result_window_days %}true{% else %}false{% endif %}"
+                            hx-get="/tab/crypto?window_days={{ days }}"
+                            hx-target="#main-content"
+                            hx-swap="innerHTML"
+                            hx-disabled-elt="this">
+                        {{ days }} дн.
+                    </button>
+                    {% endfor %}
+                </div>
+                <span>{{ weekly_summary.start_date_display }}–{{ weekly_summary.end_date_display }}</span>
+            </div>
         </header>
         <div class="crypto-weekly-metrics">
             <div class="crypto-weekly-metric">
@@ -231,7 +246,7 @@
                 <button class="btn btn-sm btn-danger"
                         type="button"
                         hx-post="/tab/crypto/close"
-                        hx-vals='{"ticker":"{{ pick.ticker }}"}'
+                        hx-vals='{"ticker":"{{ pick.ticker }}","window_days":"{{ result_window_days }}"}'
                         hx-target="#main-content"
                         hx-swap="innerHTML"
                         hx-confirm="Закрыть позицию {{ pick.symbol }} по текущей расчётной цене?"
