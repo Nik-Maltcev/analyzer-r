@@ -164,6 +164,41 @@ def test_crypto_window_summary_supports_longer_windows():
     assert fourteen_days["result_timeline"][-1]["result"] == 3
 
 
+def test_crypto_window_summary_clamps_to_tracking_start():
+    summary = build_crypto_window_summary(
+        [
+            {
+                "status": "active",
+                "ticker": "ETH/USD",
+                "start_date": "2026-07-20",
+                "result_date": "2026-07-24",
+                "stake": 100,
+                "start_price": 100,
+                "quantity": 1,
+                "return_pct": 4,
+                "cash_result": 4,
+                "confidence": "Высокая",
+            },
+        ],
+        "2026-07-24",
+        days=14,
+        prices_by_ticker={
+            "ETH/USD": [
+                ("2026-07-20", 100),
+                ("2026-07-24", 104),
+            ],
+        },
+        tracking_start_date="2026-07-20",
+    )
+
+    assert summary["days"] == 14
+    assert summary["available_days"] == 5
+    assert summary["is_partial_window"] is True
+    assert summary["start_date"] == "2026-07-20"
+    assert summary["start_date_display"] == "20.07"
+    assert len(summary["result_timeline"]) == 5
+
+
 def test_crypto_picks_merge_scanners_and_use_shortest_horizon():
     picks = aggregate_crypto_long_picks(
         {

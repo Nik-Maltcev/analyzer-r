@@ -194,6 +194,14 @@
     font-size: 11px;
 }
 
+.crypto-window-note {
+    max-width: 310px;
+    color: var(--amber);
+    font-size: 9px;
+    line-height: 1.35;
+    text-align: right;
+}
+
 .crypto-window-filter {
     display: inline-flex;
     gap: 2px;
@@ -959,6 +967,11 @@
     .crypto-window-controls {
         align-items: flex-start;
         width: 100%;
+    }
+
+    .crypto-window-note {
+        max-width: none;
+        text-align: left;
     }
 
     .crypto-window-filter {

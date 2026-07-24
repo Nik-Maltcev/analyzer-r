@@ -77,6 +77,11 @@
                     {% endfor %}
                 </div>
                 <span>{{ weekly_summary.start_date_display }}–{{ weekly_summary.end_date_display }}</span>
+                {% if weekly_summary.is_partial_window %}
+                <small class="crypto-window-note">
+                    Доступно {{ weekly_summary.available_days }} из {{ weekly_summary.days }} дней · сбор с {{ weekly_summary.tracking_start_date_display }}
+                </small>
+                {% endif %}
             </div>
         </header>
         <div class="crypto-weekly-metrics">

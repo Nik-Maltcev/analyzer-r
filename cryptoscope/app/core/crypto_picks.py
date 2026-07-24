@@ -519,6 +519,7 @@ def build_crypto_signal_export(
             data_date,
             days=7,
             prices_by_ticker=prices_by_ticker,
+            tracking_start_date=tracking_start_date,
         ),
     }
 
@@ -528,6 +529,7 @@ def build_crypto_window_summary(
     data_date: Any,
     days: int = 7,
     prices_by_ticker: dict[str, Iterable[tuple[Any, Any]]] | None = None,
+    tracking_start_date: Any = None,
 ) -> dict[str, Any]:
     """Summarize the cohort of positions opened in a trailing date window."""
     target_key = _date_key(data_date)
@@ -535,6 +537,9 @@ def build_crypto_window_summary(
     if target_key[0] != 0:
         return {
             "days": window_days,
+            "available_days": 0,
+            "is_partial_window": True,
+            "tracking_start_date_display": "—",
             "positions_total": 0,
             "positions_active": 0,
             "positions_completed": 0,
@@ -560,8 +565,15 @@ def build_crypto_window_summary(
 
     end_date = datetime.strptime(target_key[1], "%Y-%m-%d")
     start_date = end_date - timedelta(days=window_days - 1)
+    tracking_key = _date_key(tracking_start_date)
+    tracking_start = None
+    if tracking_key[0] == 0:
+        tracking_start = datetime.strptime(tracking_key[1], "%Y-%m-%d")
+        if tracking_start > start_date:
+            start_date = min(tracking_start, end_date)
     start_iso = start_date.strftime("%Y-%m-%d")
     end_iso = end_date.strftime("%Y-%m-%d")
+    available_days = (end_date - start_date).days + 1
     relevant: list[dict[str, Any]] = []
 
     for row in rows:
@@ -592,6 +604,13 @@ def build_crypto_window_summary(
 
     return {
         "days": window_days,
+        "available_days": available_days,
+        "is_partial_window": available_days < window_days,
+        "tracking_start_date_display": (
+            tracking_start.strftime("%d.%m.%Y")
+            if tracking_start is not None
+            else start_date.strftime("%d.%m.%Y")
+        ),
         "positions_total": len(relevant),
         "positions_active": len(active),
         "positions_completed": len(completed),
