@@ -23,14 +23,29 @@ if [ -z "${ENABLED_MARKETS:-}" ]; then
     case "${APP_VARIANT:-global}" in
         br) export ENABLED_MARKETS="crypto,stocks,br" ;;
         id) export ENABLED_MARKETS="crypto,stocks,id" ;;
-        *) export ENABLED_MARKETS="crypto,stocks,ru,br,id,au,ca,my" ;;
+        *) export ENABLED_MARKETS="crypto,stocks,ru,br,id,au" ;;
     esac
 fi
+
+# Canada and Malaysia are retired from the product. Ignore stale Railway values.
+FILTERED_MARKETS=""
+IFS=',' read -ra CONFIGURED_MARKETS <<< "$ENABLED_MARKETS"
+for CONFIGURED_MARKET in "${CONFIGURED_MARKETS[@]}"; do
+    case "$CONFIGURED_MARKET" in
+        ca|my|"") continue ;;
+    esac
+    if [ -z "$FILTERED_MARKETS" ]; then
+        FILTERED_MARKETS="$CONFIGURED_MARKET"
+    else
+        FILTERED_MARKETS="$FILTERED_MARKETS,$CONFIGURED_MARKET"
+    fi
+done
+export ENABLED_MARKETS="$FILTERED_MARKETS"
 
 case "${APP_VARIANT:-global}" in
     br|id) ;;
     *)
-        for ADMIN_MARKET in au ca my; do
+        for ADMIN_MARKET in au; do
             case ",$ENABLED_MARKETS," in
                 *",$ADMIN_MARKET,"*) ;;
                 *) export ENABLED_MARKETS="$ENABLED_MARKETS,$ADMIN_MARKET" ;;

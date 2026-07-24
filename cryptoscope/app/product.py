@@ -16,8 +16,6 @@ ALL_MARKETS = (
     "br",
     "id",
     "au",
-    "ca",
-    "my",
 )
 MARKET_NAMES = {
     "crypto": "Crypto",
@@ -26,8 +24,6 @@ MARKET_NAMES = {
     "br": "BR · B3",
     "id": "ID · IDX",
     "au": "AU · ASX",
-    "ca": "CA · TSX",
-    "my": "MY · Bursa",
 }
 
 

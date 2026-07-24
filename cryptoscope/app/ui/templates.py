@@ -34,8 +34,6 @@ def product_context(request):
             "br": "BR · B3",
             "id": "ID · IDX",
             "au": "AU · ASX",
-            "ca": "CA · TSX",
-            "my": "MY · Bursa",
         },
     }
 

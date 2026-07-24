@@ -99,8 +99,8 @@ async def test_global_admin_can_open_every_market(
     assert 'data-market="br"' in terminal.text
     assert 'data-market="id"' in terminal.text
     assert 'data-market="au"' in terminal.text
-    assert 'data-market="ca"' in terminal.text
-    assert 'data-market="my"' in terminal.text
+    assert 'data-market="ca"' not in terminal.text
+    assert 'data-market="my"' not in terminal.text
     assert indonesia.status_code == 200
 
 
