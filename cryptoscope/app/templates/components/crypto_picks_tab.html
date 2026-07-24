@@ -362,8 +362,8 @@
     <section class="crypto-history-section">
         <header class="crypto-history-header">
             <div>
-                <h3><i data-lucide="history"></i>История завершённых сигналов</h3>
-                <p>Результат фиксируется в конце окна, при ручном закрытии или после роста не менее чем на 30% за сутки. Комиссии и цена исполнения сделки не учитываются.</p>
+                <h3><i data-lucide="history"></i>История закрытых позиций за {{ weekly_summary.days }} дней</h3>
+                <p>Это те же закрытые позиции и тот же зафиксированный результат, что показаны в сводке выше. Сигнал закрывается по сроку, при исчезновении условия, вручную или после роста не менее чем на 30% за сутки. Комиссии и цена исполнения сделки не учитываются.</p>
             </div>
             <div class="crypto-history-summary">
                 <span><strong>{{ history_total }}</strong> завершено</span>
@@ -399,6 +399,8 @@
                     <span>закрыто вручную</span>
                     {% elif item.close_reason == "auto_30_daily" %}
                     <span>авто: +30% за день</span>
+                    {% elif item.close_reason == "signal_ended" %}
+                    <span>условие сигнала исчезло</span>
                     {% else %}
                     <span>{{ item.horizon_days }} дней</span>
                     {% endif %}

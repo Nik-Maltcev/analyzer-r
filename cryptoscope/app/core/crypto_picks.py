@@ -561,6 +561,7 @@ def build_crypto_window_summary(
             "return_display": "+0.00%",
             "result_timeline": [],
             "confidence_breakdown": _build_confidence_breakdown([]),
+            "completed_history": [],
         }
 
     end_date = datetime.strptime(target_key[1], "%Y-%m-%d")
@@ -668,7 +669,95 @@ def build_crypto_window_summary(
             prices_by_ticker or {},
         ),
         "confidence_breakdown": _build_confidence_breakdown(relevant),
+        "completed_history": _build_completed_position_history(completed),
     }
+
+
+def _build_completed_position_history(
+    rows: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Format the exact closed-position cohort used by the summary."""
+    history: list[dict[str, Any]] = []
+    close_reasons = {
+        "closed_manual": "manual",
+        "closed_auto": "auto_30_daily",
+        "closed_early": "signal_ended",
+    }
+
+    for row in rows:
+        status = str(row.get("status") or "")
+        if status == "active":
+            continue
+
+        start_key = _date_key(row.get("start_date"))
+        end_key = _date_key(row.get("result_date"))
+        start_price = _safe_float(row.get("start_price"))
+        end_price = _safe_float(row.get("result_price"))
+        return_pct = float(row.get("return_pct") or 0)
+        cash_result = float(row.get("cash_result") or 0)
+        if (
+            start_key[0] != 0
+            or end_key[0] != 0
+        ):
+            continue
+
+        if return_pct > 0:
+            result_label = "В плюсе"
+        elif return_pct < 0:
+            result_label = "В минусе"
+        else:
+            result_label = "Без изменений"
+
+        history.append({
+            "position_id": row.get("position_id"),
+            "ticker": str(row.get("ticker") or ""),
+            "symbol": str(row.get("symbol") or ""),
+            "scanner_label": str(
+                row.get("scanner_labels")
+                or row.get("scanner_label")
+                or ""
+            ),
+            "horizon_days": _safe_int(row.get("held_days"), 0),
+            "close_reason": close_reasons.get(status),
+            "start_date": start_key[1],
+            "start_date_display": datetime.strptime(
+                start_key[1],
+                "%Y-%m-%d",
+            ).strftime("%d.%m.%Y"),
+            "end_date": end_key[1],
+            "end_date_display": datetime.strptime(
+                end_key[1],
+                "%Y-%m-%d",
+            ).strftime("%d.%m.%Y"),
+            "start_price": start_price,
+            "start_price_display": _format_price(start_price),
+            "end_price": end_price,
+            "end_price_display": _format_price(end_price),
+            "return_pct": round(return_pct, 2),
+            "return_display": f"{return_pct:+.2f}%",
+            "stake": float(row.get("stake") or 0),
+            "cash_result": round(cash_result, 2),
+            "cash_result_display": (
+                f"+${cash_result:.2f}"
+                if cash_result > 0
+                else f"-${abs(cash_result):.2f}"
+                if cash_result < 0
+                else "$0.00"
+            ),
+            "is_profitable": return_pct > 0,
+            "result_label": result_label,
+        })
+
+    return sorted(
+        history,
+        key=lambda item: (
+            item["end_date"],
+            item["start_date"],
+            item["symbol"],
+            str(item.get("position_id") or ""),
+        ),
+        reverse=True,
+    )
 
 
 def _build_portfolio_result_timeline(
@@ -876,7 +965,10 @@ def _merge_crypto_signal_positions(
             start_price = float(start_row["start_price"])
             result_price = float(end_row["result_price"])
             return_pct = (result_price / start_price - 1) * 100
-            cash_result = stake_per_position * return_pct / 100
+            cash_result = round(
+                stake_per_position * return_pct / 100,
+                2,
+            )
             is_active = any(item["status"] == "active" for item in episode)
             closed_manually = any(
                 item["status"] == "closed_manual" for item in episode
@@ -938,7 +1030,7 @@ def _merge_crypto_signal_positions(
                 "quantity": quantity,
                 "position_value": stake_per_position + cash_result,
                 "return_pct": round(return_pct, 4),
-                "cash_result": round(cash_result, 4),
+                "cash_result": cash_result,
                 "is_profitable": return_pct > 0,
             })
 

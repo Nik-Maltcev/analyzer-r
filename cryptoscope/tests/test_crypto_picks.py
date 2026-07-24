@@ -75,6 +75,13 @@ def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
     assert summary["realized_result_display"] == "$0.00"
     assert summary["unrealized_result_display"] == "-$5.00"
     assert summary["portfolio_return_pct"] == -1.25
+    assert len(summary["completed_history"]) == 3
+    assert sum(
+        item["cash_result"] for item in summary["completed_history"]
+    ) == summary["realized_result"]
+    assert {
+        item["close_reason"] for item in summary["completed_history"]
+    } == {None, "signal_ended"}
     by_confidence = {
         item["label"]: item
         for item in summary["confidence_breakdown"]
@@ -513,6 +520,16 @@ def test_crypto_signal_export_includes_completed_closed_and_active_results():
     assert report["summary"]["total_invested"] == 300.0
     assert report["summary"]["total_result"] == 20.0
     assert report["summary"]["portfolio_return_pct"] == 6.6667
+    weekly = report["weekly_summary"]
+    assert weekly["positions_completed"] == 2
+    assert len(weekly["completed_history"]) == 2
+    assert weekly["realized_result"] == 0
+    assert sum(
+        item["cash_result"] for item in weekly["completed_history"]
+    ) == weekly["realized_result"]
+    assert {
+        item["close_reason"] for item in weekly["completed_history"]
+    } == {None, "signal_ended"}
 
 
 def test_crypto_signal_export_excludes_pre_section_history_and_clamps_entry():

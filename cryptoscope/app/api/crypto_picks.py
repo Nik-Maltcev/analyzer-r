@@ -15,7 +15,6 @@ from app.auth import get_current_user
 from app.core.crypto_picks import (
     CRYPTO_PICKS_TRACKING_START,
     aggregate_crypto_long_picks,
-    build_completed_crypto_history,
     build_crypto_window_summary,
     build_price_progress,
     build_crypto_signal_export,
@@ -383,10 +382,6 @@ async def crypto_picks_tab(
             for ticker, series in wide.items()
             if not series.dropna().empty
         }
-        history = build_completed_crypto_history(
-            completed_periods,
-            prices_by_ticker,
-        )
         report = build_crypto_signal_export(
             completed_periods,
             prices_by_ticker,
@@ -399,13 +394,9 @@ async def crypto_picks_tab(
             prices_by_ticker=prices_by_ticker,
             tracking_start_date=CRYPTO_PICKS_TRACKING_START,
         )
-        history_profitable = sum(
-            1 for item in history if item["is_profitable"]
-        )
-        history_cash_result = round(
-            sum(float(item["cash_result"]) for item in history),
-            2,
-        )
+        history = weekly_summary["completed_history"]
+        history_profitable = weekly_summary["positions_profitable"]
+        history_cash_result = weekly_summary["realized_result"]
         sell_actions = select_crypto_sell_actions(history, data_date)
         return templates.TemplateResponse(
             request,
