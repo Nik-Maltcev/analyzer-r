@@ -151,6 +151,67 @@ function favoritePnlUrl(path, extra = {}) {
 window.getFavoritePnlSettings = getFavoritePnlSettings;
 window.storeFavoritePnlSettings = storeFavoritePnlSettings;
 
+const appPendingRequests = new Set();
+let appProgressHideTimer = null;
+
+function showAppRequestProgress(xhr, target) {
+    const progress = document.getElementById('app-request-progress');
+    if (!progress) return;
+
+    if (xhr) appPendingRequests.add(xhr);
+    if (target) {
+        target.setAttribute('aria-busy', 'true');
+        target.dataset.meanxBusy = 'true';
+    }
+
+    window.clearTimeout(appProgressHideTimer);
+    progress.classList.remove('is-completing');
+    progress.classList.add('is-loading');
+}
+
+function finishAppRequestProgress(xhr) {
+    if (xhr) appPendingRequests.delete(xhr);
+    if (appPendingRequests.size) return;
+
+    const progress = document.getElementById('app-request-progress');
+    document.querySelectorAll('[data-meanx-busy="true"]').forEach(target => {
+        target.removeAttribute('aria-busy');
+        delete target.dataset.meanxBusy;
+    });
+    if (!progress) return;
+
+    progress.classList.add('is-completing');
+    appProgressHideTimer = window.setTimeout(() => {
+        progress.classList.remove('is-loading', 'is-completing');
+    }, 180);
+}
+
+document.body.addEventListener('htmx:beforeRequest', event => {
+    showAppRequestProgress(event.detail.xhr, event.detail.target);
+});
+
+document.body.addEventListener('htmx:afterRequest', event => {
+    finishAppRequestProgress(event.detail.xhr);
+});
+
+document.body.addEventListener('htmx:sendError', event => {
+    finishAppRequestProgress(event.detail.xhr);
+});
+
+document.body.addEventListener('htmx:timeout', event => {
+    finishAppRequestProgress(event.detail.xhr);
+});
+
+document.addEventListener('click', event => {
+    const tab = event.target.closest('.nav-tab');
+    if (!tab || tab.hasAttribute('hx-get')) return;
+
+    const destination = new URL(tab.href, window.location.href);
+    if (destination.origin === window.location.origin) {
+        showAppRequestProgress(null, document.getElementById('main-content'));
+    }
+});
+
 document.body.addEventListener('htmx:configRequest', event => {
     if (event.detail.target?.id === 'signals-content') {
         const activeMode = document.querySelector('.mode-btn.active');

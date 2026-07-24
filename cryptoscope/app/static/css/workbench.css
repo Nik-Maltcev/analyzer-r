@@ -44,6 +44,51 @@
     --content-max: 1720px;
 }
 
+.app-request-progress {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 5000;
+    height: 3px;
+    overflow: hidden;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 140ms ease;
+}
+
+.app-request-progress span {
+    display: block;
+    width: 32%;
+    height: 100%;
+    background: var(--green);
+    box-shadow: 0 0 10px rgba(80, 207, 164, 0.42);
+    transform: translateX(-110%);
+}
+
+.app-request-progress.is-loading {
+    opacity: 1;
+}
+
+.app-request-progress.is-loading span {
+    animation: app-request-progress 1.05s ease-in-out infinite;
+}
+
+.app-request-progress.is-completing span {
+    width: 100%;
+    animation: none;
+    transform: translateX(0);
+    transition: width 120ms ease, transform 120ms ease;
+}
+
+@keyframes app-request-progress {
+    0% {
+        transform: translateX(-110%);
+    }
+
+    100% {
+        transform: translateX(325%);
+    }
+}
+
 /* Admin crypto shortlist */
 .crypto-picks-header {
     align-items: center;
@@ -2909,5 +2954,10 @@ html[data-view-mode='beginner'] .signals-page {
     *::after {
         animation: none !important;
         scroll-behavior: auto !important;
+    }
+
+    .app-request-progress.is-loading span {
+        width: 100%;
+        transform: translateX(0);
     }
 }
