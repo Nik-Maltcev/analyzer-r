@@ -35,7 +35,8 @@
 
     <!-- Signals content: loads immediately via HTMX from server -->
     <div id="signals-content" class="signals-content"
-         hx-get="/tab/signals?mode=all&market={{ market|default('crypto') }}"
+         hx-get="/tab/signals"
+         hx-vals='{"mode":"all","market":"{{ market|default("crypto") }}"}'
          hx-trigger="load"
          hx-swap="innerHTML">
         <div class="loading-container">

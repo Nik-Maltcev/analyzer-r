@@ -54,24 +54,32 @@ function selectedMarket() {
         || 'crypto';
 }
 
-function signalsWorkspacePath(button, market) {
+function signalsWorkspacePath(button) {
     const scanner = button?.dataset.scanner;
     return scanner
-        ? `/tab/scanner/${encodeURIComponent(scanner)}?market=${encodeURIComponent(market)}`
-        : `/tab/signals?mode=${encodeURIComponent(button?.dataset.mode || 'all')}&market=${encodeURIComponent(market)}`;
+        ? `/tab/scanner/${encodeURIComponent(scanner)}`
+        : '/tab/signals';
 }
 
 function loadSignalsWorkspace(button, market = selectedMarket()) {
     if (!button || typeof htmx === 'undefined') return;
+    const requestedMarket = String(market || 'crypto');
+    button.dataset.requestMarket = requestedMarket;
     document.querySelectorAll('.mode-btn').forEach(item => {
         item.classList.toggle('active', item === button);
     });
     const filters = document.getElementById('mode-filters');
     if (filters) filters.hidden = Boolean(button.dataset.scanner);
-    htmx.ajax('GET', signalsWorkspacePath(button, market), {
+    htmx.ajax('GET', signalsWorkspacePath(button), {
         source: button,
         target: '#signals-content',
-        swap: 'innerHTML'
+        swap: 'innerHTML',
+        values: button.dataset.scanner
+            ? {market: requestedMarket}
+            : {
+                market: requestedMarket,
+                mode: button.dataset.mode || 'all'
+            }
     });
 }
 
@@ -215,7 +223,8 @@ document.addEventListener('click', event => {
 document.body.addEventListener('htmx:configRequest', event => {
     if (event.detail.target?.id === 'signals-content') {
         const activeMode = document.querySelector('.mode-btn.active');
-        event.detail.parameters.market = selectedMarket();
+        event.detail.parameters.market = event.detail.elt?.dataset.requestMarket
+            || selectedMarket();
         if (!activeMode?.dataset.scanner) {
             event.detail.parameters.mode = activeMode?.dataset.mode || 'all';
         }
@@ -930,9 +939,12 @@ function ensureInitialSignalsLoaded() {
 
     content.dataset.fallbackLoading = '1';
     const market = selectedMarket();
-    htmx.ajax('GET', `/tab/signals?mode=all&market=${encodeURIComponent(market)}`, {
+    content.dataset.requestMarket = market;
+    htmx.ajax('GET', '/tab/signals', {
+        source: content,
         target: '#signals-content',
-        swap: 'innerHTML'
+        swap: 'innerHTML',
+        values: {mode: 'all', market}
     });
 }
 
