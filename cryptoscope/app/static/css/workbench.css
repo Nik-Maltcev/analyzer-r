@@ -69,7 +69,8 @@
     font-size: 18px;
 }
 
-.crypto-export-button {
+.crypto-export-button,
+.crypto-refresh-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -78,9 +79,33 @@
     white-space: nowrap;
 }
 
-.crypto-export-button svg {
+.crypto-export-button svg,
+.crypto-refresh-button svg {
     width: 15px;
     height: 15px;
+}
+
+.crypto-refresh-button.htmx-request svg {
+    animation: spin 0.8s linear infinite;
+}
+
+.crypto-refresh-message {
+    margin: 0 0 14px;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-left-width: 2px;
+    background: var(--surface-1);
+    color: var(--text-dim);
+    font-size: 11px;
+}
+
+.crypto-refresh-message.is-success {
+    border-left-color: var(--green);
+}
+
+.crypto-refresh-message.is-error {
+    border-left-color: var(--red);
+    color: var(--red-bright);
 }
 
 .crypto-weekly-summary {
@@ -728,7 +753,8 @@
         text-align: left;
     }
 
-    .crypto-export-button {
+    .crypto-export-button,
+    .crypto-refresh-button {
         width: 100%;
     }
 

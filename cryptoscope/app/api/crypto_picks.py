@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 
 from app.access import is_admin_user
@@ -26,6 +28,7 @@ from app.core.scanner_history import (
     is_scanner_signal_within_horizon,
     sync_scanner_periods,
 )
+from app.data.binance_ws import refresh_crypto_live_prices
 from app.db.database import fetch_prices, get_connection
 from app.ui.templates import templates
 
@@ -46,6 +49,42 @@ def _csv_number(value: object, digits: int = 4) -> str:
     except (TypeError, ValueError):
         return ""
     return f"{number:.{digits}f}".rstrip("0").rstrip(".")
+
+
+async def _refresh_crypto_prices_for_today(conn, prices) -> dict:
+    tickers = sorted({
+        str(ticker)
+        for ticker in prices["ticker"].dropna().unique()
+        if ticker
+    })
+    result = await refresh_crypto_live_prices(tickers, ttl_seconds=0)
+    live_prices = result.get("prices") or {}
+    if not live_prices:
+        raise RuntimeError("Binance не вернул актуальные котировки")
+
+    current_date = datetime.now(
+        ZoneInfo("Europe/Moscow")
+    ).date().isoformat()
+    await conn.executemany(
+        """
+        INSERT INTO prices (ticker, date, close, volume, market)
+        VALUES (?, ?, ?, NULL, 'crypto')
+        ON CONFLICT(ticker, date) DO UPDATE SET
+            close = excluded.close,
+            market = 'crypto'
+        """,
+        [
+            (ticker, current_date, float(price))
+            for ticker, price in live_prices.items()
+            if price and float(price) > 0
+        ],
+    )
+    await conn.commit()
+    return {
+        **result,
+        "updated": len(live_prices),
+        "data_date": current_date,
+    }
 
 
 @router.get("/export.csv")
@@ -150,7 +189,10 @@ async def export_crypto_picks_csv(request: Request):
 
 
 @router.get("", response_class=HTMLResponse)
-async def crypto_picks_tab(request: Request):
+async def crypto_picks_tab(
+    request: Request,
+    refresh: bool = Query(False),
+):
     await _require_admin(request)
     context = {
         "request": request,
@@ -164,6 +206,8 @@ async def crypto_picks_tab(request: Request):
         "sell_actions": [],
         "sell_total": 0,
         "weekly_summary": None,
+        "refresh_result": None,
+        "refresh_error": None,
     }
 
     try:
@@ -175,6 +219,33 @@ async def crypto_picks_tab(request: Request):
                     "components/crypto_picks_tab.html",
                     context,
                 )
+
+            if refresh:
+                try:
+                    refresh_result = await _refresh_crypto_prices_for_today(
+                        conn,
+                        prices,
+                    )
+                    updated_at = refresh_result.get("updated_at")
+                    context["refresh_result"] = {
+                        "updated": refresh_result["updated"],
+                        "updated_at": (
+                            updated_at.astimezone(
+                                ZoneInfo("Europe/Moscow")
+                            ).strftime("%d.%m.%Y %H:%M")
+                            if updated_at
+                            else datetime.now(
+                                ZoneInfo("Europe/Moscow")
+                            ).strftime("%d.%m.%Y %H:%M")
+                        ),
+                    }
+                    prices = await fetch_prices(conn, "crypto")
+                except Exception as exc:
+                    print(f"Crypto picks refresh failed: {exc}")
+                    context["refresh_error"] = (
+                        "Не удалось обновить котировки Binance. "
+                        "Показан последний сохранённый расчёт."
+                    )
 
             wide = prices.pivot(index="date", columns="ticker", values="close")
             wide = wide.sort_index()

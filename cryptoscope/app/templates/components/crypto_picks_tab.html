@@ -9,12 +9,32 @@
                 <strong>{{ total }}</strong>
                 <span>идей · данные на {{ scanner_data_date or "—" }}</span>
             </div>
+            <button class="btn btn-secondary crypto-refresh-button"
+                    type="button"
+                    hx-get="/tab/crypto?refresh=true"
+                    hx-target="#main-content"
+                    hx-swap="innerHTML"
+                    hx-indicator="this"
+                    hx-disabled-elt="this">
+                <i data-lucide="refresh-cw"></i>
+                <span>Обновить</span>
+            </button>
             <a class="btn btn-secondary crypto-export-button" href="/tab/crypto/export.csv" download>
                 <i data-lucide="download"></i>
                 Скачать CSV
             </a>
         </div>
     </div>
+
+    {% if refresh_result %}
+    <div class="crypto-refresh-message is-success" role="status">
+        Котировки обновлены: {{ refresh_result.updated }} · {{ refresh_result.updated_at }} МСК
+    </div>
+    {% elif refresh_error %}
+    <div class="crypto-refresh-message is-error" role="alert">
+        {{ refresh_error }}
+    </div>
+    {% endif %}
 
     {% if weekly_summary %}
     <section class="crypto-weekly-summary" aria-label="Статистика криптопозиций за 7 дней">
