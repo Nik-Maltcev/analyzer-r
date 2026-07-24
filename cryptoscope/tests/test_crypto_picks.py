@@ -739,3 +739,52 @@ def test_active_confirmation_does_not_reopen_completed_position():
     assert position["cash_result"] == 18.0
     assert report["summary"]["realized_result"] == 18.0
     assert report["summary"]["unrealized_result"] == 0.0
+
+
+def test_early_drawdown_end_does_not_cut_completed_momentum_trade():
+    report = build_crypto_signal_export(
+        [
+            {
+                "id": 50,
+                "scanner": "momentum",
+                "ticker_a": "BAL/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-19",
+                "last_seen_date": "2026-07-23",
+                "observation_count": 5,
+                "status": "active",
+            },
+            {
+                "id": 51,
+                "scanner": "drawdown",
+                "ticker_a": "BAL/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-20",
+                "last_seen_date": "2026-07-21",
+                "observation_count": 2,
+                "status": "closed",
+                "ended_date": "2026-07-22",
+            },
+        ],
+        {
+            "BAL/USD": [
+                ("2026-07-19", 0.1054),
+                ("2026-07-20", 0.099),
+                ("2026-07-21", 0.1019),
+                ("2026-07-22", 0.1597),
+                ("2026-07-23", 0.1253),
+            ],
+        },
+        "2026-07-23",
+        tracking_start_date="2026-07-20",
+    )
+
+    assert report["summary"]["positions_total"] == 1
+    position = report["rows"][0]
+    assert position["status"] == "completed"
+    assert position["start_date"] == "2026-07-20"
+    assert position["result_date"] == "2026-07-23"
+    assert position["start_price"] == 0.099
+    assert position["result_price"] == 0.1253
+    assert position["return_pct"] == 26.5657
+    assert position["cash_result"] == 26.57
