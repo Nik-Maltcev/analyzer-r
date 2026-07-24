@@ -628,10 +628,114 @@ def test_crypto_signal_export_merges_overlapping_scanners_into_one_position():
     assert position["ticker"] == "XMR/USD"
     assert position["scanner_labels"] == "Drawdown + Momentum"
     assert position["start_date"] == "2026-07-20"
-    assert position["result_date"] == "2026-07-26"
+    assert position["result_date"] == "2026-07-24"
     assert position["stake"] == 100.0
     assert position["quantity"] == 1.0
-    assert position["position_value"] == 120.0
-    assert position["cash_result"] == 20.0
-    assert position["return_pct"] == 20.0
+    assert position["position_value"] == 108.0
+    assert position["cash_result"] == 8.0
+    assert position["return_pct"] == 8.0
     assert position["confidence"] == "Средняя"
+
+
+def test_crypto_signal_export_keeps_completed_trade_before_repeat_signal():
+    report = build_crypto_signal_export(
+        [
+            {
+                "id": 30,
+                "scanner": "momentum",
+                "ticker_a": "BAL/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-19",
+                "last_seen_date": "2026-07-23",
+                "observation_count": 5,
+                "status": "closed",
+                "ended_date": "2026-07-24",
+            },
+            {
+                "id": 31,
+                "scanner": "momentum",
+                "ticker_a": "BAL/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-23",
+                "last_seen_date": "2026-07-24",
+                "observation_count": 2,
+                "status": "active",
+            },
+        ],
+        {
+            "BAL/USD": [
+                ("2026-07-19", 100),
+                ("2026-07-20", 102),
+                ("2026-07-21", 105),
+                ("2026-07-22", 110),
+                ("2026-07-23", 118),
+                ("2026-07-24", 120),
+            ],
+        },
+        "2026-07-24",
+        tracking_start_date="2026-07-19",
+    )
+
+    assert report["summary"]["positions_total"] == 2
+    completed = next(
+        item for item in report["rows"] if item["status"] == "completed"
+    )
+    active = next(
+        item for item in report["rows"] if item["status"] == "active"
+    )
+    assert completed["ticker"] == "BAL/USD"
+    assert completed["start_date"] == "2026-07-19"
+    assert completed["result_date"] == "2026-07-23"
+    assert completed["cash_result"] == 18.0
+    assert active["start_date"] == "2026-07-23"
+    assert active["result_date"] == "2026-07-24"
+    completed_history = report["weekly_summary"]["completed_history"]
+    assert len(completed_history) == 1
+    assert completed_history[0]["cash_result"] == 18.0
+
+
+def test_active_confirmation_does_not_reopen_completed_position():
+    report = build_crypto_signal_export(
+        [
+            {
+                "id": 40,
+                "scanner": "momentum",
+                "ticker_a": "BAL/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-19",
+                "last_seen_date": "2026-07-23",
+                "observation_count": 5,
+                "status": "active",
+            },
+            {
+                "id": 41,
+                "scanner": "drawdown",
+                "ticker_a": "BAL/USD",
+                "direction": "long",
+                "first_seen_date": "2026-07-21",
+                "last_seen_date": "2026-07-24",
+                "observation_count": 4,
+                "status": "active",
+            },
+        ],
+        {
+            "BAL/USD": [
+                ("2026-07-19", 100),
+                ("2026-07-20", 102),
+                ("2026-07-21", 105),
+                ("2026-07-22", 110),
+                ("2026-07-23", 118),
+                ("2026-07-24", 120),
+            ],
+        },
+        "2026-07-24",
+        tracking_start_date="2026-07-19",
+    )
+
+    assert report["summary"]["positions_total"] == 1
+    position = report["rows"][0]
+    assert position["status"] == "completed"
+    assert position["result_date"] == "2026-07-23"
+    assert position["cash_result"] == 18.0
+    assert report["summary"]["realized_result"] == 18.0
+    assert report["summary"]["unrealized_result"] == 0.0

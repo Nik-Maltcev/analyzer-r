@@ -934,8 +934,23 @@ def _merge_crypto_signal_positions(
             if not episodes:
                 episodes.append([row])
                 continue
-            episode_end = max(item["result_date"] for item in episodes[-1])
-            if row["start_date"] <= episode_end:
+
+            current_episode = episodes[-1]
+            terminal_dates = [
+                item["result_date"]
+                for item in current_episode
+                if item["status"] != "active"
+            ]
+            close_boundary = min(terminal_dates) if terminal_dates else None
+            episode_end = max(
+                item["result_date"] for item in current_episode
+            )
+            overlaps_open_position = (
+                row["start_date"] < close_boundary
+                if close_boundary is not None
+                else row["start_date"] <= episode_end
+            )
+            if overlaps_open_position:
                 episodes[-1].append(row)
             else:
                 episodes.append([row])
@@ -958,10 +973,32 @@ def _merge_crypto_signal_positions(
                 key=lambda value: CONFIDENCE_RANK.get(value, 0),
                 default=UNKNOWN_CONFIDENCE,
             )
-            end_row = max(
-                episode,
-                key=lambda item: (item["result_date"], item["scanner"]),
-            )
+            terminal_rows = [
+                item for item in episode if item["status"] != "active"
+            ]
+            status_priority = {
+                "closed_manual": 0,
+                "closed_auto": 1,
+                "closed_early": 2,
+                "completed": 3,
+            }
+            if terminal_rows:
+                end_row = min(
+                    terminal_rows,
+                    key=lambda item: (
+                        item["result_date"],
+                        status_priority.get(item["status"], 9),
+                        item["scanner"],
+                    ),
+                )
+            else:
+                end_row = max(
+                    episode,
+                    key=lambda item: (
+                        item["result_date"],
+                        item["scanner"],
+                    ),
+                )
             start_price = float(start_row["start_price"])
             result_price = float(end_row["result_price"])
             return_pct = (result_price / start_price - 1) * 100
@@ -969,27 +1006,8 @@ def _merge_crypto_signal_positions(
                 stake_per_position * return_pct / 100,
                 2,
             )
-            is_active = any(item["status"] == "active" for item in episode)
-            closed_manually = any(
-                item["status"] == "closed_manual" for item in episode
-            )
-            closed_automatically = any(
-                item["status"] == "closed_auto" for item in episode
-            )
-            completed_on_horizon = any(
-                item["status"] == "completed" for item in episode
-            )
-            position_status = (
-                "active"
-                if is_active
-                else "closed_manual"
-                if closed_manually
-                else "closed_auto"
-                if closed_automatically
-                else "completed"
-                if completed_on_horizon
-                else "closed_early"
-            )
+            position_status = end_row["status"]
+            is_active = position_status == "active"
             status_label = {
                 "active": "Активна",
                 "completed": "Продана",
