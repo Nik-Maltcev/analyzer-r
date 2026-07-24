@@ -226,6 +226,8 @@ def test_completed_crypto_history_uses_fixed_scanner_horizon():
     assert history[0]["start_price_display"] == "$100"
     assert history[0]["end_price_display"] == "$110"
     assert history[0]["return_display"] == "+10.00%"
+    assert history[0]["cash_result"] == 10.0
+    assert history[0]["cash_result_display"] == "+$10.00"
     assert history[0]["is_profitable"] is True
 
 
@@ -253,6 +255,8 @@ def test_completed_crypto_history_keeps_negative_results():
     )
 
     assert history[0]["return_display"] == "-10.00%"
+    assert history[0]["cash_result"] == -10.0
+    assert history[0]["cash_result_display"] == "-$10.00"
     assert history[0]["result_label"] == "В минусе"
     assert history[0]["is_profitable"] is False
 

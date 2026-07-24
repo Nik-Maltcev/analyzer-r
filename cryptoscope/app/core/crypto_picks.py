@@ -159,6 +159,7 @@ def build_price_progress(
 def build_completed_crypto_history(
     periods: Iterable[dict[str, Any]],
     prices_by_ticker: dict[str, Iterable[tuple[Any, Any]]],
+    stake_per_signal: float = 100.0,
 ) -> list[dict[str, Any]]:
     """Build completed LONG outcomes at each scanner's fixed horizon."""
     history: list[dict[str, Any]] = []
@@ -226,6 +227,7 @@ def build_completed_crypto_history(
         else:
             end_date, end_price = dated_prices[horizon - 1]
         return_pct = (end_price / start_price - 1) * 100
+        cash_result = round(stake_per_signal * return_pct / 100, 2)
         if return_pct > 0:
             result_label = "В плюсе"
         elif return_pct < 0:
@@ -257,6 +259,15 @@ def build_completed_crypto_history(
             "end_price_display": _format_price(end_price),
             "return_pct": round(return_pct, 2),
             "return_display": f"{return_pct:+.2f}%",
+            "stake": stake_per_signal,
+            "cash_result": cash_result,
+            "cash_result_display": (
+                f"+${cash_result:.2f}"
+                if cash_result > 0
+                else f"-${abs(cash_result):.2f}"
+                if cash_result < 0
+                else "$0.00"
+            ),
             "is_profitable": return_pct > 0,
             "result_label": result_label,
         })

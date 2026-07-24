@@ -307,6 +307,12 @@
                 <span><strong>{{ history_total }}</strong> завершено</span>
                 <span><strong>{{ history_profitable }}</strong> в плюсе</span>
                 <span><strong>{{ history_win_rate if history_win_rate is not none else "—" }}{% if history_win_rate is not none %}%{% endif %}</strong> доля плюсовых</span>
+                <span>
+                    <strong class="{% if history_cash_result > 0 %}positive{% elif history_cash_result < 0 %}negative{% endif %}">
+                        {{ history_cash_result_display }}
+                    </strong>
+                    итог при $100 на сигнал
+                </span>
             </div>
         </header>
 
@@ -345,7 +351,7 @@
                 </div>
                 <div class="crypto-history-result {% if item.return_pct > 0 %}positive{% elif item.return_pct < 0 %}negative{% endif %}">
                     <strong>{{ item.return_display }}</strong>
-                    <span>{{ item.result_label }}</span>
+                    <span>{{ item.result_label }} · {{ item.cash_result_display }} при $100</span>
                 </div>
             </div>
             {% endfor %}

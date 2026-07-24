@@ -242,6 +242,8 @@ async def crypto_picks_tab(
         "history_total": 0,
         "history_profitable": 0,
         "history_win_rate": None,
+        "history_cash_result": 0.0,
+        "history_cash_result_display": "$0.00",
         "sell_actions": [],
         "sell_total": 0,
         "weekly_summary": None,
@@ -378,6 +380,10 @@ async def crypto_picks_tab(
         history_profitable = sum(
             1 for item in history if item["is_profitable"]
         )
+        history_cash_result = round(
+            sum(float(item["cash_result"]) for item in history),
+            2,
+        )
         sell_actions = select_crypto_sell_actions(history, data_date)
         return templates.TemplateResponse(
             request,
@@ -394,6 +400,14 @@ async def crypto_picks_tab(
                     round(history_profitable / len(history) * 100)
                     if history
                     else None
+                ),
+                "history_cash_result": history_cash_result,
+                "history_cash_result_display": (
+                    f"+${history_cash_result:.2f}"
+                    if history_cash_result > 0
+                    else f"-${abs(history_cash_result):.2f}"
+                    if history_cash_result < 0
+                    else "$0.00"
                 ),
                 "sell_actions": sell_actions,
                 "sell_total": len(sell_actions),
