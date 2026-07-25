@@ -10,6 +10,26 @@
         <div class="scanner-snapshot-meta">
             <span class="text-dim">Рынок: {{ market }}</span>
             <span class="scanner-data-date">Данные на {{ scanner_data_date or "—" }}</span>
+            {% if live_refresh %}
+            <span class="scanner-live-badge">по ценам Binance · {{ live_updated_at }} МСК</span>
+            {% endif %}
+            {% if live_error %}
+            <span class="scanner-live-error">{{ live_error }}</span>
+            {% endif %}
+            {% if market == "crypto" %}
+            <button class="btn btn-secondary btn-sm scanner-refresh-btn"
+                    type="button"
+                    hx-get="/tab/scanner/momentum?refresh=true"
+                    hx-vals='js:{market: currentMarket}'
+                    hx-target="#scanner-content"
+                    hx-swap="innerHTML"
+                    hx-indicator="this"
+                    hx-disabled-elt="this"
+                    title="Пересчитать сканер по текущим ценам Binance">
+                <i data-lucide="refresh-cw"></i>
+                <span>Обновить</span>
+            </button>
+            {% endif %}
         </div>
     </div>
 

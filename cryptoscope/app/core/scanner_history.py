@@ -396,6 +396,27 @@ async def sync_scanner_periods(
     }
 
 
+async def fetch_active_scanner_periods(
+    conn,
+    market: str,
+    scanner: str,
+) -> dict[str, dict[str, Any]]:
+    """Load active/suppressed scanner periods without mutating them."""
+    cursor = await conn.execute(
+        """
+        SELECT *
+        FROM scanner_signal_periods
+        WHERE market = ? AND scanner = ?
+          AND status IN ('active', 'suppressed')
+        """,
+        (market, scanner),
+    )
+    return {
+        str(row["signal_key"]): dict(row)
+        for row in await cursor.fetchall()
+    }
+
+
 def annotate_scanner_results(
     records: list[dict[str, Any]],
     scanner: str,

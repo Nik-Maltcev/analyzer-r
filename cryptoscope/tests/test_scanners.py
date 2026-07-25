@@ -6,8 +6,42 @@ from app.core.scanners import (
     corr_breakdown_scan,
     drawdown_scan,
     momentum_scan,
+    overlay_live_prices_on_wide,
     scanner_market_context,
 )
+
+
+def test_overlay_live_prices_replaces_and_appends_latest_day():
+    wide = pd.DataFrame(
+        {"BTC/USD": [100.0, 101.0], "ETH/USD": [50.0, 51.0]},
+        index=["2026-07-24", "2026-07-25"],
+    )
+
+    replaced = overlay_live_prices_on_wide(
+        wide,
+        {"BTC/USD": 105.0, "ETH/USD": "bad", "NEW/USD": 1.0},
+        "2026-07-25",
+    )
+    assert replaced.loc["2026-07-25", "BTC/USD"] == 105.0
+    assert replaced.loc["2026-07-25", "ETH/USD"] == 51.0
+    assert "NEW/USD" not in replaced.columns
+    assert wide.loc["2026-07-25", "BTC/USD"] == 101.0  # original untouched
+
+    appended = overlay_live_prices_on_wide(
+        wide,
+        {"BTC/USD": 110.0},
+        "2026-07-26",
+    )
+    assert list(appended.index) == [
+        "2026-07-24",
+        "2026-07-25",
+        "2026-07-26",
+    ]
+    assert appended.loc["2026-07-26", "BTC/USD"] == 110.0
+    assert pd.isna(appended.loc["2026-07-26", "ETH/USD"])
+
+    unchanged = overlay_live_prices_on_wide(wide, {}, "2026-07-26")
+    assert list(unchanged.index) == ["2026-07-24", "2026-07-25"]
 
 
 def test_momentum_recommends_direction_with_confidence():

@@ -14,6 +14,33 @@ def _lower_confidence(confidence: str) -> str:
     }.get(confidence, confidence)
 
 
+def overlay_live_prices_on_wide(
+    wide: pd.DataFrame,
+    live_prices: Dict[str, Any],
+    live_date: str,
+) -> pd.DataFrame:
+    """Return a copy of the wide price frame re-marked with live prices.
+
+    The live price becomes the close of ``live_date`` (row replaced when the
+    date already exists, appended otherwise). Unknown tickers and invalid
+    prices are skipped; other columns stay untouched on the new row.
+    """
+    if not live_prices:
+        return wide
+    updated = wide.copy()
+    for ticker, raw_price in live_prices.items():
+        if ticker not in updated.columns:
+            continue
+        try:
+            price = float(raw_price)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(price) or price <= 0:
+            continue
+        updated.loc[live_date, ticker] = price
+    return updated.sort_index()
+
+
 def scanner_market_context(prices: np.ndarray, market: str) -> dict:
     """Return broad-market risk context only for the Russian market."""
     context = {

@@ -16,17 +16,22 @@ from app.core.scanners import (
     corr_breakdown_scan,
     drawdown_scan,
     momentum_scan,
+    overlay_live_prices_on_wide,
     scanner_market_context,
 )
 from app.core.scanner_history import (
     annotate_scanner_results,
     build_scanner_snapshot,
+    fetch_active_scanner_periods,
     format_scanner_date,
     is_scanner_signal_within_horizon,
     sync_scanner_periods,
 )
 from app.core.signals import estimate_signal_timing, is_actionable_signal
-from app.data.binance_ws import get_crypto_live_snapshot
+from app.data.binance_ws import (
+    get_crypto_live_snapshot,
+    refresh_crypto_live_prices,
+)
 from app.data.moex import get_ru_live_snapshot
 from app.db.database import (
     db_status,
@@ -762,6 +767,7 @@ async def tab_scanner_content(
     min_deviation: float = Query(0.2),
     limit: int = Query(20),
     min_drawdown: float = Query(10.0),
+    refresh: bool = Query(False),
 ):
     template_map = {
         "corrbreak": "components/scanner_corrbreak.html",
@@ -783,6 +789,9 @@ async def tab_scanner_content(
         "market_volatility": None,
         "market_max_5d_move": None,
         "market_regime_reason": None,
+        "live_refresh": False,
+        "live_updated_at": None,
+        "live_error": None,
     }
 
     try:
@@ -794,16 +803,65 @@ async def tab_scanner_content(
 
         wide = prices_df.pivot(index="date", columns="ticker", values="close")
         data_date = str(max(wide.index))[:10]
+
+        # Live re-marking: replace today's closes with current Binance quotes
+        # (read-only — scanner history keeps the daily-data snapshot).
+        live_mode = (
+            refresh
+            and scanner_type == "momentum"
+            and market == "crypto"
+        )
+        if live_mode:
+            try:
+                live_result = await refresh_crypto_live_prices(
+                    list(wide.columns),
+                    ttl_seconds=0,
+                )
+                live_prices = live_result.get("prices") or {}
+                if not live_prices:
+                    raise RuntimeError("Binance returned no quotes")
+                data_date = datetime.now(
+                    ZoneInfo("Europe/Moscow")
+                ).date().isoformat()
+                wide = overlay_live_prices_on_wide(
+                    wide,
+                    live_prices,
+                    data_date,
+                )
+                ctx["live_refresh"] = True
+                updated_at = live_result.get("updated_at")
+                if updated_at is not None:
+                    ctx["live_updated_at"] = updated_at.astimezone(
+                        ZoneInfo("Europe/Moscow")
+                    ).strftime("%H:%M")
+                else:
+                    ctx["live_updated_at"] = datetime.now(
+                        ZoneInfo("Europe/Moscow")
+                    ).strftime("%H:%M")
+            except Exception as exc:
+                print(f"Scanner momentum live refresh failed: {exc}")
+                ctx["live_error"] = (
+                    "Не удалось обновить котировки Binance. "
+                    "Показаны дневные данные."
+                )
+
         market_context = scanner_market_context(wide.values, market)
         df, active_snapshot = build_scanner_snapshot(wide, scanner_type)
         async with get_connection() as conn:
-            periods = await sync_scanner_periods(
-                conn,
-                market,
-                scanner_type,
-                data_date,
-                active_snapshot,
-            )
+            if ctx["live_refresh"]:
+                periods = await fetch_active_scanner_periods(
+                    conn,
+                    market,
+                    scanner_type,
+                )
+            else:
+                periods = await sync_scanner_periods(
+                    conn,
+                    market,
+                    scanner_type,
+                    data_date,
+                    active_snapshot,
+                )
 
         if scanner_type == "momentum":
             if not df.empty:

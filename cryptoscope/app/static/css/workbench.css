@@ -2379,6 +2379,25 @@ html[data-view-mode='beginner'] .signals-page {
     gap: 6px 14px;
 }
 
+.scanner-refresh-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.scanner-live-badge {
+    color: var(--green);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.45;
+}
+
+.scanner-live-error {
+    color: var(--amber);
+    font-size: 10px;
+    line-height: 1.45;
+}
+
 .scanner-data-date,
 .scanner-signal-age,
 .scanner-signal-period {
