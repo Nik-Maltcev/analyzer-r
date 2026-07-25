@@ -21,7 +21,7 @@ CRYPTO_PICK_HORIZONS = {
 CRYPTO_PICKS_TRACKING_START = "2026-07-20"
 
 # Scanners feeding the crypto tab (picks, summary, history, CSV export).
-ACTIVE_CRYPTO_SCANNERS = ("momentum",)
+ACTIVE_CRYPTO_SCANNERS = ("momentum", "drawdown")
 
 CONFIDENCE_RANK = {
     "Низкая": 1,
