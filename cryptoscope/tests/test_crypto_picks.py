@@ -169,7 +169,6 @@ def test_crypto_window_summary_breaks_down_results_by_scanner():
     }
     assert [item["key"] for item in summary["scanner_breakdown"]] == [
         "momentum",
-        "drawdown",
     ]
     momentum = by_scanner["Momentum"]
     assert momentum["positions_total"] == 3
@@ -179,14 +178,7 @@ def test_crypto_window_summary_breaks_down_results_by_scanner():
     assert momentum["win_rate"] == 50
     assert momentum["realized_result"] == 4
     assert momentum["result_display"] == "+$4.00"
-    drawdown = by_scanner["Drawdown"]
-    assert drawdown["positions_total"] == 2
-    assert drawdown["positions_completed"] == 2
-    assert drawdown["positions_active"] == 0
-    assert drawdown["positions_profitable"] == 2
-    assert drawdown["win_rate"] == 100
-    assert drawdown["realized_result"] == 12
-    assert drawdown["result_display"] == "+$12.00"
+    assert "Drawdown" not in by_scanner
 
 
 def test_crypto_window_summary_scanner_breakdown_handles_empty_input():
@@ -195,7 +187,7 @@ def test_crypto_window_summary_scanner_breakdown_handles_empty_input():
     assert [
         (item["label"], item["positions_total"], item["result_display"])
         for item in summary["scanner_breakdown"]
-    ] == [("Momentum", 0, "$0.00"), ("Drawdown", 0, "$0.00")]
+    ] == [("Momentum", 0, "$0.00")]
 
 
 def test_filter_crypto_rows_by_confidence_supports_multi_select():
