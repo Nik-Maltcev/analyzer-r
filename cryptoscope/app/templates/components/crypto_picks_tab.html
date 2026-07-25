@@ -11,7 +11,7 @@
             </div>
             <button class="btn btn-secondary crypto-refresh-button"
                     type="button"
-                    hx-get="/tab/crypto?refresh=true&amp;window_days={{ result_window_days }}"
+                    hx-get="/tab/crypto?refresh=true&amp;window_days={{ result_window_days }}{% if confidence_filter %}&amp;confidence={{ confidence_filter|join(',') }}{% endif %}"
                     hx-target="#main-content"
                     hx-swap="innerHTML"
                     hx-indicator="this"
@@ -75,18 +75,39 @@
                 <h3>Результаты стратегии</h3>
             </div>
             <div class="crypto-window-controls">
-                <div class="crypto-window-filter" role="group" aria-label="Период статистики">
-                    {% for days in result_window_options %}
-                    <button type="button"
-                            class="{% if days == result_window_days %}is-active{% endif %}"
-                            aria-pressed="{% if days == result_window_days %}true{% else %}false{% endif %}"
-                            hx-get="/tab/crypto?window_days={{ days }}"
-                            hx-target="#main-content"
-                            hx-swap="innerHTML"
-                            hx-disabled-elt="this">
-                        {{ days }} дн.
-                    </button>
-                    {% endfor %}
+                <div class="crypto-filter-row">
+                    <div class="crypto-window-filter" role="group" aria-label="Период статистики">
+                        {% for days in result_window_options %}
+                        <button type="button"
+                                class="{% if days == result_window_days %}is-active{% endif %}"
+                                aria-pressed="{% if days == result_window_days %}true{% else %}false{% endif %}"
+                                hx-get="/tab/crypto?window_days={{ days }}{% if confidence_filter %}&amp;confidence={{ confidence_filter|join(',') }}{% endif %}"
+                                hx-target="#main-content"
+                                hx-swap="innerHTML"
+                                hx-disabled-elt="this">
+                            {{ days }} дн.
+                        </button>
+                        {% endfor %}
+                    </div>
+                    <div class="crypto-window-filter crypto-confidence-filter" role="group" aria-label="Фильтр по уверенности">
+                        {% for key, label in confidence_options %}
+                        {% if key in confidence_filter %}
+                        {% set next_keys = confidence_filter|reject('equalto', key)|list %}
+                        {% else %}
+                        {% set next_keys = confidence_filter + [key] %}
+                        {% endif %}
+                        <button type="button"
+                                class="level-{{ key }}{% if key in confidence_filter %} is-active{% endif %}"
+                                aria-pressed="{% if key in confidence_filter %}true{% else %}false{% endif %}"
+                                title="Показывать только выбранные уровни"
+                                hx-get="/tab/crypto?window_days={{ result_window_days }}{% if next_keys %}&amp;confidence={{ next_keys|sort|join(',') }}{% endif %}"
+                                hx-target="#main-content"
+                                hx-swap="innerHTML"
+                                hx-disabled-elt="this">
+                            {{ label }}
+                        </button>
+                        {% endfor %}
+                    </div>
                 </div>
                 <span>{{ weekly_summary.start_date_display }}–{{ weekly_summary.end_date_display }}</span>
                 {% if weekly_summary.is_partial_window %}
@@ -327,7 +348,7 @@
                 <button class="btn btn-sm btn-danger"
                         type="button"
                         hx-post="/tab/crypto/close"
-                        hx-vals='{"ticker":"{{ pick.ticker }}","window_days":"{{ result_window_days }}"}'
+                        hx-vals='{"ticker":"{{ pick.ticker }}","window_days":"{{ result_window_days }}","confidence":"{{ confidence_filter|join(',') }}"}'
                         hx-target="#main-content"
                         hx-swap="innerHTML"
                         hx-confirm="Закрыть позицию {{ pick.symbol }} по текущей расчётной цене?"

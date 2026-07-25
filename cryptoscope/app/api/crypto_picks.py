@@ -20,6 +20,7 @@ from app.core.crypto_picks import (
     build_crypto_window_summary,
     build_price_progress,
     build_crypto_signal_export,
+    filter_crypto_rows_by_confidence,
     select_crypto_sell_actions,
 )
 from app.core.scanner_history import (
@@ -37,10 +38,25 @@ from app.ui.templates import templates
 
 router = APIRouter(prefix="/tab/crypto", tags=["crypto-picks"])
 RESULT_WINDOW_OPTIONS = (7, 14, 30)
+CONFIDENCE_FILTER_OPTIONS = (
+    ("high", "Высокая"),
+    ("medium", "Средняя"),
+    ("low", "Низкая"),
+)
 
 
 def _normalize_result_window(value: int) -> int:
     return value if value in RESULT_WINDOW_OPTIONS else 7
+
+
+def _parse_confidence_filter(value: str | None) -> list[str]:
+    """Keep known confidence keys in canonical (display) order."""
+    requested = set(str(value or "").split(","))
+    return [
+        key
+        for key, _label in CONFIDENCE_FILTER_OPTIONS
+        if key in requested
+    ]
 
 
 async def _require_admin(request: Request) -> None:
@@ -113,6 +129,7 @@ async def close_crypto_pick(
     request: Request,
     ticker: str = Form(...),
     window_days: int = Form(7),
+    confidence: str = Form(""),
 ):
     await _require_admin(request)
     normalized_ticker = str(ticker or "").strip().upper()
@@ -159,6 +176,7 @@ async def close_crypto_pick(
         request,
         refresh=False,
         window_days=_normalize_result_window(window_days),
+        confidence=confidence,
     )
 
 
@@ -303,14 +321,18 @@ async def crypto_picks_tab(
     request: Request,
     refresh: bool = Query(False),
     window_days: int = Query(7),
+    confidence: str = Query(""),
 ):
     await _require_admin(request)
     window_days = _normalize_result_window(window_days)
+    confidence_filter = _parse_confidence_filter(confidence)
     context = {
         "request": request,
         "picks": [],
         "total": 0,
         "active_scanner_count": len(ACTIVE_CRYPTO_SCANNERS),
+        "confidence_filter": confidence_filter,
+        "confidence_options": CONFIDENCE_FILTER_OPTIONS,
         "scanner_data_date": None,
         "history": [],
         "history_total": 0,
@@ -507,7 +529,10 @@ async def crypto_picks_tab(
                 progress[0]["change_display"] if progress else "—"
             )
         weekly_summary = build_crypto_window_summary(
-            report["rows"],
+            filter_crypto_rows_by_confidence(
+                report["rows"],
+                confidence_filter,
+            ),
             report_date,
             days=window_days,
             prices_by_ticker=prices_by_ticker,

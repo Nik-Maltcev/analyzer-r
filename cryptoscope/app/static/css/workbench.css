@@ -250,6 +250,23 @@
     box-shadow: inset 0 -1px 0 var(--green);
 }
 
+.crypto-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.crypto-confidence-filter button.is-active.level-low {
+    color: var(--text-muted);
+    box-shadow: inset 0 -1px 0 var(--text-muted);
+}
+
+.crypto-confidence-filter button.is-active.level-medium {
+    color: var(--blue);
+    box-shadow: inset 0 -1px 0 var(--blue);
+}
+
 .crypto-weekly-metrics {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -32,6 +32,13 @@ CONFIDENCE_RANK = {
 CONFIDENCE_LEVELS = ("Низкая", "Средняя", "Высокая")
 UNKNOWN_CONFIDENCE = "Без уровня"
 
+CONFIDENCE_KEY = {
+    "Низкая": "low",
+    "Средняя": "medium",
+    "Высокая": "high",
+    UNKNOWN_CONFIDENCE: "unknown",
+}
+
 
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
@@ -51,6 +58,25 @@ def _safe_float(value: Any) -> float | None:
 def _normalize_confidence(value: Any) -> str:
     confidence = str(value or "").strip()
     return confidence if confidence in CONFIDENCE_RANK else UNKNOWN_CONFIDENCE
+
+
+def filter_crypto_rows_by_confidence(
+    rows: Iterable[dict[str, Any]],
+    selected_keys: Iterable[str],
+) -> list[dict[str, Any]]:
+    """Keep rows matching the UI confidence filter (empty selection = all)."""
+    wanted = {
+        label
+        for label in CONFIDENCE_LEVELS
+        if CONFIDENCE_KEY[label] in set(selected_keys)
+    }
+    if not wanted:
+        return list(rows)
+    return [
+        row
+        for row in rows
+        if _normalize_confidence(row.get("confidence")) in wanted
+    ]
 
 
 def _ticker_symbol(ticker: str) -> str:
@@ -1070,12 +1096,7 @@ def _build_confidence_breakdown(
             else None
         )
         result.append({
-            "key": {
-                "Низкая": "low",
-                "Средняя": "medium",
-                "Высокая": "high",
-                UNKNOWN_CONFIDENCE: "unknown",
-            }[confidence],
+            "key": CONFIDENCE_KEY[confidence],
             "label": confidence,
             "positions_total": len(items),
             "positions_active": len(active),

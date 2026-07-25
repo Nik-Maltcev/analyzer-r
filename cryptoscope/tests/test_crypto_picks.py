@@ -4,6 +4,7 @@ from app.core.crypto_picks import (
     build_crypto_signal_export,
     build_crypto_window_summary,
     build_price_progress,
+    filter_crypto_rows_by_confidence,
     select_crypto_sell_actions,
 )
 
@@ -186,6 +187,63 @@ def test_crypto_window_summary_scanner_breakdown_handles_empty_input():
         (item["label"], item["positions_total"], item["result_display"])
         for item in summary["scanner_breakdown"]
     ] == [("Momentum", 0, "$0.00")]
+
+
+def test_filter_crypto_rows_by_confidence_supports_multi_select():
+    rows = [
+        {"confidence": "Высокая", "cash_result": 1},
+        {"confidence": "Средняя", "cash_result": 2},
+        {"confidence": "Низкая", "cash_result": 3},
+        {"confidence": "unknown", "cash_result": 4},
+        {"cash_result": 5},
+    ]
+
+    assert [
+        row["cash_result"]
+        for row in filter_crypto_rows_by_confidence(rows, ["high", "medium"])
+    ] == [1, 2]
+    assert [
+        row["cash_result"]
+        for row in filter_crypto_rows_by_confidence(rows, ["low"])
+    ] == [3]
+    assert len(filter_crypto_rows_by_confidence(rows, [])) == 5
+    assert len(filter_crypto_rows_by_confidence(rows, ["bogus"])) == 5
+
+
+def test_crypto_window_summary_reconciles_with_confidence_filter():
+    rows = [
+        {
+            "status": "completed",
+            "start_date": "2026-07-20",
+            "result_date": "2026-07-22",
+            "stake": 100,
+            "return_pct": 10,
+            "cash_result": 10,
+            "confidence": "Высокая",
+        },
+        {
+            "status": "completed",
+            "start_date": "2026-07-20",
+            "result_date": "2026-07-22",
+            "stake": 100,
+            "return_pct": -6,
+            "cash_result": -6,
+            "confidence": "Низкая",
+        },
+    ]
+
+    summary = build_crypto_window_summary(
+        filter_crypto_rows_by_confidence(rows, ["high"]),
+        "2026-07-23",
+    )
+
+    assert summary["positions_total"] == 1
+    assert summary["realized_result"] == 10
+    by_confidence = {
+        item["label"]: item for item in summary["confidence_breakdown"]
+    }
+    assert by_confidence["Высокая"]["positions_total"] == 1
+    assert by_confidence["Низкая"]["positions_total"] == 0
 
 
 def test_crypto_window_summary_supports_longer_windows():
