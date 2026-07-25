@@ -21,6 +21,7 @@ from app.core.crypto_picks import (
     build_price_progress,
     build_crypto_signal_export,
     filter_crypto_rows_by_confidence,
+    is_excluded_crypto_confidence,
     select_crypto_sell_actions,
 )
 from app.core.scanner_history import (
@@ -41,7 +42,6 @@ RESULT_WINDOW_OPTIONS = (7, 14, 30)
 CONFIDENCE_FILTER_OPTIONS = (
     ("high", "Высокая"),
     ("medium", "Средняя"),
-    ("low", "Низкая"),
 )
 
 
@@ -196,6 +196,7 @@ async def export_crypto_picks_csv(request: Request):
             WHERE market = 'crypto'
               AND scanner IN ({scanner_placeholders})
               AND direction = 'long'
+              AND (confidence IS NULL OR TRIM(confidence) != 'Низкая')
             ORDER BY first_seen_date DESC, id DESC
             """,
             tuple(ACTIVE_CRYPTO_SCANNERS),
@@ -391,6 +392,9 @@ async def crypto_picks_tab(
                     for record in records
                     if record.get("recommendation_class") == "long"
                     and not record.get("signal_suppressed")
+                    and not is_excluded_crypto_confidence(
+                        record.get("confidence")
+                    )
                     and is_scanner_signal_within_horizon(
                         scanner,
                         record.get("signal_age_days"),
@@ -407,6 +411,7 @@ async def crypto_picks_tab(
                 WHERE market = 'crypto'
                   AND scanner IN ({scanner_placeholders})
                   AND direction = 'long'
+                  AND (confidence IS NULL OR TRIM(confidence) != 'Низкая')
                 ORDER BY first_seen_date DESC, id DESC
                 """,
                 tuple(ACTIVE_CRYPTO_SCANNERS),

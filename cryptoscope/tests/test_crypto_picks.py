@@ -5,6 +5,7 @@ from app.core.crypto_picks import (
     build_crypto_window_summary,
     build_price_progress,
     filter_crypto_rows_by_confidence,
+    is_excluded_crypto_confidence,
     select_crypto_sell_actions,
 )
 
@@ -243,7 +244,36 @@ def test_crypto_window_summary_reconciles_with_confidence_filter():
         item["label"]: item for item in summary["confidence_breakdown"]
     }
     assert by_confidence["Высокая"]["positions_total"] == 1
-    assert by_confidence["Низкая"]["positions_total"] == 0
+    assert "Низкая" not in by_confidence
+
+
+def test_is_excluded_crypto_confidence_rejects_only_low():
+    assert is_excluded_crypto_confidence("Низкая")
+    assert not is_excluded_crypto_confidence("Средняя")
+    assert not is_excluded_crypto_confidence("Высокая")
+    assert not is_excluded_crypto_confidence(None)
+    assert not is_excluded_crypto_confidence("unknown")
+
+
+def test_confidence_breakdown_skips_empty_low_group():
+    summary = build_crypto_window_summary(
+        [
+            {
+                "status": "completed",
+                "start_date": "2026-07-20",
+                "result_date": "2026-07-22",
+                "stake": 100,
+                "return_pct": 4,
+                "cash_result": 4,
+                "confidence": "Средняя",
+            },
+        ],
+        "2026-07-23",
+    )
+
+    assert [
+        item["label"] for item in summary["confidence_breakdown"]
+    ] == ["Средняя", "Высокая"]
 
 
 def test_crypto_window_summary_supports_longer_windows():

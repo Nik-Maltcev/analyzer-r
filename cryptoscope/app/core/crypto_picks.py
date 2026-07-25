@@ -79,6 +79,11 @@ def filter_crypto_rows_by_confidence(
     ]
 
 
+def is_excluded_crypto_confidence(value: Any) -> bool:
+    """Low-confidence signals are not admitted to the crypto tab."""
+    return _normalize_confidence(value) == "Низкая"
+
+
 def _ticker_symbol(ticker: str) -> str:
     return str(ticker).split("/", 1)[0].strip().upper()
 
@@ -1067,7 +1072,7 @@ def _build_confidence_breakdown(
     result: list[dict[str, Any]] = []
     for confidence in (*CONFIDENCE_LEVELS, UNKNOWN_CONFIDENCE):
         items = grouped[confidence]
-        if confidence == UNKNOWN_CONFIDENCE and not items:
+        if confidence in ("Низкая", UNKNOWN_CONFIDENCE) and not items:
             continue
         completed = [
             item for item in items if item.get("status") != "active"
