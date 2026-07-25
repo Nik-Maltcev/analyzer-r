@@ -80,8 +80,8 @@ def filter_crypto_rows_by_confidence(
 
 
 def is_excluded_crypto_confidence(value: Any) -> bool:
-    """Low-confidence signals are not admitted to the crypto tab."""
-    return _normalize_confidence(value) == "Низкая"
+    """Only medium/high-confidence signals are admitted to the crypto tab."""
+    return _normalize_confidence(value) not in ("Средняя", "Высокая")
 
 
 def _ticker_symbol(ticker: str) -> str:

@@ -247,12 +247,14 @@ def test_crypto_window_summary_reconciles_with_confidence_filter():
     assert "Низкая" not in by_confidence
 
 
-def test_is_excluded_crypto_confidence_rejects_only_low():
+def test_is_excluded_crypto_confidence_admits_only_medium_and_high():
     assert is_excluded_crypto_confidence("Низкая")
+    assert is_excluded_crypto_confidence(None)
+    assert is_excluded_crypto_confidence("")
+    assert is_excluded_crypto_confidence("unknown")
+    assert is_excluded_crypto_confidence("Без уровня")
     assert not is_excluded_crypto_confidence("Средняя")
     assert not is_excluded_crypto_confidence("Высокая")
-    assert not is_excluded_crypto_confidence(None)
-    assert not is_excluded_crypto_confidence("unknown")
 
 
 def test_confidence_breakdown_skips_empty_low_group():

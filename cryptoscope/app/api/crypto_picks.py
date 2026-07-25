@@ -196,7 +196,7 @@ async def export_crypto_picks_csv(request: Request):
             WHERE market = 'crypto'
               AND scanner IN ({scanner_placeholders})
               AND direction = 'long'
-              AND (confidence IS NULL OR TRIM(confidence) != 'Низкая')
+              AND TRIM(COALESCE(confidence, '')) IN ('Средняя', 'Высокая')
             ORDER BY first_seen_date DESC, id DESC
             """,
             tuple(ACTIVE_CRYPTO_SCANNERS),
@@ -411,7 +411,7 @@ async def crypto_picks_tab(
                 WHERE market = 'crypto'
                   AND scanner IN ({scanner_placeholders})
                   AND direction = 'long'
-                  AND (confidence IS NULL OR TRIM(confidence) != 'Низкая')
+                  AND TRIM(COALESCE(confidence, '')) IN ('Средняя', 'Высокая')
                 ORDER BY first_seen_date DESC, id DESC
                 """,
                 tuple(ACTIVE_CRYPTO_SCANNERS),
