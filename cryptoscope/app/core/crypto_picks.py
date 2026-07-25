@@ -307,6 +307,8 @@ def build_crypto_signal_export(
     data_date: Any,
     stake_per_signal: float = 100.0,
     tracking_start_date: Any = CRYPTO_PICKS_TRACKING_START,
+    active_marks: dict[str, Any] | None = None,
+    active_mark_date: Any = None,
 ) -> dict[str, Any]:
     """Build coin positions from LONG scanner periods with equal USD stakes."""
     target_date = _date_key(data_date)
@@ -367,18 +369,22 @@ def build_crypto_signal_export(
         last_visible_date = (
             last_seen_key[1] if last_seen_key[0] == 0 else start_key[1]
         )
-        if horizon_result is not None:
-            last_visible_date = min(last_visible_date, horizon_result[0])
+        ended_key = _date_key(period.get("ended_date"))
+        if forced_close and ended_key[0] == 0:
+            last_visible_date = ended_key[1]
+        elif horizon_result is not None:
+            last_visible_date = horizon_result[0]
+        elif raw_status == "closed" and ended_key[0] == 0:
+            last_visible_date = ended_key[1]
         if last_visible_date < tracking_date:
             continue
 
-        dated_prices = [
-            (price_date, price)
-            for price_date, price in original_prices
-            if price_date >= max(start_key[1], tracking_date)
-        ]
+        # Tracking controls which positions belong to this product section. It
+        # must never rewrite the entry of a signal that was already active.
+        dated_prices = original_prices
         if not dated_prices:
             continue
+        tracked_from_date = max(start_key[1], tracking_date)
 
         if forced_close:
             close_key = _date_key(
@@ -456,6 +462,7 @@ def build_crypto_signal_export(
             "horizon_days": horizon,
             "held_days": held_days,
             "start_date": start_date,
+            "tracked_from_date": tracked_from_date,
             "result_date": result_date,
             "start_price": start_price,
             "result_price": result_price,
@@ -466,6 +473,11 @@ def build_crypto_signal_export(
         })
 
     rows = _merge_crypto_signal_positions(signal_rows, stake_per_signal)
+    _mark_active_crypto_positions(
+        rows,
+        active_marks or {},
+        active_mark_date,
+    )
     rows.sort(
         key=lambda item: (
             item["start_date"],
@@ -511,6 +523,7 @@ def build_crypto_signal_export(
             4,
         ) if total_invested else 0.0,
     }
+    _validate_crypto_position_math(rows, summary)
     return {
         "rows": rows,
         "summary": summary,
@@ -522,6 +535,119 @@ def build_crypto_signal_export(
             tracking_start_date=tracking_start_date,
         ),
     }
+
+
+def _mark_active_crypto_positions(
+    rows: Iterable[dict[str, Any]],
+    active_marks: dict[str, Any],
+    mark_date: Any,
+) -> None:
+    """Apply live marks only to open positions; closed outcomes stay fixed."""
+    mark_key = _date_key(mark_date)
+    if mark_key[0] != 0:
+        return
+
+    for row in rows:
+        if row.get("status") != "active":
+            continue
+        mark_price = _safe_float(active_marks.get(str(row.get("ticker"))))
+        start_price = _safe_float(row.get("start_price"))
+        start_key = _date_key(row.get("start_date"))
+        if (
+            mark_price is None
+            or mark_price <= 0
+            or start_price is None
+            or start_price <= 0
+            or start_key[0] != 0
+            or mark_key[1] < start_key[1]
+        ):
+            continue
+
+        stake = float(row.get("stake") or 0)
+        return_pct = (mark_price / start_price - 1) * 100
+        cash_result = round(stake * return_pct / 100, 2)
+        start_dt = datetime.strptime(start_key[1], "%Y-%m-%d")
+        mark_dt = datetime.strptime(mark_key[1], "%Y-%m-%d")
+        row.update({
+            "held_days": (mark_dt - start_dt).days + 1,
+            "result_date": mark_key[1],
+            "result_price": mark_price,
+            "position_value": round(stake + cash_result, 2),
+            "return_pct": round(return_pct, 4),
+            "cash_result": cash_result,
+            "is_profitable": return_pct > 0,
+        })
+
+
+def _validate_crypto_position_math(
+    rows: Iterable[dict[str, Any]],
+    summary: dict[str, Any],
+) -> None:
+    """Fail closed if displayed position arithmetic becomes inconsistent."""
+    positions = list(rows)
+    for row in positions:
+        start_price = float(row["start_price"])
+        result_price = float(row["result_price"])
+        stake = float(row["stake"])
+        expected_return = (result_price / start_price - 1) * 100
+        expected_cash = round(stake * expected_return / 100, 2)
+        if not math.isclose(
+            float(row["return_pct"]),
+            expected_return,
+            abs_tol=0.0001,
+        ):
+            raise ValueError(
+                f"Crypto return mismatch for {row['position_id']}"
+            )
+        if not math.isclose(
+            float(row["cash_result"]),
+            expected_cash,
+            abs_tol=0.005,
+        ):
+            raise ValueError(
+                f"Crypto cash result mismatch for {row['position_id']}"
+            )
+
+    expected_total = round(
+        sum(float(row["cash_result"]) for row in positions),
+        2,
+    )
+    expected_realized = round(
+        sum(
+            float(row["cash_result"])
+            for row in positions
+            if row["status"] != "active"
+        ),
+        2,
+    )
+    expected_unrealized = round(expected_total - expected_realized, 2)
+    expected_invested = round(
+        sum(float(row["stake"]) for row in positions),
+        2,
+    )
+    expected_portfolio_value = round(
+        expected_invested + expected_total,
+        2,
+    )
+    expected_return = round(
+        expected_total / expected_invested * 100,
+        4,
+    ) if expected_invested else 0.0
+    checks = {
+        "total_result": expected_total,
+        "realized_result": expected_realized,
+        "unrealized_result": expected_unrealized,
+        "total_invested": expected_invested,
+        "portfolio_value": expected_portfolio_value,
+        "portfolio_return_pct": expected_return,
+    }
+    for key, expected in checks.items():
+        if not math.isclose(
+            float(summary[key]),
+            expected,
+            abs_tol=0.005,
+        ):
+            raise ValueError(f"Crypto summary mismatch: {key}")
 
 
 def build_crypto_window_summary(
@@ -561,6 +687,7 @@ def build_crypto_window_summary(
             "return_display": "+0.00%",
             "result_timeline": [],
             "confidence_breakdown": _build_confidence_breakdown([]),
+            "scanner_breakdown": _build_scanner_breakdown([]),
             "completed_history": [],
         }
 
@@ -578,7 +705,9 @@ def build_crypto_window_summary(
     relevant: list[dict[str, Any]] = []
 
     for row in rows:
-        position_start = _date_key(row.get("start_date"))
+        position_start = _date_key(
+            row.get("tracked_from_date") or row.get("start_date")
+        )
         position_end = _date_key(row.get("result_date"))
         if (
             position_start[0] == 0
@@ -603,7 +732,7 @@ def build_crypto_window_summary(
         float(row.get("cash_result") or 0) for row in active
     )
 
-    return {
+    summary = {
         "days": window_days,
         "available_days": available_days,
         "is_partial_window": available_days < window_days,
@@ -669,8 +798,70 @@ def build_crypto_window_summary(
             prices_by_ticker or {},
         ),
         "confidence_breakdown": _build_confidence_breakdown(relevant),
+        "scanner_breakdown": _build_scanner_breakdown(relevant),
         "completed_history": _build_completed_position_history(completed),
     }
+    _validate_crypto_window_math(summary)
+    return summary
+
+
+def _validate_crypto_window_math(summary: dict[str, Any]) -> None:
+    """Keep every visible window total tied to the same position cohort."""
+    if (
+        int(summary["positions_active"])
+        + int(summary["positions_completed"])
+        != int(summary["positions_total"])
+    ):
+        raise ValueError("Crypto window position count mismatch")
+
+    completed_outcomes = (
+        int(summary["positions_profitable"])
+        + int(summary["positions_unprofitable"])
+        + int(summary["positions_flat"])
+    )
+    if completed_outcomes != int(summary["positions_completed"]):
+        raise ValueError("Crypto window outcome count mismatch")
+
+    expected_total = round(
+        float(summary["realized_result"])
+        + float(summary["unrealized_result"]),
+        2,
+    )
+    if not math.isclose(
+        float(summary["total_result"]),
+        expected_total,
+        abs_tol=0.005,
+    ):
+        raise ValueError("Crypto window result mismatch")
+
+    history = list(summary.get("completed_history") or [])
+    if len(history) != int(summary["positions_completed"]):
+        raise ValueError("Crypto window history count mismatch")
+    history_result = round(
+        sum(float(item.get("cash_result") or 0) for item in history),
+        2,
+    )
+    if not math.isclose(
+        float(summary["realized_result"]),
+        history_result,
+        abs_tol=0.005,
+    ):
+        raise ValueError("Crypto window history result mismatch")
+
+    confidence_total = sum(
+        int(item.get("positions_total") or 0)
+        for item in summary.get("confidence_breakdown") or []
+    )
+    if confidence_total != int(summary["positions_total"]):
+        raise ValueError("Crypto window confidence count mismatch")
+
+    timeline = list(summary.get("result_timeline") or [])
+    if timeline and not math.isclose(
+        float(timeline[-1]["result"]),
+        float(summary["total_result"]),
+        abs_tol=0.005,
+    ):
+        raise ValueError("Crypto window timeline result mismatch")
 
 
 def _build_completed_position_history(
@@ -799,8 +990,7 @@ def _build_portfolio_result_timeline(
             if not position_start or date_iso < position_start:
                 continue
 
-            is_closed = row.get("status") != "active"
-            if is_closed and position_end and date_iso >= position_end:
+            if position_end and date_iso >= position_end:
                 total_result += float(row.get("cash_result") or 0)
                 continue
 
@@ -816,9 +1006,6 @@ def _build_portfolio_result_timeline(
                 if quantity is not None:
                     total_result += quantity * price_values[price_index] - stake
                     continue
-
-            if position_end and date_iso >= position_end:
-                total_result += float(row.get("cash_result") or 0)
 
         rounded_result = round(total_result, 2)
         timeline.append({
@@ -893,6 +1080,74 @@ def _build_confidence_breakdown(
             "positions_profitable": profitable,
             "positions_unprofitable": unprofitable,
             "positions_flat": flat,
+            "win_rate": win_rate,
+            "win_rate_display": (
+                f"{win_rate:.1f}".rstrip("0").rstrip(".")
+                if win_rate is not None
+                else "—"
+            ),
+            "realized_result": round(realized_result, 2),
+            "result_display": (
+                f"+${realized_result:.2f}"
+                if realized_result > 0
+                else f"-${abs(realized_result):.2f}"
+                if realized_result < 0
+                else "$0.00"
+            ),
+        })
+    return result
+
+
+def _row_scanner_labels(row: dict[str, Any]) -> list[str]:
+    """Scanner names attached to a position (a coin can have both)."""
+    scanners = row.get("scanners")
+    if isinstance(scanners, (list, tuple)):
+        return [str(item) for item in scanners if str(item).strip()]
+    labels = str(row.get("scanner_labels") or row.get("scanner_label") or "")
+    return [
+        part.strip()
+        for part in labels.split("+")
+        if part.strip()
+    ]
+
+
+def _build_scanner_breakdown(
+    rows: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Realized result per scanner; shared positions count for each side."""
+    positions = list(rows)
+    result: list[dict[str, Any]] = []
+    for key, label in SCANNER_LABELS.items():
+        items = [
+            row for row in positions if label in _row_scanner_labels(row)
+        ]
+        completed = [
+            item for item in items if item.get("status") != "active"
+        ]
+        active = [
+            item for item in items if item.get("status") == "active"
+        ]
+        profitable = sum(
+            1
+            for item in completed
+            if float(item.get("return_pct") or 0) > 0
+        )
+        realized_result = sum(
+            float(item.get("cash_result") or 0)
+            for item in completed
+        )
+        win_rate = (
+            round(profitable / len(completed) * 100, 1)
+            if completed
+            else None
+        )
+        result.append({
+            "key": key,
+            "label": label,
+            "positions_total": len(items),
+            "positions_active": len(active),
+            "positions_completed": len(completed),
+            "positions_profitable": profitable,
             "win_rate": win_rate,
             "win_rate_display": (
                 f"{win_rate:.1f}".rstrip("0").rstrip(".")
@@ -1074,6 +1329,10 @@ def _merge_crypto_signal_positions(
                 "result_type": "текущий" if is_active else "реализованный",
                 "held_days": (result_dt - start_dt).days + 1,
                 "start_date": start_row["start_date"],
+                "tracked_from_date": min(
+                    item.get("tracked_from_date") or item["start_date"]
+                    for item in episode
+                ),
                 "result_date": end_row["result_date"],
                 "start_price": start_price,
                 "result_price": result_price,

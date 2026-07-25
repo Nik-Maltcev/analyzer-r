@@ -55,6 +55,18 @@
     </div>
     {% endif %}
 
+    <div class="crypto-calculation-note">
+        <i data-lucide="info"></i>
+        <span>
+            Сигнал и цена начала фиксируются по дневным данным Twelve Data.
+            «Обновить» использует текущую цену Binance, а если пары там нет,
+            оставляет последний дневной снимок. Ручное закрытие доступно только
+            при получении свежей цены Binance.
+            Результат рассчитан как изменение цены при условных $100 на позицию;
+            комиссии, проскальзывание и налоги не учтены.
+        </span>
+    </div>
+
     {% if weekly_summary %}
     <section class="crypto-weekly-summary" aria-label="Статистика криптопозиций за {{ result_window_days }} дней">
         <header class="crypto-weekly-summary-head">
@@ -170,6 +182,44 @@
                 <article class="crypto-confidence-row confidence-{{ group.key }}">
                     <div class="crypto-confidence-name">
                         <span>Уверенность</span>
+                        <strong>{{ group.label }}</strong>
+                    </div>
+                    <div class="crypto-confidence-outcome">
+                        {% if group.positions_completed %}
+                        <strong>{{ group.positions_profitable }} из {{ group.positions_completed }} выросли</strong>
+                        <span>{{ group.win_rate_display }}% в плюсе</span>
+                        {% else %}
+                        <strong>Нет завершённых</strong>
+                        <span>точность ещё не рассчитана</span>
+                        {% endif %}
+                    </div>
+                    <div class="crypto-confidence-volume">
+                        <span>Всего {{ group.positions_total }}</span>
+                        <small>активны {{ group.positions_active }}</small>
+                    </div>
+                    <div class="crypto-confidence-result">
+                        <strong class="{% if group.realized_result > 0 %}positive{% elif group.realized_result < 0 %}negative{% endif %}">
+                            {{ group.result_display }}
+                        </strong>
+                        <span>при $100 на монету</span>
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+        <section class="crypto-confidence-summary crypto-scanner-summary" aria-label="Результаты по сканерам">
+            <header>
+                <div>
+                    <span class="section-kicker">По сканерам</span>
+                    <h4>Зависимость от сканера</h4>
+                </div>
+                <span>Только завершённые позиции</span>
+            </header>
+            <div class="crypto-confidence-grid">
+                {% for group in weekly_summary.scanner_breakdown %}
+                <article class="crypto-confidence-row scanner-{{ group.key }}">
+                    <div class="crypto-confidence-name">
+                        <span>Сканер</span>
                         <strong>{{ group.label }}</strong>
                     </div>
                     <div class="crypto-confidence-outcome">

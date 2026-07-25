@@ -102,6 +102,100 @@ def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
     assert "Без уровня" not in by_confidence
 
 
+def test_crypto_window_summary_breaks_down_results_by_scanner():
+    summary = build_crypto_window_summary(
+        [
+            {
+                "status": "completed",
+                "start_date": "2026-07-20",
+                "result_date": "2026-07-22",
+                "stake": 100,
+                "return_pct": -6,
+                "cash_result": -6,
+                "scanners": ["Momentum"],
+            },
+            {
+                "status": "completed",
+                "start_date": "2026-07-21",
+                "result_date": "2026-07-23",
+                "stake": 100,
+                "return_pct": 2,
+                "cash_result": 2,
+                "scanner_labels": "Drawdown",
+            },
+            {
+                "status": "completed",
+                "start_date": "2026-07-19",
+                "result_date": "2026-07-22",
+                "stake": 100,
+                "return_pct": 10,
+                "cash_result": 10,
+                "scanners": ["Drawdown", "Momentum"],
+            },
+            {
+                "status": "active",
+                "ticker": "ACT/USD",
+                "start_date": "2026-07-22",
+                "result_date": "2026-07-24",
+                "stake": 100,
+                "start_price": 100,
+                "quantity": 1,
+                "return_pct": 3,
+                "cash_result": 3,
+                "scanner_label": "Momentum",
+            },
+            {
+                "status": "completed",
+                "start_date": "2026-07-20",
+                "result_date": "2026-07-21",
+                "stake": 100,
+                "return_pct": 1,
+                "cash_result": 1,
+            },
+        ],
+        "2026-07-23",
+        prices_by_ticker={
+            "ACT/USD": [
+                ("2026-07-22", 100),
+                ("2026-07-23", 103),
+            ],
+        },
+    )
+
+    by_scanner = {
+        item["label"]: item for item in summary["scanner_breakdown"]
+    }
+    assert [item["key"] for item in summary["scanner_breakdown"]] == [
+        "momentum",
+        "drawdown",
+    ]
+    momentum = by_scanner["Momentum"]
+    assert momentum["positions_total"] == 3
+    assert momentum["positions_completed"] == 2
+    assert momentum["positions_active"] == 1
+    assert momentum["positions_profitable"] == 1
+    assert momentum["win_rate"] == 50
+    assert momentum["realized_result"] == 4
+    assert momentum["result_display"] == "+$4.00"
+    drawdown = by_scanner["Drawdown"]
+    assert drawdown["positions_total"] == 2
+    assert drawdown["positions_completed"] == 2
+    assert drawdown["positions_active"] == 0
+    assert drawdown["positions_profitable"] == 2
+    assert drawdown["win_rate"] == 100
+    assert drawdown["realized_result"] == 12
+    assert drawdown["result_display"] == "+$12.00"
+
+
+def test_crypto_window_summary_scanner_breakdown_handles_empty_input():
+    summary = build_crypto_window_summary([], "2026-07-23")
+
+    assert [
+        (item["label"], item["positions_total"], item["result_display"])
+        for item in summary["scanner_breakdown"]
+    ] == [("Momentum", 0, "$0.00"), ("Drawdown", 0, "$0.00")]
+
+
 def test_crypto_window_summary_supports_longer_windows():
     rows = [
         {
@@ -532,7 +626,7 @@ def test_crypto_signal_export_includes_completed_closed_and_active_results():
     } == {None, "signal_ended"}
 
 
-def test_crypto_signal_export_excludes_pre_section_history_and_clamps_entry():
+def test_crypto_signal_export_excludes_old_history_without_rewriting_entry():
     report = build_crypto_signal_export(
         [
             {
@@ -575,9 +669,11 @@ def test_crypto_signal_export_excludes_pre_section_history_and_clamps_entry():
     )
 
     assert [item["ticker"] for item in report["rows"]] == ["LIVE/USD"]
-    assert report["rows"][0]["start_date"] == "2026-07-20"
+    assert report["rows"][0]["start_date"] == "2026-07-18"
+    assert report["rows"][0]["tracked_from_date"] == "2026-07-20"
     assert report["rows"][0]["result_date"] == "2026-07-22"
-    assert report["rows"][0]["return_pct"] == 10.0
+    assert report["rows"][0]["return_pct"] == 37.5
+    assert report["weekly_summary"]["positions_total"] == 1
 
 
 def test_crypto_signal_export_merges_overlapping_scanners_into_one_position():
@@ -782,9 +878,11 @@ def test_early_drawdown_end_does_not_cut_completed_momentum_trade():
     assert report["summary"]["positions_total"] == 1
     position = report["rows"][0]
     assert position["status"] == "completed"
-    assert position["start_date"] == "2026-07-20"
+    assert position["start_date"] == "2026-07-19"
+    assert position["tracked_from_date"] == "2026-07-20"
     assert position["result_date"] == "2026-07-23"
-    assert position["start_price"] == 0.099
+    assert position["start_price"] == 0.1054
     assert position["result_price"] == 0.1253
-    assert position["return_pct"] == 26.5657
-    assert position["cash_result"] == 26.57
+    assert position["return_pct"] == 18.8805
+    assert position["cash_result"] == 18.88
+    assert report["weekly_summary"]["positions_total"] == 1

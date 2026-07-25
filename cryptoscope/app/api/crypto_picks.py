@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+from collections.abc import Iterable
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -21,7 +22,6 @@ from app.core.crypto_picks import (
     select_crypto_sell_actions,
 )
 from app.core.scanner_history import (
-    auto_close_crypto_positions,
     annotate_scanner_results,
     build_scanner_snapshot,
     close_crypto_ticker_periods,
@@ -58,10 +58,11 @@ def _csv_number(value: object, digits: int = 4) -> str:
     return f"{number:.{digits}f}".rstrip("0").rstrip(".")
 
 
-async def _refresh_crypto_prices_for_today(conn, prices) -> dict:
+async def _refresh_crypto_prices_for_today(tickers: Iterable[str]) -> dict:
+    """Fetch live marks without mutating the daily scanner price series."""
     tickers = sorted({
         str(ticker)
-        for ticker in prices["ticker"].dropna().unique()
+        for ticker in tickers
         if ticker
     })
     result = await refresh_crypto_live_prices(tickers, ttl_seconds=0)
@@ -72,26 +73,38 @@ async def _refresh_crypto_prices_for_today(conn, prices) -> dict:
     current_date = datetime.now(
         ZoneInfo("Europe/Moscow")
     ).date().isoformat()
-    await conn.executemany(
-        """
-        INSERT INTO prices (ticker, date, close, volume, market)
-        VALUES (?, ?, ?, NULL, 'crypto')
-        ON CONFLICT(ticker, date) DO UPDATE SET
-            close = excluded.close,
-            market = 'crypto'
-        """,
-        [
-            (ticker, current_date, float(price))
-            for ticker, price in live_prices.items()
-            if price and float(price) > 0
-        ],
-    )
-    await conn.commit()
     return {
         **result,
         "updated": len(live_prices),
         "data_date": current_date,
     }
+
+
+def _overlay_live_prices(
+    prices_by_ticker: dict[str, list[tuple[object, object]]],
+    live_prices: dict[str, float],
+    live_date: str,
+) -> dict[str, list[tuple[object, object]]]:
+    """Mark active positions to market without changing scanner observations."""
+    overlaid = {
+        ticker: list(rows)
+        for ticker, rows in prices_by_ticker.items()
+    }
+    for ticker, live_price in live_prices.items():
+        try:
+            normalized_price = float(live_price)
+        except (TypeError, ValueError):
+            continue
+        if normalized_price <= 0:
+            continue
+        rows = [
+            (raw_date, raw_price)
+            for raw_date, raw_price in overlaid.get(ticker, [])
+            if str(raw_date)[:10] != live_date
+        ]
+        rows.append((live_date, normalized_price))
+        overlaid[ticker] = rows
+    return overlaid
 
 
 @router.post("/close", response_class=HTMLResponse)
@@ -112,9 +125,21 @@ async def close_crypto_pick(
         ticker_prices = prices[prices["ticker"] == normalized_ticker]
         if ticker_prices.empty:
             raise HTTPException(status_code=404, detail="Ticker not found")
-        ticker_prices = ticker_prices.sort_values("date")
-        close_date = str(ticker_prices.iloc[-1]["date"])[:10]
-        close_price = float(ticker_prices.iloc[-1]["close"])
+        live_result = await refresh_crypto_live_prices(
+            [normalized_ticker],
+            ttl_seconds=0,
+        )
+        live_prices = live_result.get("prices") or {}
+        close_price = live_prices.get(normalized_ticker)
+        if close_price is None or float(close_price) <= 0:
+            raise HTTPException(
+                status_code=503,
+                detail="Current Binance price is unavailable",
+            )
+        close_date = datetime.now(
+            ZoneInfo("Europe/Moscow")
+        ).date().isoformat()
+        close_price = float(close_price)
         affected = await close_crypto_ticker_periods(
             conn,
             normalized_ticker,
@@ -164,17 +189,50 @@ async def export_crypto_picks_csv(request: Request):
         for ticker, series in wide.items()
         if not series.dropna().empty
     }
-    report = build_crypto_signal_export(periods, prices_by_ticker, data_date)
+    report_date = data_date
+    active_marks = {}
+    report = build_crypto_signal_export(
+        periods,
+        prices_by_ticker,
+        report_date,
+    )
+    active_tickers = [
+        item["ticker"]
+        for item in report["rows"]
+        if item["status"] == "active"
+    ]
+    try:
+        if active_tickers:
+            live_result = await _refresh_crypto_prices_for_today(
+                active_tickers,
+            )
+            report_date = max(
+                report_date,
+                str(live_result.get("data_date") or report_date),
+            )
+            active_marks = live_result.get("prices") or {}
+    except Exception as exc:
+        print(f"Crypto CSV live price refresh failed: {exc}")
+    if active_marks:
+        report = build_crypto_signal_export(
+            periods,
+            prices_by_ticker,
+            report_date,
+            active_marks=active_marks,
+            active_mark_date=report_date,
+        )
     summary = report["summary"]
 
     output = io.StringIO(newline="")
     writer = csv.writer(output, delimiter=";", lineterminator="\r\n")
     writer.writerow(["MEANX: позиции раздела Крипта"])
-    writer.writerow(["Данные на", data_date])
+    writer.writerow(["Данные на", report_date])
     writer.writerow(["История раздела с", CRYPTO_PICKS_TRACKING_START])
     writer.writerow([
         "Методика",
-        "$100 на каждую монету; пересекающиеся сигналы сканеров объединены; "
+        "$100 на каждую монету; цена начала и сигналы: дневные данные "
+        "Twelve Data; активная цена: Binance, а при недоступности пары "
+        "последний дневной снимок; пересекающиеся сигналы сканеров объединены; "
         "без комиссий, проскальзывания и налогов",
     ])
     writer.writerow(["Всего позиций", summary["positions_total"]])
@@ -229,7 +287,7 @@ async def export_crypto_picks_csv(request: Request):
             item["result_type"],
         ])
 
-    filename = f"meanx-crypto-positions-{data_date}.csv"
+    filename = f"meanx-crypto-positions-{report_date}.csv"
     return Response(
         content="\ufeff" + output.getvalue(),
         media_type="text/csv; charset=utf-8",
@@ -274,6 +332,7 @@ async def crypto_picks_tab(
     try:
         async with get_connection() as conn:
             prices = await fetch_prices(conn, "crypto")
+            live_result = None
             if prices.empty:
                 return templates.TemplateResponse(
                     request,
@@ -281,41 +340,9 @@ async def crypto_picks_tab(
                     context,
                 )
 
-            if refresh:
-                try:
-                    refresh_result = await _refresh_crypto_prices_for_today(
-                        conn,
-                        prices,
-                    )
-                    updated_at = refresh_result.get("updated_at")
-                    context["refresh_result"] = {
-                        "updated": refresh_result["updated"],
-                        "updated_at": (
-                            updated_at.astimezone(
-                                ZoneInfo("Europe/Moscow")
-                            ).strftime("%d.%m.%Y %H:%M")
-                            if updated_at
-                            else datetime.now(
-                                ZoneInfo("Europe/Moscow")
-                            ).strftime("%d.%m.%Y %H:%M")
-                        ),
-                    }
-                    prices = await fetch_prices(conn, "crypto")
-                except Exception as exc:
-                    print(f"Crypto picks refresh failed: {exc}")
-                    context["refresh_error"] = (
-                        "Не удалось обновить котировки Binance. "
-                        "Показан последний сохранённый расчёт."
-                    )
-
             wide = prices.pivot(index="date", columns="ticker", values="close")
             wide = wide.sort_index()
             data_date = str(max(wide.index))[:10]
-            context["auto_close_result"] = await auto_close_crypto_positions(
-                conn,
-                wide,
-                data_date,
-            )
             scanner_results = {}
 
             for scanner in ("momentum", "drawdown"):
@@ -358,17 +385,111 @@ async def crypto_picks_tab(
                 dict(row) for row in await cursor.fetchall()
             ]
 
-        latest_prices = {
-            ticker: series.dropna().iloc[-1]
+        daily_prices_by_ticker = {
+            ticker: list(series.dropna().items())
             for ticker, series in wide.items()
             if not series.dropna().empty
         }
-        picks = aggregate_crypto_long_picks(scanner_results, latest_prices)
+        prices_by_ticker = daily_prices_by_ticker
+        report_date = data_date
+        active_marks = {}
+        if context["close_result"]:
+            report_date = max(
+                report_date,
+                datetime.now(
+                    ZoneInfo("Europe/Moscow")
+                ).date().isoformat(),
+            )
+        report = build_crypto_signal_export(
+            completed_periods,
+            daily_prices_by_ticker,
+            report_date,
+        )
+        if refresh:
+            try:
+                active_tickers = [
+                    item["ticker"]
+                    for item in report["rows"]
+                    if item["status"] == "active"
+                ]
+                if active_tickers:
+                    live_result = await _refresh_crypto_prices_for_today(
+                        active_tickers,
+                    )
+                else:
+                    live_result = {
+                        "prices": {},
+                        "updated": 0,
+                        "updated_at": datetime.now(
+                            ZoneInfo("Europe/Moscow")
+                        ),
+                        "data_date": report_date,
+                    }
+                updated_at = live_result.get("updated_at")
+                context["refresh_result"] = {
+                    "updated": live_result["updated"],
+                    "updated_at": (
+                        updated_at.astimezone(
+                            ZoneInfo("Europe/Moscow")
+                        ).strftime("%d.%m.%Y %H:%M")
+                        if updated_at
+                        else datetime.now(
+                            ZoneInfo("Europe/Moscow")
+                        ).strftime("%d.%m.%Y %H:%M")
+                    ),
+                }
+            except Exception as exc:
+                print(f"Crypto picks refresh failed: {exc}")
+                context["refresh_error"] = (
+                    "Не удалось обновить котировки Binance. "
+                    "Показан последний сохранённый расчёт."
+                )
+        if live_result:
+            report_date = max(
+                report_date,
+                str(live_result.get("data_date") or report_date),
+            )
+            prices_by_ticker = _overlay_live_prices(
+                prices_by_ticker,
+                live_result.get("prices") or {},
+                report_date,
+            )
+            active_marks = live_result.get("prices") or {}
+        if active_marks:
+            report = build_crypto_signal_export(
+                completed_periods,
+                daily_prices_by_ticker,
+                report_date,
+                active_marks=active_marks,
+                active_mark_date=report_date,
+            )
+        active_positions = {
+            item["ticker"]: item
+            for item in report["rows"]
+            if item["status"] == "active"
+        }
+        latest_prices = {
+            ticker: rows[-1][1]
+            for ticker, rows in prices_by_ticker.items()
+            if rows
+        }
+        picks = [
+            pick
+            for pick in aggregate_crypto_long_picks(
+                scanner_results,
+                latest_prices,
+            )
+            if pick["ticker"] in active_positions
+        ]
         for pick in picks:
-            ticker_series = wide[pick["ticker"]].dropna()
+            position = active_positions[pick["ticker"]]
+            pick["signal_first_seen_date"] = datetime.strptime(
+                position["start_date"],
+                "%Y-%m-%d",
+            ).strftime("%d.%m.%Y")
             progress = build_price_progress(
-                ticker_series.items(),
-                pick.get("signal_first_seen_date"),
+                prices_by_ticker.get(pick["ticker"], []),
+                position["start_date"],
             )
             pick["price_progress"] = progress
             pick["progress_change_pct"] = (
@@ -377,19 +498,9 @@ async def crypto_picks_tab(
             pick["progress_change_display"] = (
                 progress[0]["change_display"] if progress else "—"
             )
-        prices_by_ticker = {
-            ticker: list(series.dropna().items())
-            for ticker, series in wide.items()
-            if not series.dropna().empty
-        }
-        report = build_crypto_signal_export(
-            completed_periods,
-            prices_by_ticker,
-            data_date,
-        )
         weekly_summary = build_crypto_window_summary(
             report["rows"],
-            data_date,
+            report_date,
             days=window_days,
             prices_by_ticker=prices_by_ticker,
             tracking_start_date=CRYPTO_PICKS_TRACKING_START,
@@ -397,7 +508,7 @@ async def crypto_picks_tab(
         history = weekly_summary["completed_history"]
         history_profitable = weekly_summary["positions_profitable"]
         history_cash_result = weekly_summary["realized_result"]
-        sell_actions = select_crypto_sell_actions(history, data_date)
+        sell_actions = select_crypto_sell_actions(history, report_date)
         return templates.TemplateResponse(
             request,
             "components/crypto_picks_tab.html",

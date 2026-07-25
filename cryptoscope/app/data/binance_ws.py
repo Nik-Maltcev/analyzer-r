@@ -70,7 +70,7 @@ async def fetch_latest_prices(symbols: list) -> Dict[str, float]:
     if not symbols:
         return {}
     prices: Dict[str, float] = {}
-    batch_size = 40
+    batch_size = 20
     async with httpx.AsyncClient(timeout=10) as client:
         for start in range(0, len(symbols), batch_size):
             batch = symbols[start:start + batch_size]
@@ -87,20 +87,57 @@ async def fetch_latest_prices(symbols: list) -> Dict[str, float]:
                 })
             except Exception as exc:
                 print(f"[Binance] Failed to fetch price batch: {exc}")
+                # One bad or temporarily unavailable symbol must not discard
+                # every valid quote in the same batch.
+                for symbol in batch:
+                    try:
+                        resp = await client.get(
+                            f"{BINANCE_REST_URL}/ticker/price",
+                            params={"symbol": symbol},
+                        )
+                        resp.raise_for_status()
+                        item = resp.json()
+                        price = float(item["price"])
+                        if price > 0:
+                            prices[symbol] = price
+                    except Exception as symbol_exc:
+                        print(
+                            f"[Binance] Failed to fetch {symbol}: "
+                            f"{symbol_exc}"
+                        )
     return prices
 
 
 def get_crypto_live_snapshot(
     tickers: Sequence[str] | None = None,
+    updated_since: float | None = None,
 ) -> tuple[dict[str, float], datetime | None]:
     """Return the latest in-memory Binance prices without network I/O."""
     selected = set(tickers) if tickers else set(TICKER_MAP)
     prices = {}
+    selected_updates = []
     for ticker in selected:
-        price = get_live_price(ticker)
-        if price is not None and price > 0:
+        for symbol in TICKER_MAP.get(ticker, []):
+            updated_at = _last_update.get(symbol, 0.0)
+            price = live_prices.get(symbol)
+            if (
+                price is None
+                or price <= 0
+                or (
+                    updated_since is not None
+                    and updated_at < updated_since
+                )
+            ):
+                continue
             prices[ticker] = float(price)
-    return prices, _latest_live_updated_at()
+            selected_updates.append(updated_at)
+            break
+    snapshot_updated_at = (
+        datetime.fromtimestamp(max(selected_updates), timezone.utc)
+        if selected_updates
+        else None
+    )
+    return prices, snapshot_updated_at
 
 
 async def refresh_crypto_live_prices(
@@ -124,7 +161,14 @@ async def refresh_crypto_live_prices(
 
     async with _crypto_live_lock:
         cache_age = time.monotonic() - _crypto_live_fetched_at
-        cached_prices, updated_at = get_crypto_live_snapshot(selected)
+        cached_prices, updated_at = get_crypto_live_snapshot(
+            selected,
+            updated_since=(
+                time.time() - max(0, ttl_seconds)
+                if ttl_seconds > 0
+                else time.time()
+            ),
+        )
         if (
             _crypto_live_fetched_at
             and cache_age < max(0, ttl_seconds)
@@ -151,6 +195,7 @@ async def refresh_crypto_live_prices(
             for ticker_symbols in symbols_by_ticker.values()
             for symbol in ticker_symbols
         })
+        refresh_started_at = time.time()
         prices_by_symbol = await fetch_latest_prices(symbols)
         now = time.time()
         for symbol, price in prices_by_symbol.items():
@@ -158,8 +203,16 @@ async def refresh_crypto_live_prices(
                 live_prices[symbol] = float(price)
                 _last_update[symbol] = now
 
-        _crypto_live_fetched_at = time.monotonic()
-        refreshed_prices, refreshed_at = get_crypto_live_snapshot(selected)
+        if prices_by_symbol:
+            _crypto_live_fetched_at = time.monotonic()
+        refreshed_prices, refreshed_at = get_crypto_live_snapshot(
+            selected,
+            updated_since=(
+                refresh_started_at
+                if ttl_seconds <= 0
+                else time.time() - ttl_seconds
+            ),
+        )
         return {
             "prices": refreshed_prices,
             "updated_at": refreshed_at,

@@ -153,6 +153,24 @@
     color: var(--red-bright);
 }
 
+.crypto-calculation-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 0 0 14px;
+    color: var(--text-muted);
+    font-size: 10px;
+    line-height: 1.55;
+}
+
+.crypto-calculation-note svg {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
+    margin-top: 1px;
+    color: var(--text-dim);
+}
+
 .crypto-weekly-summary {
     margin-bottom: 18px;
     background: var(--surface-1);
@@ -421,6 +439,14 @@
 
 .crypto-confidence-row.confidence-high {
     box-shadow: inset 2px 0 0 var(--green);
+}
+
+.crypto-confidence-row.scanner-momentum {
+    box-shadow: inset 2px 0 0 var(--blue);
+}
+
+.crypto-confidence-row.scanner-drawdown {
+    box-shadow: inset 2px 0 0 var(--orange);
 }
 
 .crypto-confidence-name,
