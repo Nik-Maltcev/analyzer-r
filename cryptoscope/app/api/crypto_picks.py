@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse, Response
 from app.access import is_admin_user
 from app.auth import get_current_user
 from app.core.crypto_picks import (
+    ACTIVE_CRYPTO_SCANNERS,
     CRYPTO_PICKS_TRACKING_START,
     aggregate_crypto_long_picks,
     build_crypto_window_summary,
@@ -169,15 +170,17 @@ async def export_crypto_picks_csv(request: Request):
         prices = await fetch_prices(conn, "crypto")
         if prices.empty:
             raise HTTPException(status_code=404, detail="No crypto data")
+        scanner_placeholders = ", ".join("?" for _ in ACTIVE_CRYPTO_SCANNERS)
         cursor = await conn.execute(
-            """
+            f"""
             SELECT *
             FROM scanner_signal_periods
             WHERE market = 'crypto'
-              AND scanner IN ('momentum', 'drawdown')
+              AND scanner IN ({scanner_placeholders})
               AND direction = 'long'
             ORDER BY first_seen_date DESC, id DESC
-            """
+            """,
+            tuple(ACTIVE_CRYPTO_SCANNERS),
         )
         periods = [dict(row) for row in await cursor.fetchall()]
 
@@ -307,6 +310,7 @@ async def crypto_picks_tab(
         "request": request,
         "picks": [],
         "total": 0,
+        "active_scanner_count": len(ACTIVE_CRYPTO_SCANNERS),
         "scanner_data_date": None,
         "history": [],
         "history_total": 0,
@@ -345,7 +349,7 @@ async def crypto_picks_tab(
             data_date = str(max(wide.index))[:10]
             scanner_results = {}
 
-            for scanner in ("momentum", "drawdown"):
+            for scanner in ACTIVE_CRYPTO_SCANNERS:
                 frame, active_snapshot = build_scanner_snapshot(wide, scanner)
                 periods = await sync_scanner_periods(
                     conn,
@@ -371,15 +375,19 @@ async def crypto_picks_tab(
                     )
                 ]
 
+            scanner_placeholders = ", ".join(
+                "?" for _ in ACTIVE_CRYPTO_SCANNERS
+            )
             cursor = await conn.execute(
-                """
+                f"""
                 SELECT *
                 FROM scanner_signal_periods
                 WHERE market = 'crypto'
-                  AND scanner IN ('momentum', 'drawdown')
+                  AND scanner IN ({scanner_placeholders})
                   AND direction = 'long'
                 ORDER BY first_seen_date DESC, id DESC
-                """
+                """,
+                tuple(ACTIVE_CRYPTO_SCANNERS),
             )
             completed_periods = [
                 dict(row) for row in await cursor.fetchall()

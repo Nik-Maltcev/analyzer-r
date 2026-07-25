@@ -2,7 +2,7 @@
     <div class="page-header crypto-picks-header">
         <div>
             <h2><i class="page-title-icon" data-lucide="coins"></i>Крипта</h2>
-            <p class="page-desc">Монеты с действующим LONG-сигналом в Momentum или Drawdown.</p>
+            <p class="page-desc">Монеты с действующим LONG-сигналом в Momentum.</p>
         </div>
         <div class="crypto-picks-header-actions">
             <div class="crypto-picks-snapshot">
@@ -283,7 +283,7 @@
                 </div>
                 <div>
                     <dt>Подтверждение</dt>
-                    <dd>{{ pick.scanner_count }} из 2</dd>
+                    <dd>{{ pick.scanner_count }} из {{ active_scanner_count }}</dd>
                 </div>
             </dl>
 
@@ -347,7 +347,7 @@
     {% else %}
     <div class="empty-state crypto-picks-empty">
         <span class="empty-icon"><i data-lucide="circle-pause"></i></span>
-        <p>Сейчас Momentum и Drawdown не подтверждают ни одной покупки.</p>
+        <p>Сейчас Momentum не подтверждает ни одной покупки.</p>
         <span>Новый список появится после следующего ежедневного расчёта.</span>
     </div>
     {% endif %}

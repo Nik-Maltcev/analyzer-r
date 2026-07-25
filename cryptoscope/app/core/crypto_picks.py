@@ -20,6 +20,9 @@ CRYPTO_PICK_HORIZONS = {
 
 CRYPTO_PICKS_TRACKING_START = "2026-07-20"
 
+# Scanners feeding the crypto tab (picks, summary, history, CSV export).
+ACTIVE_CRYPTO_SCANNERS = ("momentum",)
+
 CONFIDENCE_RANK = {
     "Низкая": 1,
     "Средняя": 2,
@@ -1117,7 +1120,8 @@ def _build_scanner_breakdown(
     """Realized result per scanner; shared positions count for each side."""
     positions = list(rows)
     result: list[dict[str, Any]] = []
-    for key, label in SCANNER_LABELS.items():
+    for key in ACTIVE_CRYPTO_SCANNERS:
+        label = SCANNER_LABELS[key]
         items = [
             row for row in positions if label in _row_scanner_labels(row)
         ]
