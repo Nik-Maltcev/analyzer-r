@@ -86,22 +86,20 @@ def is_excluded_crypto_confidence(value: Any) -> bool:
 
 def apply_crypto_confidence_admission(
     periods: Iterable[dict[str, Any]],
-    current_confidence: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Admit position periods to the crypto tab by confidence.
-
-    Active periods are judged by today's scanner confidence (the signal you
-    would trade on now); completed periods keep their frozen entry confidence
-    so the historical record stays honest.
-    """
+    """Keep only periods admitted to the strategy at a fixed point in time."""
     admitted: list[dict[str, Any]] = []
     for period in periods:
         row = dict(period)
-        if str(row.get("status") or "") == "active":
-            ticker = str(row.get("ticker_a") or "")
-            if ticker in current_confidence:
-                row["confidence"] = current_confidence[ticker]
-        if is_excluded_crypto_confidence(row.get("confidence")):
+        admitted_date = str(
+            row.get("strategy_admitted_date") or ""
+        ).strip()
+        if not admitted_date:
+            continue
+        row["confidence"] = _normalize_confidence(
+            row.get("strategy_confidence")
+        )
+        if is_excluded_crypto_confidence(row["confidence"]):
             continue
         admitted.append(row)
     return admitted
@@ -401,16 +399,29 @@ def build_crypto_signal_export(
             continue
 
         ticker = str(period.get("ticker_a") or "").strip()
-        start_key = _date_key(period.get("first_seen_date"))
-        if not ticker or start_key[0] != 0:
+        raw_start_key = _date_key(period.get("first_seen_date"))
+        admitted_key = _date_key(
+            period.get("strategy_admitted_date")
+            or period.get("first_seen_date")
+        )
+        if (
+            not ticker
+            or raw_start_key[0] != 0
+            or admitted_key[0] != 0
+        ):
             continue
 
-        original_prices = [
+        raw_period_prices = [
             (price_date, price)
             for price_date, price in price_cache.get(ticker, [])
-            if price_date >= start_key[1]
+            if price_date >= raw_start_key[1]
         ]
-        if not original_prices:
+        dated_prices = [
+            (price_date, price)
+            for price_date, price in raw_period_prices
+            if price_date >= admitted_key[1]
+        ]
+        if not raw_period_prices or not dated_prices:
             continue
 
         observations = _safe_int(period.get("observation_count"), 0)
@@ -418,13 +429,15 @@ def build_crypto_signal_export(
         close_reason = str(period.get("close_reason") or "")
         forced_close = close_reason in {"manual", "auto_30_daily"}
         horizon_result = (
-            original_prices[horizon - 1]
-            if observations >= horizon and len(original_prices) >= horizon
+            raw_period_prices[horizon - 1]
+            if observations >= horizon and len(raw_period_prices) >= horizon
             else None
         )
         last_seen_key = _date_key(period.get("last_seen_date"))
         last_visible_date = (
-            last_seen_key[1] if last_seen_key[0] == 0 else start_key[1]
+            last_seen_key[1]
+            if last_seen_key[0] == 0
+            else raw_start_key[1]
         )
         ended_key = _date_key(period.get("ended_date"))
         if forced_close and ended_key[0] == 0:
@@ -438,10 +451,7 @@ def build_crypto_signal_export(
 
         # Tracking controls which positions belong to this product section. It
         # must never rewrite the entry of a signal that was already active.
-        dated_prices = original_prices
-        if not dated_prices:
-            continue
-        tracked_from_date = max(start_key[1], tracking_date)
+        tracked_from_date = max(admitted_key[1], tracking_date)
 
         if forced_close:
             close_key = _date_key(
@@ -512,7 +522,10 @@ def build_crypto_signal_export(
             "symbol": _ticker_symbol(ticker),
             "scanner": scanner,
             "scanner_label": SCANNER_LABELS[scanner],
-            "confidence": _normalize_confidence(period.get("confidence")),
+            "confidence": _normalize_confidence(
+                period.get("strategy_confidence")
+                or period.get("confidence")
+            ),
             "status": status,
             "status_label": status_label,
             "result_type": result_type,

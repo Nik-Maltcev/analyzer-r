@@ -139,6 +139,8 @@ CREATE TABLE IF NOT EXISTS scanner_signal_periods (
     ticker_b          TEXT DEFAULT '',
     direction         TEXT NOT NULL,
     confidence        TEXT,
+    strategy_admitted_date TEXT,
+    strategy_confidence TEXT,
     first_seen_date   TEXT NOT NULL,
     last_seen_date    TEXT NOT NULL,
     observation_count INTEGER NOT NULL DEFAULT 1,

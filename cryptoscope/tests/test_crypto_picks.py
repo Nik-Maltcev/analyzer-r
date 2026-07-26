@@ -258,59 +258,96 @@ def test_is_excluded_crypto_confidence_admits_only_medium_and_high():
     assert not is_excluded_crypto_confidence("Высокая")
 
 
-def test_confidence_admission_uses_today_for_active_and_entry_for_completed():
+def test_confidence_admission_is_frozen_when_position_enters_strategy():
     periods = [
         {
             "ticker_a": "IMPROVED/USD",
             "status": "active",
             "confidence": "Низкая",
+            "strategy_admitted_date": "2026-07-26",
+            "strategy_confidence": "Высокая",
         },
         {
             "ticker_a": "WEAKENED/USD",
             "status": "active",
             "confidence": "Высокая",
+            "strategy_admitted_date": "2026-07-24",
+            "strategy_confidence": "Высокая",
         },
         {
-            "ticker_a": "LEGACY/USD",
+            "ticker_a": "NOT_ADMITTED/USD",
             "status": "active",
-            "confidence": None,
-        },
-        {
-            "ticker_a": "STALE/USD",
-            "status": "active",
-            "confidence": "Высокая",
+            "confidence": "Низкая",
+            "strategy_admitted_date": None,
+            "strategy_confidence": None,
         },
         {
             "ticker_a": "DONE_LOW/USD",
             "status": "closed",
             "confidence": "Низкая",
+            "strategy_admitted_date": None,
+            "strategy_confidence": None,
         },
         {
             "ticker_a": "DONE_HIGH/USD",
             "status": "completed",
             "confidence": "Высокая",
+            "strategy_admitted_date": "2026-07-20",
+            "strategy_confidence": "Средняя",
         },
     ]
-    current = {
-        "IMPROVED/USD": "Высокая",
-        "WEAKENED/USD": "Низкая",
-        "LEGACY/USD": "Средняя",
-        "DONE_LOW/USD": "Высокая",
-    }
 
-    admitted = apply_crypto_confidence_admission(periods, current)
+    admitted = apply_crypto_confidence_admission(periods)
     by_ticker = {row["ticker_a"]: row for row in admitted}
 
     assert set(by_ticker) == {
         "IMPROVED/USD",
-        "LEGACY/USD",
-        "STALE/USD",
+        "WEAKENED/USD",
         "DONE_HIGH/USD",
     }
     assert by_ticker["IMPROVED/USD"]["confidence"] == "Высокая"
-    assert by_ticker["LEGACY/USD"]["confidence"] == "Средняя"
-    assert by_ticker["STALE/USD"]["confidence"] == "Высокая"
-    assert by_ticker["DONE_HIGH/USD"]["confidence"] == "Высокая"
+    assert by_ticker["WEAKENED/USD"]["confidence"] == "Высокая"
+    assert by_ticker["DONE_HIGH/USD"]["confidence"] == "Средняя"
+
+
+def test_crypto_position_uses_admission_price_without_extending_raw_horizon():
+    report = build_crypto_signal_export(
+        [
+            {
+                "id": 90,
+                "scanner": "momentum",
+                "ticker_a": "TEST/USD",
+                "direction": "long",
+                "confidence": "Низкая",
+                "strategy_admitted_date": "2026-07-22",
+                "strategy_confidence": "Высокая",
+                "first_seen_date": "2026-07-20",
+                "last_seen_date": "2026-07-24",
+                "observation_count": 5,
+                "status": "active",
+            },
+        ],
+        {
+            "TEST/USD": [
+                ("2026-07-20", 100),
+                ("2026-07-21", 90),
+                ("2026-07-22", 80),
+                ("2026-07-23", 88),
+                ("2026-07-24", 96),
+            ],
+        },
+        "2026-07-24",
+        tracking_start_date="2026-07-20",
+    )
+
+    position = report["rows"][0]
+    assert position["start_date"] == "2026-07-22"
+    assert position["start_price"] == 80
+    assert position["result_date"] == "2026-07-24"
+    assert position["result_price"] == 96
+    assert position["return_pct"] == 20
+    assert position["cash_result"] == 20
+    assert position["confidence"] == "Высокая"
 
 
 def test_confidence_breakdown_skips_empty_low_group():

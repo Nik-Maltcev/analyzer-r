@@ -74,6 +74,58 @@ async def test_scanner_signal_period_closes_and_restarts(temp_db):
         ]
 
 
+@pytest.mark.asyncio
+async def test_crypto_strategy_admission_is_persisted_on_confidence_upgrade(
+    temp_db,
+):
+    low_signal = {
+        "signal_key": "TEST/USD",
+        "ticker_a": "TEST/USD",
+        "ticker_b": "",
+        "direction": "long",
+        "confidence": "Низкая",
+    }
+
+    async with aiosqlite.connect(temp_db) as conn:
+        conn.row_factory = aiosqlite.Row
+        periods = await sync_scanner_periods(
+            conn,
+            "crypto",
+            "momentum",
+            "2026-07-20",
+            [low_signal],
+        )
+        assert periods["TEST/USD"]["strategy_admitted_date"] is None
+
+        medium_signal = {**low_signal, "confidence": "Средняя"}
+        periods = await sync_scanner_periods(
+            conn,
+            "crypto",
+            "momentum",
+            "2026-07-21",
+            [medium_signal],
+        )
+        assert (
+            periods["TEST/USD"]["strategy_admitted_date"]
+            == "2026-07-21"
+        )
+        assert periods["TEST/USD"]["strategy_confidence"] == "Средняя"
+
+        high_signal = {**low_signal, "confidence": "Высокая"}
+        periods = await sync_scanner_periods(
+            conn,
+            "crypto",
+            "momentum",
+            "2026-07-22",
+            [high_signal],
+        )
+        assert (
+            periods["TEST/USD"]["strategy_admitted_date"]
+            == "2026-07-21"
+        )
+        assert periods["TEST/USD"]["strategy_confidence"] == "Средняя"
+
+
 def test_scanner_signal_horizon_expires_without_closing_raw_period():
     assert is_scanner_signal_within_horizon("momentum", 5) is True
     assert is_scanner_signal_within_horizon("momentum", 6) is False

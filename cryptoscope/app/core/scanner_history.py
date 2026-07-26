@@ -121,6 +121,8 @@ async def ensure_scanner_history_schema(conn) -> None:
     columns = {str(row["name"]) for row in await cursor.fetchall()}
     migrations = {
         "confidence": "TEXT",
+        "strategy_admitted_date": "TEXT",
+        "strategy_confidence": "TEXT",
         "close_reason": "TEXT",
         "closed_price": "REAL",
         "closed_at": "TEXT",
@@ -131,6 +133,21 @@ async def ensure_scanner_history_schema(conn) -> None:
                 f"ALTER TABLE scanner_signal_periods "
                 f"ADD COLUMN {column} {column_type}"
             )
+    # Existing medium/high crypto positions were already part of the strategy
+    # before admission tracking existed. Backfill them once without admitting
+    # low-confidence periods retroactively.
+    await conn.execute(
+        """
+        UPDATE scanner_signal_periods
+        SET strategy_admitted_date = first_seen_date,
+            strategy_confidence = confidence
+        WHERE market = 'crypto'
+          AND scanner = 'momentum'
+          AND direction = 'long'
+          AND strategy_admitted_date IS NULL
+          AND TRIM(COALESCE(confidence, '')) IN ('Средняя', 'Высокая')
+        """
+    )
     for statement in CREATE_SCANNER_SIGNAL_INDICES:
         await conn.execute(statement)
     await conn.commit()
@@ -149,7 +166,9 @@ async def close_crypto_ticker_periods(
     # that very daily pump must survive its first day. Manual closes are
     # explicit user actions and stay unrestricted.
     age_clause = (
-        "AND first_seen_date < ?" if reason == "auto_30_daily" else ""
+        "AND COALESCE(strategy_admitted_date, first_seen_date) < ?"
+        if reason == "auto_30_daily"
+        else ""
     )
     params: list[Any] = [
         close_date,
@@ -321,6 +340,34 @@ async def sync_scanner_periods(
             previous = None
 
         if previous:
+            next_observation_count = int(
+                previous.get("observation_count") or 0
+            )
+            if data_date > str(previous["last_seen_date"]):
+                next_observation_count += 1
+            should_admit = (
+                market == "crypto"
+                and scanner == "momentum"
+                and direction == "long"
+                and confidence in {"Средняя", "Высокая"}
+                and not str(
+                    previous.get("strategy_admitted_date") or ""
+                ).strip()
+                and next_observation_count <= SCANNER_HORIZONS["momentum"]
+            )
+            if should_admit:
+                await conn.execute(
+                    """
+                    UPDATE scanner_signal_periods
+                    SET strategy_admitted_date = ?,
+                        strategy_confidence = ?,
+                        updated_at = datetime('now')
+                    WHERE id = ?
+                    """,
+                    (data_date, confidence, int(previous["id"])),
+                )
+                previous["strategy_admitted_date"] = data_date
+                previous["strategy_confidence"] = confidence
             if confidence and not str(previous.get("confidence") or "").strip():
                 await conn.execute(
                     """
@@ -343,13 +390,23 @@ async def sync_scanner_periods(
                 )
             continue
 
+        strategy_admitted_date = None
+        strategy_confidence = None
+        if (
+            market == "crypto"
+            and scanner == "momentum"
+            and direction == "long"
+            and confidence in {"Средняя", "Высокая"}
+        ):
+            strategy_admitted_date = data_date
+            strategy_confidence = confidence
         await conn.execute(
             """
             INSERT INTO scanner_signal_periods (
                 market, scanner, signal_key, ticker_a, ticker_b, direction,
-                confidence, first_seen_date, last_seen_date,
-                observation_count, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active')
+                confidence, strategy_admitted_date, strategy_confidence,
+                first_seen_date, last_seen_date, observation_count, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active')
             """,
             (
                 market,
@@ -359,6 +416,8 @@ async def sync_scanner_periods(
                 signal.get("ticker_b", ""),
                 direction,
                 confidence,
+                strategy_admitted_date,
+                strategy_confidence,
                 data_date,
                 data_date,
             ),
