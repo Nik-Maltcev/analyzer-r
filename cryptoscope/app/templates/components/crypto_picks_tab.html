@@ -295,7 +295,7 @@
 
             <dl class="crypto-pick-details">
                 <div>
-                    <dt>Цена на расчёте</dt>
+                    <dt>{% if pick.price_progress and pick.price_progress[0].is_live %}Цена сейчас{% else %}Цена на расчёте{% endif %}</dt>
                     <dd>{{ pick.current_price_display }}</dd>
                 </div>
                 <div>
@@ -321,7 +321,7 @@
                     <div class="crypto-pick-day {% if day.is_latest %}is-latest{% endif %}">
                         <span class="crypto-pick-day-date">
                             {{ day.date_display }}
-                            {% if day.is_latest %}<small>сейчас</small>{% endif %}
+                            {% if day.is_live %}<small>сейчас</small>{% elif day.is_latest %}<small>последний расчёт</small>{% endif %}
                         </span>
                         <strong>{{ day.price_display }}</strong>
                         {% if day.is_start %}

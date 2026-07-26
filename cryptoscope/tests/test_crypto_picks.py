@@ -564,6 +564,45 @@ def test_price_progress_starts_on_signal_date_and_tracks_daily_change():
     assert progress[1]["is_start"] is True
 
 
+def test_price_progress_keeps_start_and_live_price_on_first_day():
+    progress = build_price_progress(
+        [("2026-07-26", 0.00000289)],
+        "2026-07-26",
+        live_price=0.00000312,
+        live_date="2026-07-26",
+    )
+
+    assert len(progress) == 2
+    assert progress[0]["date_display"] == "26.07"
+    assert progress[0]["price_display"] == "$0.00000312"
+    assert progress[0]["change_display"] == "+7.96%"
+    assert progress[0]["day_change_display"] == "+7.96%"
+    assert progress[0]["is_live"] is True
+    assert progress[0]["is_start"] is False
+    assert progress[1]["price_display"] == "$0.00000289"
+    assert progress[1]["is_start"] is True
+    assert progress[1]["is_live"] is False
+
+
+def test_price_progress_live_price_replaces_current_daily_mark_after_start():
+    progress = build_price_progress(
+        [
+            ("2026-07-25", 100),
+            ("2026-07-26", 105),
+        ],
+        "2026-07-25",
+        live_price=110,
+        live_date="2026-07-26",
+    )
+
+    assert len(progress) == 2
+    assert progress[0]["price_display"] == "$110"
+    assert progress[0]["change_display"] == "+10.00%"
+    assert progress[0]["is_live"] is True
+    assert progress[1]["price_display"] == "$100"
+    assert progress[1]["is_start"] is True
+
+
 def test_completed_crypto_history_uses_fixed_scanner_horizon():
     history = build_completed_crypto_history(
         [

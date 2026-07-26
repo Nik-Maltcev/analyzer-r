@@ -156,13 +156,15 @@ def _format_price(value: Any) -> str:
 def build_price_progress(
     dated_prices: Iterable[tuple[Any, Any]],
     first_seen_date: Any,
+    live_price: Any = None,
+    live_date: Any = None,
 ) -> list[dict[str, Any]]:
     """Return newest-first daily prices measured from signal discovery."""
     start_key = _date_key(first_seen_date)
     if start_key[0] != 0:
         return []
 
-    normalized: list[tuple[str, float]] = []
+    normalized: list[tuple[str, float, bool]] = []
     for raw_date, raw_price in dated_prices:
         date_key = _date_key(raw_date)
         try:
@@ -176,17 +178,41 @@ def build_price_progress(
             or price <= 0
         ):
             continue
-        normalized.append((date_key[1], price))
+        normalized.append((date_key[1], price, False))
 
-    normalized.sort(key=lambda item: item[0])
+    normalized.sort(key=lambda item: (item[0], item[2]))
     if not normalized:
         return []
 
+    live_date_key = _date_key(live_date)
+    try:
+        normalized_live_price = float(live_price)
+    except (TypeError, ValueError):
+        normalized_live_price = None
+    if (
+        live_date_key[0] == 0
+        and live_date_key[1] >= start_key[1]
+        and normalized_live_price is not None
+        and math.isfinite(normalized_live_price)
+        and normalized_live_price > 0
+    ):
+        first_price_date = normalized[0][0]
+        if live_date_key[1] != first_price_date:
+            normalized = [
+                item for item in normalized
+                if item[0] != live_date_key[1]
+            ]
+        normalized.append((
+            live_date_key[1],
+            normalized_live_price,
+            True,
+        ))
+        normalized.sort(key=lambda item: (item[0], item[2]))
+
     start_price = normalized[0][1]
-    latest_date = normalized[-1][0]
     progress = []
     previous_price: float | None = None
-    for iso_date, price in normalized:
+    for index, (iso_date, price, is_live) in enumerate(normalized):
         change_pct = (price / start_price - 1) * 100
         day_change_pct = (
             (price / previous_price - 1) * 100
@@ -205,8 +231,9 @@ def build_price_progress(
             "change_display": f"{change_pct:+.2f}%",
             "day_change_pct": round(day_change_pct, 2),
             "day_change_display": f"{day_change_pct:+.2f}%",
-            "is_start": iso_date == normalized[0][0],
-            "is_latest": iso_date == latest_date,
+            "is_start": index == 0,
+            "is_latest": index == len(normalized) - 1,
+            "is_live": is_live,
         })
         previous_price = price
     return list(reversed(progress))

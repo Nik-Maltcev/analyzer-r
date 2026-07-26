@@ -523,8 +523,10 @@ async def crypto_picks_tab(
                 "%Y-%m-%d",
             ).strftime("%d.%m.%Y")
             progress = build_price_progress(
-                prices_by_ticker.get(pick["ticker"], []),
+                daily_prices_by_ticker.get(pick["ticker"], []),
                 position["start_date"],
+                live_price=active_marks.get(pick["ticker"]),
+                live_date=report_date if pick["ticker"] in active_marks else None,
             )
             pick["price_progress"] = progress
             pick["progress_change_pct"] = (
