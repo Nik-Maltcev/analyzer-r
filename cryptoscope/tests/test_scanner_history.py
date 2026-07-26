@@ -5,6 +5,7 @@ import pytest
 from app.core.scanner_history import (
     annotate_scanner_results,
     auto_close_crypto_positions,
+    ensure_scanner_history_schema,
     is_scanner_signal_within_horizon,
     sync_scanner_periods,
 )
@@ -124,6 +125,51 @@ async def test_crypto_strategy_admission_is_persisted_on_confidence_upgrade(
             == "2026-07-21"
         )
         assert periods["TEST/USD"]["strategy_confidence"] == "Средняя"
+
+
+@pytest.mark.asyncio
+async def test_schema_reopens_legacy_same_day_auto_close(temp_db):
+    signal = {
+        "signal_key": "SHIB/USD",
+        "ticker_a": "SHIB/USD",
+        "ticker_b": "",
+        "direction": "long",
+        "confidence": "Высокая",
+    }
+
+    async with aiosqlite.connect(temp_db) as conn:
+        conn.row_factory = aiosqlite.Row
+        await sync_scanner_periods(
+            conn,
+            "crypto",
+            "momentum",
+            "2026-07-26",
+            [signal],
+        )
+        await conn.execute(
+            """
+            UPDATE scanner_signal_periods
+            SET status = 'suppressed',
+                ended_date = '2026-07-26',
+                close_reason = 'auto_30_daily',
+                closed_price = 0.00000565,
+                closed_at = datetime('now')
+            WHERE signal_key = 'SHIB/USD'
+            """
+        )
+        await conn.commit()
+
+        await ensure_scanner_history_schema(conn)
+
+        cursor = await conn.execute(
+            """
+            SELECT status, ended_date, close_reason, closed_price, closed_at
+            FROM scanner_signal_periods
+            WHERE signal_key = 'SHIB/USD'
+            """
+        )
+        row = await cursor.fetchone()
+        assert tuple(row) == ("active", None, None, None, None)
 
 
 def test_scanner_signal_horizon_expires_without_closing_raw_period():

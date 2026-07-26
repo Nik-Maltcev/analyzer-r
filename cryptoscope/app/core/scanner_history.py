@@ -148,6 +148,29 @@ async def ensure_scanner_history_schema(conn) -> None:
           AND TRIM(COALESCE(confidence, '')) IN ('Средняя', 'Высокая')
         """
     )
+    # Repair false +30% exits created before same-day admission protection was
+    # introduced. These rows have no holding period and must remain active
+    # while the underlying scanner condition is still suppressed.
+    await conn.execute(
+        """
+        UPDATE scanner_signal_periods
+        SET status = 'active',
+            ended_date = NULL,
+            close_reason = NULL,
+            closed_price = NULL,
+            closed_at = NULL,
+            updated_at = datetime('now')
+        WHERE market = 'crypto'
+          AND scanner = 'momentum'
+          AND direction = 'long'
+          AND status = 'suppressed'
+          AND close_reason = 'auto_30_daily'
+          AND ended_date = COALESCE(
+              strategy_admitted_date,
+              first_seen_date
+          )
+        """
+    )
     for statement in CREATE_SCANNER_SIGNAL_INDICES:
         await conn.execute(statement)
     await conn.commit()
