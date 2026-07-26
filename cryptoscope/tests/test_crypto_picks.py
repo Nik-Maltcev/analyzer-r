@@ -1,5 +1,6 @@
 from app.core.crypto_picks import (
     aggregate_crypto_long_picks,
+    apply_crypto_confidence_admission,
     build_completed_crypto_history,
     build_crypto_signal_export,
     build_crypto_window_summary,
@@ -255,6 +256,61 @@ def test_is_excluded_crypto_confidence_admits_only_medium_and_high():
     assert is_excluded_crypto_confidence("Без уровня")
     assert not is_excluded_crypto_confidence("Средняя")
     assert not is_excluded_crypto_confidence("Высокая")
+
+
+def test_confidence_admission_uses_today_for_active_and_entry_for_completed():
+    periods = [
+        {
+            "ticker_a": "IMPROVED/USD",
+            "status": "active",
+            "confidence": "Низкая",
+        },
+        {
+            "ticker_a": "WEAKENED/USD",
+            "status": "active",
+            "confidence": "Высокая",
+        },
+        {
+            "ticker_a": "LEGACY/USD",
+            "status": "active",
+            "confidence": None,
+        },
+        {
+            "ticker_a": "STALE/USD",
+            "status": "active",
+            "confidence": "Высокая",
+        },
+        {
+            "ticker_a": "DONE_LOW/USD",
+            "status": "closed",
+            "confidence": "Низкая",
+        },
+        {
+            "ticker_a": "DONE_HIGH/USD",
+            "status": "completed",
+            "confidence": "Высокая",
+        },
+    ]
+    current = {
+        "IMPROVED/USD": "Высокая",
+        "WEAKENED/USD": "Низкая",
+        "LEGACY/USD": "Средняя",
+        "DONE_LOW/USD": "Высокая",
+    }
+
+    admitted = apply_crypto_confidence_admission(periods, current)
+    by_ticker = {row["ticker_a"]: row for row in admitted}
+
+    assert set(by_ticker) == {
+        "IMPROVED/USD",
+        "LEGACY/USD",
+        "STALE/USD",
+        "DONE_HIGH/USD",
+    }
+    assert by_ticker["IMPROVED/USD"]["confidence"] == "Высокая"
+    assert by_ticker["LEGACY/USD"]["confidence"] == "Средняя"
+    assert by_ticker["STALE/USD"]["confidence"] == "Высокая"
+    assert by_ticker["DONE_HIGH/USD"]["confidence"] == "Высокая"
 
 
 def test_confidence_breakdown_skips_empty_low_group():

@@ -84,6 +84,29 @@ def is_excluded_crypto_confidence(value: Any) -> bool:
     return _normalize_confidence(value) not in ("Средняя", "Высокая")
 
 
+def apply_crypto_confidence_admission(
+    periods: Iterable[dict[str, Any]],
+    current_confidence: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Admit position periods to the crypto tab by confidence.
+
+    Active periods are judged by today's scanner confidence (the signal you
+    would trade on now); completed periods keep their frozen entry confidence
+    so the historical record stays honest.
+    """
+    admitted: list[dict[str, Any]] = []
+    for period in periods:
+        row = dict(period)
+        if str(row.get("status") or "") == "active":
+            ticker = str(row.get("ticker_a") or "")
+            if ticker in current_confidence:
+                row["confidence"] = current_confidence[ticker]
+        if is_excluded_crypto_confidence(row.get("confidence")):
+            continue
+        admitted.append(row)
+    return admitted
+
+
 def _ticker_symbol(ticker: str) -> str:
     return str(ticker).split("/", 1)[0].strip().upper()
 

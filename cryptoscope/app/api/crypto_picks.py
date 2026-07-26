@@ -17,6 +17,7 @@ from app.core.crypto_picks import (
     ACTIVE_CRYPTO_SCANNERS,
     CRYPTO_PICKS_TRACKING_START,
     aggregate_crypto_long_picks,
+    apply_crypto_confidence_admission,
     build_crypto_window_summary,
     build_price_progress,
     build_crypto_signal_export,
@@ -196,7 +197,6 @@ async def export_crypto_picks_csv(request: Request):
             WHERE market = 'crypto'
               AND scanner IN ({scanner_placeholders})
               AND direction = 'long'
-              AND TRIM(COALESCE(confidence, '')) IN ('Средняя', 'Высокая')
             ORDER BY first_seen_date DESC, id DESC
             """,
             tuple(ACTIVE_CRYPTO_SCANNERS),
@@ -206,6 +206,19 @@ async def export_crypto_picks_csv(request: Request):
     wide = prices.pivot(index="date", columns="ticker", values="close")
     wide = wide.sort_index()
     data_date = str(max(wide.index))[:10]
+
+    # Same admission rule as the tab: active by today's confidence.
+    current_confidence = {}
+    for scanner in ACTIVE_CRYPTO_SCANNERS:
+        snap_frame, _active = build_scanner_snapshot(wide, scanner)
+        if snap_frame.empty:
+            continue
+        for record in snap_frame.to_dict(orient="records"):
+            if record.get("recommendation_class") == "long":
+                current_confidence[str(record.get("ticker"))] = (
+                    record.get("confidence")
+                )
+    periods = apply_crypto_confidence_admission(periods, current_confidence)
     prices_by_ticker = {
         ticker: list(series.dropna().items())
         for ticker, series in wide.items()
@@ -371,6 +384,7 @@ async def crypto_picks_tab(
             wide = wide.sort_index()
             data_date = str(max(wide.index))[:10]
             scanner_results = {}
+            records_by_scanner = {}
 
             for scanner in ACTIVE_CRYPTO_SCANNERS:
                 frame, active_snapshot = build_scanner_snapshot(wide, scanner)
@@ -387,6 +401,7 @@ async def crypto_picks_tab(
                     else []
                 )
                 records = annotate_scanner_results(records, scanner, periods)
+                records_by_scanner[scanner] = records
                 scanner_results[scanner] = [
                     record
                     for record in records
@@ -411,14 +426,25 @@ async def crypto_picks_tab(
                 WHERE market = 'crypto'
                   AND scanner IN ({scanner_placeholders})
                   AND direction = 'long'
-                  AND TRIM(COALESCE(confidence, '')) IN ('Средняя', 'Высокая')
                 ORDER BY first_seen_date DESC, id DESC
                 """,
                 tuple(ACTIVE_CRYPTO_SCANNERS),
             )
-            completed_periods = [
-                dict(row) for row in await cursor.fetchall()
-            ]
+            period_rows = [dict(row) for row in await cursor.fetchall()]
+
+        # Active positions are admitted by today's scanner confidence (frozen
+        # entry confidence still decides completed ones).
+        current_confidence = {}
+        for records in records_by_scanner.values():
+            for record in records:
+                if record.get("recommendation_class") == "long":
+                    current_confidence[str(record.get("ticker"))] = (
+                        record.get("confidence")
+                    )
+        completed_periods = apply_crypto_confidence_admission(
+            period_rows,
+            current_confidence,
+        )
 
         daily_prices_by_ticker = {
             ticker: list(series.dropna().items())
