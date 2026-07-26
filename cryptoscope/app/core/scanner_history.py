@@ -145,8 +145,24 @@ async def close_crypto_ticker_periods(
 ) -> int:
     """Close every active LONG scanner period represented by one crypto position."""
     await ensure_scanner_history_schema(conn)
+    # Auto-close takes profit on positions opened earlier; a signal born from
+    # that very daily pump must survive its first day. Manual closes are
+    # explicit user actions and stay unrestricted.
+    age_clause = (
+        "AND first_seen_date < ?" if reason == "auto_30_daily" else ""
+    )
+    params: list[Any] = [
+        close_date,
+        reason,
+        float(close_price),
+        ticker,
+        close_date,
+        close_date,
+    ]
+    if age_clause:
+        params.append(close_date)
     cursor = await conn.execute(
-        """
+        f"""
         UPDATE scanner_signal_periods
         SET status = 'suppressed',
             ended_date = ?,
@@ -175,15 +191,9 @@ async def close_crypto_ticker_periods(
                   END
               )
           )
+          {age_clause}
         """,
-        (
-            close_date,
-            reason,
-            float(close_price),
-            ticker,
-            close_date,
-            close_date,
-        ),
+        tuple(params),
     )
     await conn.commit()
     return max(0, int(cursor.rowcount or 0))

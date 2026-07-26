@@ -151,6 +151,61 @@ async def test_crypto_auto_close_suppresses_signal_until_it_disappears(temp_db):
 
 
 @pytest.mark.asyncio
+async def test_crypto_auto_close_keeps_signal_born_on_pump_day(temp_db):
+    """A signal created by the +30% day itself survives its first day."""
+    signal = {
+        "signal_key": "SHIB/USD",
+        "ticker_a": "SHIB/USD",
+        "ticker_b": "",
+        "direction": "long",
+        "confidence": "Высокая",
+    }
+    prices = pd.DataFrame(
+        {"SHIB/USD": [100.0, 131.0]},
+        index=["2026-07-25", "2026-07-26"],
+    )
+
+    async with aiosqlite.connect(temp_db) as conn:
+        conn.row_factory = aiosqlite.Row
+        await sync_scanner_periods(
+            conn, "crypto", "momentum", "2026-07-26", [signal]
+        )
+
+        closed = await auto_close_crypto_positions(
+            conn,
+            prices,
+            "2026-07-26",
+        )
+        assert closed == []
+
+        cursor = await conn.execute(
+            """
+            SELECT status, close_reason
+            FROM scanner_signal_periods
+            WHERE market = 'crypto' AND scanner = 'momentum'
+              AND signal_key = 'SHIB/USD'
+            """
+        )
+        assert tuple(await cursor.fetchone()) == ("active", None)
+
+        # The next +30% day closes the position: it has lived since yesterday.
+        prices_next = pd.DataFrame(
+            {"SHIB/USD": [100.0, 131.0, 175.0]},
+            index=["2026-07-25", "2026-07-26", "2026-07-27"],
+        )
+        await sync_scanner_periods(
+            conn, "crypto", "momentum", "2026-07-27", [signal]
+        )
+        closed = await auto_close_crypto_positions(
+            conn,
+            prices_next,
+            "2026-07-27",
+        )
+        assert len(closed) == 1
+        assert closed[0]["ticker"] == "SHIB/USD"
+
+
+@pytest.mark.asyncio
 async def test_crypto_auto_close_does_not_rewrite_completed_horizon(temp_db):
     signal = {
         "signal_key": "LTC/USD",
