@@ -5,8 +5,30 @@
             <h2><i class="page-title-icon" data-lucide="chart-no-axes-combined"></i>Momentum 3</h2>
             <p class="page-desc">Три лучших Momentum LONG-сигнала, фильтр рынка и размер позиции по волатильности.</p>
         </div>
-        <div class="momentum-strategy-version">{{ report.strategy_version }}</div>
+        <div class="crypto-picks-header-actions">
+            <div class="momentum-strategy-version">{{ report.strategy_version }}</div>
+            <button class="btn btn-secondary crypto-refresh-button"
+                    type="button"
+                    hx-get="/tab/momentum-portfolio?refresh=true"
+                    hx-target="#main-content"
+                    hx-swap="innerHTML"
+                    hx-indicator="this"
+                    hx-disabled-elt="this">
+                <i data-lucide="refresh-cw"></i>
+                <span>Обновить</span>
+            </button>
+        </div>
     </div>
+
+    {% if refresh_result %}
+    <div class="crypto-refresh-message is-success" role="status">
+        Котировки обновлены: {{ refresh_result.updated }} · {{ refresh_result.updated_at }} МСК
+    </div>
+    {% elif refresh_error %}
+    <div class="crypto-refresh-message is-error" role="alert">
+        {{ refresh_error }}
+    </div>
+    {% endif %}
 
     <div class="crypto-calculation-note">
         <i data-lucide="shield-check"></i>

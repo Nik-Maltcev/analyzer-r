@@ -1,6 +1,9 @@
 """Admin-only forward test for the Momentum risk portfolio."""
 
-from fastapi import APIRouter, HTTPException, Request
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
 from app.access import is_admin_user
@@ -20,6 +23,8 @@ router = APIRouter(
     prefix="/tab/momentum-portfolio",
     tags=["momentum-portfolio"],
 )
+
+MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
 
 async def _require_admin(request: Request) -> None:
@@ -43,9 +48,14 @@ async def momentum_portfolio_status(request: Request):
 
 
 @router.get("", response_class=HTMLResponse)
-async def momentum_portfolio_tab(request: Request):
+async def momentum_portfolio_tab(
+    request: Request,
+    refresh: bool = Query(False),
+):
     await _require_admin(request)
     sync_error = None
+    refresh_result = None
+    refresh_error = None
     try:
         await sync_momentum_portfolio_journal(database.DB_PATH)
     except Exception as exc:
@@ -64,11 +74,33 @@ async def momentum_portfolio_tab(request: Request):
         try:
             live_result = await refresh_crypto_live_prices(
                 tickers,
-                ttl_seconds=30,
+                ttl_seconds=0 if refresh else 30,
             )
             live_prices = live_result.get("prices") or {}
+            if refresh:
+                if not live_prices:
+                    raise RuntimeError("Binance не вернул актуальные котировки")
+                updated_at = live_result.get("updated_at")
+                refresh_result = {
+                    "updated": len(live_prices),
+                    "updated_at": (
+                        updated_at.astimezone(MOSCOW_TZ).strftime("%d.%m.%Y %H:%M")
+                        if updated_at
+                        else datetime.now(MOSCOW_TZ).strftime("%d.%m.%Y %H:%M")
+                    ),
+                }
         except Exception as exc:
             print(f"Momentum portfolio live prices failed: {exc}")
+            if refresh:
+                refresh_error = (
+                    "Не удалось обновить котировки Momentum 3. "
+                    "Попробуйте ещё раз через несколько секунд."
+                )
+    elif refresh:
+        refresh_result = {
+            "updated": 0,
+            "updated_at": datetime.now(MOSCOW_TZ).strftime("%d.%m.%Y %H:%M"),
+        }
     apply_momentum_live_prices(report, live_prices)
     return templates.TemplateResponse(
         request,
@@ -77,5 +109,7 @@ async def momentum_portfolio_tab(request: Request):
             "report": report,
             "current": report["current"],
             "sync_error": sync_error,
+            "refresh_result": refresh_result,
+            "refresh_error": refresh_error,
         },
     )
