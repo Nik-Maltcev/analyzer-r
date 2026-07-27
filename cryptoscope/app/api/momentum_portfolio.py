@@ -7,6 +7,7 @@ from app.access import is_admin_user
 from app.auth import get_current_user
 from app.core.momentum_portfolio import (
     apply_momentum_live_prices,
+    fetch_momentum_entry_status,
     fetch_momentum_portfolio_report,
     sync_momentum_portfolio_journal,
 )
@@ -27,6 +28,18 @@ async def _require_admin(request: Request) -> None:
         user = await get_current_user(request)
     if not is_admin_user(user):
         raise HTTPException(status_code=404, detail="Not found")
+
+
+@router.get("/status", response_class=HTMLResponse)
+async def momentum_portfolio_status(request: Request):
+    await _require_admin(request)
+    async with get_connection() as conn:
+        status = await fetch_momentum_entry_status(conn)
+    return templates.TemplateResponse(
+        request,
+        "components/momentum_nav_status.html",
+        {"momentum_entry_status": status},
+    )
 
 
 @router.get("", response_class=HTMLResponse)

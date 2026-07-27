@@ -399,6 +399,38 @@ async def sync_momentum_portfolio_journal(db_path: str) -> dict[str, Any]:
         }
 
 
+async def fetch_momentum_entry_status(conn) -> dict[str, Any]:
+    """Return the lightweight current entry state used by the navbar."""
+    cursor = await conn.execute(
+        """
+        SELECT run_date, status, entries_allowed, allocated, selected_total
+        FROM momentum_portfolio_runs
+        WHERE finalized_on IS NULL
+        ORDER BY run_date DESC
+        LIMIT 1
+        """
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return {
+            "entry_open": False,
+            "run_date": None,
+            "selected_total": 0,
+        }
+
+    current = dict(row)
+    entry_open = (
+        bool(current.get("entries_allowed"))
+        and float(current.get("allocated") or 0) > 0
+        and int(current.get("selected_total") or 0) > 0
+    )
+    return {
+        "entry_open": entry_open,
+        "run_date": current.get("run_date"),
+        "selected_total": int(current.get("selected_total") or 0),
+    }
+
+
 async def fetch_momentum_portfolio_report(conn) -> dict[str, Any]:
     await ensure_momentum_portfolio_schema(conn)
     cursor = await conn.execute(

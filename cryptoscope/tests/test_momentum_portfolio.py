@@ -9,6 +9,8 @@ import aiosqlite
 
 from app.core.momentum_portfolio import (
     apply_momentum_live_prices,
+    ensure_momentum_portfolio_schema,
+    fetch_momentum_entry_status,
     fetch_momentum_portfolio_report,
     sync_momentum_portfolio_journal,
 )
@@ -167,3 +169,43 @@ def test_momentum_portfolio_report_includes_active_mark_and_total():
     assert marked["total_cash"] == 18.0
     assert marked["active_return_pct"] == 2.0
     assert marked["total_return_pct"] == 6.08
+
+
+def test_momentum_entry_status_requires_real_allocation():
+    async def scenario():
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "market.db"
+            async with aiosqlite.connect(db_path) as conn:
+                conn.row_factory = aiosqlite.Row
+                await ensure_momentum_portfolio_schema(conn)
+                await conn.execute(
+                    """
+                    INSERT INTO momentum_portfolio_runs (
+                        run_date, strategy_version, status, entries_allowed,
+                        capital, allocated, reserve, candidates_total,
+                        selected_total, btc_above_sma50, btc_distance_pct,
+                        breadth_positive, breadth_total, breadth_pct
+                    ) VALUES (
+                        '2026-07-27', 'test', 'paused', 0,
+                        300, 0, 300, 9, 3, 1, 3.68, 39, 88, 44.3
+                    )
+                    """
+                )
+                await conn.commit()
+                paused = await fetch_momentum_entry_status(conn)
+                assert paused["entry_open"] is False
+
+                await conn.execute(
+                    """
+                    UPDATE momentum_portfolio_runs
+                    SET status = 'risk_on', entries_allowed = 1,
+                        allocated = 300, reserve = 0
+                    WHERE run_date = '2026-07-27'
+                    """
+                )
+                await conn.commit()
+                active = await fetch_momentum_entry_status(conn)
+                assert active["entry_open"] is True
+                assert active["selected_total"] == 3
+
+    asyncio.run(scenario())

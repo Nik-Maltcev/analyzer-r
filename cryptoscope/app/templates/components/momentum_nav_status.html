@@ -1,0 +1,16 @@
+<span class="momentum-nav-signal{% if momentum_entry_status.entry_open %} is-active{% endif %}"
+      hx-get="/tab/momentum-portfolio/status"
+      hx-trigger="every 5m"
+      hx-target="this"
+      hx-swap="outerHTML"
+      hx-sync="this:replace"
+      {% if momentum_entry_status.entry_open %}
+      title="Momentum 3: вход открыт, выбрано {{ momentum_entry_status.selected_total }}"
+      aria-label="Momentum 3: вход открыт"
+      {% else %}
+      hidden
+      aria-hidden="true"
+      {% endif %}>
+    <span class="momentum-nav-signal-dot" aria-hidden="true"></span>
+    <span class="momentum-nav-signal-text">Вход открыт</span>
+</span>
