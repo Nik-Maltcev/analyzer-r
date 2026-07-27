@@ -89,6 +89,77 @@
     }
 }
 
+.app-loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 4900;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(8, 10, 11, 0.72);
+    backdrop-filter: blur(3px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 140ms ease, visibility 140ms ease;
+}
+
+.app-loading-overlay.is-visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.app-loading-dialog {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    column-gap: 14px;
+    row-gap: 3px;
+    width: min(360px, 100%);
+    padding: 20px;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-xl);
+}
+
+.app-loading-spinner {
+    grid-row: 1 / span 2;
+    align-self: center;
+    width: 26px;
+    height: 26px;
+    border: 2px solid var(--border-strong);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    animation: app-loading-spin 720ms linear infinite;
+}
+
+.app-loading-dialog strong {
+    min-width: 0;
+    color: var(--text-bright);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.app-loading-dialog span {
+    min-width: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+body.app-is-loading {
+    cursor: wait;
+}
+
+@keyframes app-loading-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* Admin crypto shortlist */
 .crypto-picks-header {
     align-items: center;
@@ -3532,5 +3603,10 @@ html[data-view-mode='beginner'] .signals-page {
     .app-request-progress.is-loading span {
         width: 100%;
         transform: translateX(0);
+    }
+
+    .app-loading-spinner {
+        animation: none;
+        border-color: var(--green);
     }
 }

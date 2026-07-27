@@ -160,9 +160,88 @@ window.getFavoritePnlSettings = getFavoritePnlSettings;
 window.storeFavoritePnlSettings = storeFavoritePnlSettings;
 
 const appPendingRequests = new Set();
+const appBlockingRequests = new Set();
 let appProgressHideTimer = null;
+let appOverlayShowTimer = null;
+let appOverlayLongWaitTimer = null;
 
-function showAppRequestProgress(xhr, target) {
+function appLoadingMessage(source, target) {
+    const customMessage = source?.dataset?.loadingMessage;
+    if (customMessage) return customMessage;
+
+    const targetId = target?.id || '';
+    if (targetId === 'signals-content') return 'Обновляем сигналы';
+    if (targetId === 'scanner-content') return 'Загружаем сканер';
+    if (targetId === 'polymarket-results') return 'Обновляем прогнозы';
+    if (source?.matches?.('.crypto-refresh-button')) {
+        return 'Обновляем криптоданные';
+    }
+    if (source?.matches?.('[hx-post]')) return 'Сохраняем изменения';
+
+    if (targetId === 'main-content') {
+        const tab = source?.dataset?.tab;
+        if (tab === 'crypto') return 'Открываем раздел «Крипта»';
+        if (tab === 'favorites') return 'Открываем портфель';
+        if (tab === 'data') return 'Открываем данные';
+        return 'Открываем раздел';
+    }
+
+    return 'Загружаем данные';
+}
+
+function shouldBlockAppRequest(source, target) {
+    const targetId = target?.id || '';
+    if (
+        targetId === 'main-content'
+        || targetId === 'signals-content'
+        || targetId === 'scanner-content'
+        || targetId === 'polymarket-results'
+    ) {
+        return true;
+    }
+    return Boolean(source?.matches?.(
+        '.nav-tab, .market-btn, .mode-btn, [hx-post], .crypto-refresh-button'
+    ));
+}
+
+function hideAppLoadingOverlay() {
+    window.clearTimeout(appOverlayShowTimer);
+    window.clearTimeout(appOverlayLongWaitTimer);
+    appOverlayShowTimer = null;
+    appOverlayLongWaitTimer = null;
+
+    const overlay = document.getElementById('app-loading-overlay');
+    if (!overlay) return;
+    overlay.classList.remove('is-visible');
+    overlay.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('app-is-loading');
+}
+
+function queueAppLoadingOverlay(source, target) {
+    const overlay = document.getElementById('app-loading-overlay');
+    const title = document.getElementById('app-loading-title');
+    const detail = document.getElementById('app-loading-detail');
+    if (!overlay || !title || !detail) return;
+
+    title.textContent = appLoadingMessage(source, target);
+    detail.textContent = 'Пожалуйста, подождите';
+    window.clearTimeout(appOverlayShowTimer);
+    window.clearTimeout(appOverlayLongWaitTimer);
+
+    appOverlayShowTimer = window.setTimeout(() => {
+        if (!appBlockingRequests.size) return;
+        overlay.classList.add('is-visible');
+        overlay.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('app-is-loading');
+        appOverlayLongWaitTimer = window.setTimeout(() => {
+            if (appBlockingRequests.size) {
+                detail.textContent = 'Расчёт занимает немного больше времени';
+            }
+        }, 8000);
+    }, 180);
+}
+
+function showAppRequestProgress(xhr, target, source = null, forceBlocking = false) {
     const progress = document.getElementById('app-request-progress');
     if (!progress) return;
 
@@ -175,10 +254,20 @@ function showAppRequestProgress(xhr, target) {
     window.clearTimeout(appProgressHideTimer);
     progress.classList.remove('is-completing');
     progress.classList.add('is-loading');
+
+    if (forceBlocking || shouldBlockAppRequest(source, target)) {
+        if (xhr) appBlockingRequests.add(xhr);
+        queueAppLoadingOverlay(source, target);
+    }
 }
 
 function finishAppRequestProgress(xhr) {
     if (xhr) appPendingRequests.delete(xhr);
+    if (xhr) appBlockingRequests.delete(xhr);
+
+    if (!appBlockingRequests.size) {
+        hideAppLoadingOverlay();
+    }
     if (appPendingRequests.size) return;
 
     const progress = document.getElementById('app-request-progress');
@@ -195,7 +284,11 @@ function finishAppRequestProgress(xhr) {
 }
 
 document.body.addEventListener('htmx:beforeRequest', event => {
-    showAppRequestProgress(event.detail.xhr, event.detail.target);
+    showAppRequestProgress(
+        event.detail.xhr,
+        event.detail.target,
+        event.detail.elt
+    );
 });
 
 document.body.addEventListener('htmx:afterRequest', event => {
@@ -210,13 +303,25 @@ document.body.addEventListener('htmx:timeout', event => {
     finishAppRequestProgress(event.detail.xhr);
 });
 
+document.body.addEventListener('htmx:abort', event => {
+    finishAppRequestProgress(event.detail.xhr);
+});
+
 document.addEventListener('click', event => {
     const tab = event.target.closest('.nav-tab');
     if (!tab || tab.hasAttribute('hx-get')) return;
 
     const destination = new URL(tab.href, window.location.href);
     if (destination.origin === window.location.origin) {
-        showAppRequestProgress(null, document.getElementById('main-content'));
+        const pageNavigationRequest = {type: 'page-navigation'};
+        appPendingRequests.add(pageNavigationRequest);
+        appBlockingRequests.add(pageNavigationRequest);
+        showAppRequestProgress(
+            null,
+            document.getElementById('main-content'),
+            tab,
+            true
+        );
     }
 });
 
