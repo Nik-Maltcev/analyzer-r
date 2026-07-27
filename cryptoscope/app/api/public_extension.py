@@ -1,20 +1,19 @@
 """Small public market feed used by the browser extension."""
 
+import json
 from datetime import UTC, datetime
-from time import monotonic
 
 import numpy as np
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, HTTPException, Query, Response
 
-from app.core.scanners import drawdown_scan, momentum_scan
 from app.core.scanner_history import is_scanner_signal_within_horizon
+from app.core.scanners import drawdown_scan, momentum_scan
 from app.core.signals import estimate_signal_timing, is_actionable_signal
 from app.db.database import fetch_active_pairs, fetch_prices, get_connection
+from app.db.schema import CREATE_EXTENSION_FEED_SNAPSHOTS
 from app.product import get_product_profile, require_market_enabled
 
 router = APIRouter(prefix="/public/extension", tags=["public-extension"])
-SCANNER_CACHE_TTL_SECONDS = 300
-_scanner_cache: dict[tuple[str, str], tuple[float, list[dict]]] = {}
 
 MARKET_LABELS = {
     "br": "B3",
@@ -192,6 +191,102 @@ def _high_confidence_scanner_items(prices, periods, market: str) -> list[dict]:
     return [_present_scanner(record, market) for _, record in candidates]
 
 
+async def refresh_extension_feed_snapshots(
+    markets: list[str] | tuple[str, ...] | set[str],
+    db_path: str | None = None,
+) -> dict[str, int]:
+    """Precompute public extension payloads outside HTTP request handling."""
+    generated_at = datetime.now(UTC).isoformat()
+    refreshed: dict[str, int] = {}
+    async with get_connection(db_path) as conn:
+        await conn.execute(CREATE_EXTENSION_FEED_SNAPSHOTS)
+        for selected_market in markets:
+            pairs = await fetch_active_pairs(conn, selected_market)
+            cursor = await conn.execute(
+                """
+                SELECT scanner, ticker_a, direction, first_seen_date,
+                       observation_count, last_seen_date
+                FROM scanner_signal_periods
+                WHERE market = ?
+                  AND scanner IN ('momentum', 'drawdown')
+                  AND direction IN ('long', 'short')
+                  AND status = 'active'
+                ORDER BY observation_count DESC, updated_at DESC
+                """,
+                (selected_market,),
+            )
+            scanner_rows = [dict(row) for row in await cursor.fetchall()]
+            prices = await fetch_prices(conn, selected_market)
+            scanner_items = _high_confidence_scanner_items(
+                prices,
+                scanner_rows,
+                selected_market,
+            )
+
+            items = []
+            if not pairs.empty:
+                candidates = []
+                for _, row in pairs.iterrows():
+                    signal_type = row.get("signal_type")
+                    if not is_actionable_signal(
+                        signal_type,
+                        _is_validated(row),
+                    ):
+                        continue
+                    candidates.append(row)
+                candidates.sort(
+                    key=lambda row: (
+                        abs(_finite_float(row.get("z_now"), 0.0)),
+                        _finite_float(row.get("score"), 0.0),
+                    ),
+                    reverse=True,
+                )
+                items = [
+                    _present_pair(row, selected_market)
+                    for row in candidates[:4]
+                ]
+            items.extend(scanner_items)
+
+            cursor = await conn.execute(
+                "SELECT MAX(date) AS data_date FROM prices WHERE market = ?",
+                (selected_market,),
+            )
+            row = await cursor.fetchone()
+            data_date = str(row["data_date"] or "")[:10]
+            payload = {
+                "market": selected_market,
+                "market_label": MARKET_LABELS.get(
+                    selected_market,
+                    selected_market.upper(),
+                ),
+                "updated_at": generated_at,
+                "data_date": data_date,
+                "items": items,
+                "total": len(items),
+                "full_analysis_url": f"/app?market={selected_market}",
+            }
+            await conn.execute(
+                """
+                INSERT INTO extension_feed_snapshots (
+                    market, payload, data_date, generated_at
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(market) DO UPDATE SET
+                    payload = excluded.payload,
+                    data_date = excluded.data_date,
+                    generated_at = excluded.generated_at
+                """,
+                (
+                    selected_market,
+                    json.dumps(payload, ensure_ascii=False),
+                    data_date,
+                    generated_at,
+                ),
+            )
+            refreshed[selected_market] = len(items)
+        await conn.commit()
+    return refreshed
+
+
 @router.get("/feed")
 async def extension_feed(
     response: Response,
@@ -201,71 +296,29 @@ async def extension_feed(
     profile = get_product_profile()
     selected_market = require_market_enabled(market or profile.default_market, profile)
 
-    async with get_connection() as conn:
-        pairs = await fetch_active_pairs(conn, selected_market)
-        cursor = await conn.execute(
-            """
-            SELECT scanner, ticker_a, direction, first_seen_date,
-                   observation_count, last_seen_date
-            FROM scanner_signal_periods
-            WHERE market = ?
-              AND scanner IN ('momentum', 'drawdown')
-              AND direction IN ('long', 'short')
-              AND status = 'active'
-            ORDER BY observation_count DESC, updated_at DESC
-            """,
-            (selected_market,),
-        )
-        scanner_rows = [dict(row) for row in await cursor.fetchall()]
-
-        db_cursor = await conn.execute("PRAGMA database_list")
-        db_row = await db_cursor.fetchone()
-        cache_key = (str(db_row["file"]), selected_market)
-        cached = _scanner_cache.get(cache_key)
-        if cached and monotonic() - cached[0] < SCANNER_CACHE_TTL_SECONDS:
-            scanner_items = cached[1]
-        else:
-            prices = await fetch_prices(conn, selected_market)
-            scanner_items = _high_confidence_scanner_items(
-                prices,
-                scanner_rows,
-                selected_market,
+    try:
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT payload, generated_at
+                FROM extension_feed_snapshots
+                WHERE market = ?
+                """,
+                (selected_market,),
             )
-            _scanner_cache[cache_key] = (monotonic(), scanner_items)
-
-    items = []
-    if not pairs.empty:
-        candidates = []
-        for _, row in pairs.iterrows():
-            signal_type = row.get("signal_type")
-            validated = _is_validated(row)
-            if (
-                not is_actionable_signal(signal_type, validated)
-            ):
-                continue
-            candidates.append(row)
-
-        candidates.sort(
-            key=lambda row: (
-                abs(_finite_float(row.get("z_now"), 0.0)),
-                _finite_float(row.get("score"), 0.0),
-            ),
-            reverse=True,
+            row = await cursor.fetchone()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Extension feed snapshot storage is not ready",
+        ) from exc
+    if row is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Extension feed snapshot is not ready",
         )
-        items = [_present_pair(row, selected_market) for row in candidates[:4]]
 
-    items.extend(scanner_items)
-
-    response.headers["Cache-Control"] = (
-        "public, max-age=300"
-        if items
-        else "no-store"
-    )
-    return {
-        "market": selected_market,
-        "market_label": MARKET_LABELS.get(selected_market, selected_market.upper()),
-        "updated_at": datetime.now(UTC).isoformat(),
-        "items": items,
-        "total": len(items),
-        "full_analysis_url": f"/app?market={selected_market}",
-    }
+    payload = json.loads(str(row["payload"]))
+    response.headers["Cache-Control"] = "public, max-age=300"
+    response.headers["X-MEANX-Snapshot-At"] = str(row["generated_at"])
+    return payload

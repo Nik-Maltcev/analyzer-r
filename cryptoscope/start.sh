@@ -185,7 +185,10 @@ fi
 # 8. Load administrator-only international equity markets
 python /scripts/load_international.py
 
-# 9. Retry missing Threads media after deploy without duplicating Telegram posts.
+# 9. Build the public extension feed before accepting HTTP traffic.
+python /scripts/refresh_extension_feed.py || echo "Extension feed startup refresh failed"
+
+# 10. Retry missing Threads media after deploy without duplicating Telegram posts.
 (
     until curl -fsS "http://127.0.0.1:$PORT/health/live" >/dev/null 2>&1; do
         sleep 1
@@ -195,7 +198,7 @@ python /scripts/load_international.py
     python /scripts/run_content_automation.py --backfill-only || echo "[$(date -u)] content automation startup run failed"
 ) &
 
-# 10. Start background publishing loop.
+# 11. Start background publishing loop.
 # Moscow is UTC+3 year-round: 06:30 UTC = 09:30 MSK, 16:00 UTC = 19:00 MSK.
 if [ ! -f "$ANALYSIS_POLICY_MARKER" ]; then
     (
@@ -237,6 +240,6 @@ fi
     done
 ) &
 
-# 11. Launch FastAPI app
+# 12. Launch FastAPI app
 echo "Starting MEANX on port $PORT..."
 exec python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT"

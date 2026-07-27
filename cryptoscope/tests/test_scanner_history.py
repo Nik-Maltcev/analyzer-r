@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import aiosqlite
 import pandas as pd
 import pytest
@@ -7,6 +9,7 @@ from app.core.scanner_history import (
     auto_close_crypto_positions,
     ensure_scanner_history_schema,
     is_scanner_signal_within_horizon,
+    snapshot_crypto_strategy_positions,
     sync_scanner_periods,
 )
 
@@ -298,9 +301,123 @@ async def test_crypto_auto_close_keeps_signal_born_on_pump_day(temp_db):
             conn,
             prices_next,
             "2026-07-27",
+            evaluated_at=datetime(2026, 7, 28, tzinfo=UTC),
         )
         assert len(closed) == 1
         assert closed[0]["ticker"] == "SHIB/USD"
+
+
+@pytest.mark.asyncio
+async def test_crypto_auto_close_ignores_incomplete_current_day(temp_db):
+    signal = {
+        "signal_key": "PEPE/USD",
+        "ticker_a": "PEPE/USD",
+        "ticker_b": "",
+        "direction": "long",
+        "confidence": "Средняя",
+    }
+    prices = pd.DataFrame(
+        {"PEPE/USD": [100.0, 110.0, 150.0]},
+        index=["2026-07-25", "2026-07-26", "2026-07-27"],
+    )
+
+    async with aiosqlite.connect(temp_db) as conn:
+        conn.row_factory = aiosqlite.Row
+        await sync_scanner_periods(
+            conn,
+            "crypto",
+            "momentum",
+            "2026-07-25",
+            [signal],
+            current_prices={"PEPE/USD": 100.0},
+        )
+        closed = await auto_close_crypto_positions(
+            conn,
+            prices,
+            "2026-07-27",
+            evaluated_at=datetime(2026, 7, 27, 12, tzinfo=UTC),
+        )
+        assert closed == []
+
+        closed = await auto_close_crypto_positions(
+            conn,
+            prices,
+            "2026-07-27",
+            evaluated_at=datetime(2026, 7, 28, tzinfo=UTC),
+        )
+        assert len(closed) == 1
+        assert closed[0]["close_price"] == 150.0
+
+
+@pytest.mark.asyncio
+async def test_completed_crypto_trade_journal_is_immutable(temp_db):
+    signal = {
+        "signal_key": "BAL/USD",
+        "ticker_a": "BAL/USD",
+        "ticker_b": "",
+        "direction": "long",
+        "confidence": "Высокая",
+    }
+    dates = [f"2026-07-{day:02d}" for day in range(20, 25)]
+    values = [100.0, 102.0, 104.0, 106.0, 120.0]
+    wide = pd.DataFrame({"BAL/USD": values}, index=dates)
+
+    async with aiosqlite.connect(temp_db) as conn:
+        conn.row_factory = aiosqlite.Row
+        for data_date, price in zip(dates, values):
+            await conn.execute(
+                """
+                INSERT OR REPLACE INTO prices (ticker, date, close, market)
+                VALUES ('BAL/USD', ?, ?, 'crypto')
+                """,
+                (data_date, price),
+            )
+            await sync_scanner_periods(
+                conn,
+                "crypto",
+                "momentum",
+                data_date,
+                [signal],
+                current_prices={"BAL/USD": price},
+            )
+        await snapshot_crypto_strategy_positions(conn, wide)
+
+        cursor = await conn.execute(
+            """
+            SELECT opened_on, entry_price, closed_on, exit_price,
+                   return_pct, cash_result
+            FROM crypto_strategy_trades
+            WHERE ticker = 'BAL/USD'
+            """
+        )
+        original = tuple(await cursor.fetchone())
+
+        await conn.execute(
+            """
+            UPDATE prices
+            SET close = close * 10
+            WHERE ticker = 'BAL/USD'
+            """
+        )
+        mutated = wide * 10
+        await snapshot_crypto_strategy_positions(conn, mutated)
+        cursor = await conn.execute(
+            """
+            SELECT opened_on, entry_price, closed_on, exit_price,
+                   return_pct, cash_result
+            FROM crypto_strategy_trades
+            WHERE ticker = 'BAL/USD'
+            """
+        )
+        assert tuple(await cursor.fetchone()) == original
+    assert original[:4] == (
+        "2026-07-20",
+        100.0,
+        "2026-07-24",
+        120.0,
+    )
+    assert original[4] == pytest.approx(20.0)
+    assert original[5] == pytest.approx(20.0)
 
 
 @pytest.mark.asyncio

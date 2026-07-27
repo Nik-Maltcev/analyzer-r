@@ -448,7 +448,29 @@ def build_crypto_signal_export(
             for price_date, price in raw_period_prices
             if price_date >= admitted_key[1]
         ]
-        if not raw_period_prices or not dated_prices:
+        snapshot_entry_price = _safe_float(
+            period.get("strategy_entry_price")
+        )
+        snapshot_exit_price = _safe_float(
+            period.get("strategy_exit_price")
+        )
+        snapshot_exit_key = _date_key(period.get("strategy_exit_date"))
+        snapshot_exit_reason = str(
+            period.get("strategy_exit_reason") or ""
+        ).strip()
+        has_closed_snapshot = (
+            snapshot_entry_price is not None
+            and snapshot_entry_price > 0
+            and snapshot_exit_price is not None
+            and snapshot_exit_price > 0
+            and snapshot_exit_key[0] == 0
+        )
+        if (
+            (snapshot_entry_price is None or snapshot_entry_price <= 0)
+            and not dated_prices
+        ):
+            continue
+        if not raw_period_prices and not has_closed_snapshot:
             continue
 
         observations = _safe_int(period.get("observation_count"), 0)
@@ -480,7 +502,23 @@ def build_crypto_signal_export(
         # must never rewrite the entry of a signal that was already active.
         tracked_from_date = max(admitted_key[1], tracking_date)
 
-        if forced_close:
+        if has_closed_snapshot:
+            result_date = snapshot_exit_key[1]
+            result_price = snapshot_exit_price
+            if snapshot_exit_reason == "manual":
+                status = "closed_manual"
+                status_label = "Закрыта вручную"
+            elif snapshot_exit_reason == "auto_30_daily":
+                status = "closed_auto"
+                status_label = "Автозакрытие: +30% за день"
+            elif snapshot_exit_reason == "horizon":
+                status = "completed"
+                status_label = "Завершён по сроку"
+            else:
+                status = "closed_early"
+                status_label = "Закрыт раньше срока"
+            result_type = "реализованный"
+        elif forced_close:
             close_key = _date_key(
                 period.get("ended_date") or period.get("last_seen_date")
             )
@@ -537,12 +575,31 @@ def build_crypto_signal_export(
             status_label = "Активен"
             result_type = "текущий"
 
-        start_date, start_price = dated_prices[0]
+        if snapshot_entry_price is not None and snapshot_entry_price > 0:
+            start_date = admitted_key[1]
+            start_price = snapshot_entry_price
+        else:
+            start_date, start_price = dated_prices[0]
         held_days = sum(
             1 for price_date, _ in dated_prices if price_date <= result_date
         )
-        return_pct = (result_price / start_price - 1) * 100
-        cash_result = stake_per_signal * return_pct / 100
+        if held_days <= 0:
+            held_days = (
+                datetime.strptime(result_date, "%Y-%m-%d")
+                - datetime.strptime(start_date, "%Y-%m-%d")
+            ).days + 1
+        frozen_return_pct = _safe_float(period.get("strategy_return_pct"))
+        frozen_cash_result = _safe_float(
+            period.get("strategy_cash_result")
+        )
+        if has_closed_snapshot and frozen_return_pct is not None:
+            return_pct = frozen_return_pct
+        else:
+            return_pct = (result_price / start_price - 1) * 100
+        if has_closed_snapshot and frozen_cash_result is not None:
+            cash_result = frozen_cash_result
+        else:
+            cash_result = stake_per_signal * return_pct / 100
         signal_rows.append({
             "period_id": period.get("id"),
             "ticker": ticker,

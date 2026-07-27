@@ -1,13 +1,14 @@
-"""Health check and monitoring endpoints."""
-
-import time
 import os
-from fastapi import APIRouter, HTTPException
-from app.db.database import get_connection, db_status, DB_PATH
-from app.config import get_settings
-from app.product import ALL_MARKETS
+import time
+from datetime import UTC, datetime
+
 import httpx
-import asyncio
+from fastapi import APIRouter, HTTPException
+
+import app.db.database as database
+from app.config import get_settings
+from app.db.database import db_status, get_connection
+from app.product import ALL_MARKETS, get_product_profile
 
 router = APIRouter(tags=["health"])
 
@@ -19,16 +20,27 @@ def get_uptime() -> float:
     return time.time() - START_TIME
 
 
+def _timestamp_age_hours(value: object, now: datetime) -> float | None:
+    if not value:
+        return None
+    normalized = str(value).replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return (now - parsed.astimezone(UTC)).total_seconds() / 3600
+
+
 @router.get("/health")
 async def health_check():
     """Basic health check endpoint."""
     uptime = get_uptime()
-    db_ok = os.path.exists(DB_PATH)
+    db_path = database.DB_PATH
+    db_ok = os.path.exists(db_path)
     
     status = {
         "status": "ok" if db_ok else "degraded",
         "version": "1.0.0",
-        "db_path": DB_PATH,
+        "db_path": db_path,
         "db_exists": db_ok,
         "uptime_seconds": round(uptime, 1),
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -80,11 +92,139 @@ async def liveness():
 
 @router.get("/health/ready")
 async def readiness():
-    """Kubernetes readiness probe."""
-    db_ok = os.path.exists(DB_PATH)
-    if not db_ok:
+    """Verify that serving data and precomputed artifacts are usable."""
+    db_path = database.DB_PATH
+    if not os.path.exists(db_path):
         raise HTTPException(status_code=503, detail="Database not available")
-    return {"status": "ready"}
+
+    profile = get_product_profile(settings)
+    required_tables = {
+        "prices",
+        "pairs",
+        "scanner_signal_periods",
+        "extension_feed_snapshots",
+        "crypto_strategy_trades",
+    }
+    problems: list[str] = []
+    now = datetime.now(UTC)
+
+    try:
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                """
+            )
+            available_tables = {
+                str(row["name"]) for row in await cursor.fetchall()
+            }
+            missing_tables = sorted(required_tables - available_tables)
+            if missing_tables:
+                problems.append(
+                    "missing tables: " + ", ".join(missing_tables)
+                )
+
+            if not missing_tables:
+                cursor = await conn.execute(
+                    "SELECT COUNT(*) AS count FROM prices"
+                )
+                if int((await cursor.fetchone())["count"] or 0) < 1:
+                    problems.append("prices are empty")
+
+                cursor = await conn.execute(
+                    "SELECT COUNT(*) AS count FROM pairs"
+                )
+                if int((await cursor.fetchone())["count"] or 0) < 1:
+                    problems.append("pair analysis is empty")
+
+                for market in profile.enabled_markets:
+                    cursor = await conn.execute(
+                        """
+                        SELECT
+                            (SELECT COUNT(*) FROM prices WHERE market = ?) AS prices,
+                            (
+                                SELECT MAX(date)
+                                FROM prices
+                                WHERE market = ?
+                            ) AS price_date,
+                            (SELECT COUNT(*) FROM pairs WHERE market = ?) AS pairs,
+                            (
+                                SELECT MAX(computed_at)
+                                FROM pairs
+                                WHERE market = ?
+                            ) AS analysis_at,
+                            (
+                                SELECT generated_at
+                                FROM extension_feed_snapshots
+                                WHERE market = ?
+                            ) AS snapshot_at
+                        """,
+                        (market, market, market, market, market),
+                    )
+                    row = await cursor.fetchone()
+                    if int(row["prices"] or 0) < 1:
+                        problems.append(f"{market}: no prices")
+                    price_age = _timestamp_age_hours(
+                        row["price_date"],
+                        now,
+                    )
+                    price_max_age = (
+                        settings.readiness_crypto_price_max_age_hours
+                        if market == "crypto"
+                        else settings.readiness_equity_price_max_age_hours
+                    )
+                    if price_age is None:
+                        problems.append(f"{market}: price date is missing")
+                    elif price_age > max(1, price_max_age):
+                        problems.append(
+                            f"{market}: prices are stale ({price_age:.1f}h)"
+                        )
+                    if int(row["pairs"] or 0) < 1:
+                        problems.append(f"{market}: no pair analysis")
+                    analysis_age = _timestamp_age_hours(
+                        row["analysis_at"],
+                        now,
+                    )
+                    if analysis_age is None:
+                        problems.append(f"{market}: analysis timestamp is missing")
+                    elif analysis_age > max(
+                        1,
+                        settings.readiness_max_age_hours,
+                    ):
+                        problems.append(
+                            f"{market}: analysis is stale ({analysis_age:.1f}h)"
+                        )
+                    snapshot_age = _timestamp_age_hours(
+                        row["snapshot_at"],
+                        now,
+                    )
+                    if snapshot_age is None:
+                        problems.append(f"{market}: extension feed is missing")
+                    elif snapshot_age > max(
+                        1,
+                        settings.readiness_max_age_hours,
+                    ):
+                        problems.append(
+                            f"{market}: extension feed is stale "
+                            f"({snapshot_age:.1f}h)"
+                        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Database readiness check failed: {exc}",
+        ) from exc
+
+    if problems:
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "not_ready", "problems": problems},
+        )
+    return {
+        "status": "ready",
+        "markets": list(profile.enabled_markets),
+    }
 
 
 @router.post("/health/alert")
@@ -123,7 +263,7 @@ async def metrics():
         f"cryptoscope_uptime_seconds {uptime:.1f}",
     ]
     
-    if os.path.exists(DB_PATH):
+    if os.path.exists(database.DB_PATH):
         lines.append(f"# HELP cryptoscope_db_exists Database file exists")
         lines.append(f"# TYPE cryptoscope_db_exists gauge")
         lines.append("cryptoscope_db_exists 1")

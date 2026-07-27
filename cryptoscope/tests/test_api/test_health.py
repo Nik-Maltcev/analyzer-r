@@ -3,13 +3,15 @@
 import os
 import sys
 
+import aiosqlite
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.config import get_settings
-from app.db.database import set_db_path
+from app.api.public_extension import refresh_extension_feed_snapshots
+from app.db.database import init_db, set_db_path
 
 
 @pytest.fixture
@@ -43,6 +45,42 @@ async def test_liveness_endpoint(app):
         response = await client.get("/health/live")
         assert response.status_code == 200
         assert response.json()["status"] == "alive"
+
+
+@pytest.mark.asyncio
+async def test_readiness_checks_analysis_and_feed(app, temp_db, monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "enabled_markets", "crypto")
+    await init_db(temp_db)
+    async with aiosqlite.connect(temp_db) as conn:
+        await conn.execute(
+            """
+            UPDATE prices
+            SET date = date('now')
+            WHERE rowid = (
+                SELECT rowid
+                FROM prices
+                WHERE market = 'crypto'
+                ORDER BY date DESC
+                LIMIT 1
+            )
+            """
+        )
+        await conn.execute(
+            "UPDATE pairs SET computed_at = datetime('now')"
+        )
+        await conn.commit()
+    await refresh_extension_feed_snapshots(["crypto"], db_path=temp_db)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "markets": ["crypto"],
+    }
 
 
 @pytest.mark.asyncio

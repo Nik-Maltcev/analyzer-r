@@ -41,7 +41,10 @@ ENABLED_MARKETS = {
 }
 
 
-def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
+def compute_market_pairs(
+    market_name: str,
+    conn: sqlite3.Connection,
+) -> int:
     """Compute all pair analysis for one market."""
     print(f"\n{'='*60}")
     print(f"Computing pairs for market: {market_name}")
@@ -53,8 +56,7 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
     )
 
     if df.empty:
-        print(f"  No data for market '{market_name}'")
-        return
+        raise RuntimeError(f"No price data for market '{market_name}'")
 
     wide = df.pivot(index="date", columns="ticker", values="close")
     tickers = list(wide.columns)
@@ -62,7 +64,9 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
     print(f"  {n} tickers, {len(wide)} days")
 
     if n < 2:
-        return
+        raise RuntimeError(
+            f"Market '{market_name}' has fewer than two tickers"
+        )
 
     pair_columns = {row[1] for row in conn.execute("PRAGMA table_info(pairs)")}
     if "signal_started_at" not in pair_columns:
@@ -250,7 +254,12 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
                 "computed_at": computed_at,
             })
 
-    # Write to DB
+    if not results:
+        raise RuntimeError(
+            f"Analysis produced no pairs for market '{market_name}'"
+        )
+
+    # Replace a market only after a complete, non-empty calculation.
     conn.execute("DELETE FROM pairs WHERE market = ?", (market_name,))
 
     if results:
@@ -274,25 +283,41 @@ def compute_market_pairs(market_name: str, conn: sqlite3.Connection):
         print(f"  Logged {len(active)} active signals")
 
     conn.commit()
+    return len(results)
 
 
-def main():
+def main() -> int:
     conn = sqlite3.connect(DB_PATH)
+    attempted = 0
+    failed: list[str] = []
 
     for market in ALL_MARKETS:
         if market not in ENABLED_MARKETS:
             print(f"Skipping disabled market: {market}")
             continue
+        attempted += 1
         try:
             compute_market_pairs(market, conn)
         except Exception as e:
+            conn.rollback()
             print(f"Error computing {market}: {e}")
             import traceback
             traceback.print_exc()
+            failed.append(market)
 
     conn.close()
+    if attempted == 0:
+        print("Analysis failed: no enabled markets were selected")
+        return 1
+    if failed:
+        print(
+            "Analysis failed for required markets: "
+            + ", ".join(sorted(failed))
+        )
+        return 1
     print("\nAnalysis complete.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

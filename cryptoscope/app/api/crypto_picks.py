@@ -32,6 +32,7 @@ from app.core.scanner_history import (
     ensure_scanner_history_schema,
     format_scanner_date,
     is_scanner_signal_within_horizon,
+    snapshot_crypto_strategy_positions,
     sync_scanner_periods,
 )
 from app.data.binance_ws import refresh_crypto_live_prices
@@ -74,6 +75,82 @@ def _csv_number(value: object, digits: int = 4) -> str:
     except (TypeError, ValueError):
         return ""
     return f"{number:.{digits}f}".rstrip("0").rstrip(".")
+
+
+async def _fetch_crypto_strategy_periods(conn) -> list[dict]:
+    """Combine active periods with immutable completed trade snapshots."""
+    scanner_placeholders = ", ".join("?" for _ in ACTIVE_CRYPTO_SCANNERS)
+    cursor = await conn.execute(
+        f"""
+        SELECT *
+        FROM scanner_signal_periods
+        WHERE market = 'crypto'
+          AND scanner IN ({scanner_placeholders})
+          AND direction = 'long'
+        """,
+        tuple(ACTIVE_CRYPTO_SCANNERS),
+    )
+    periods = [dict(row) for row in await cursor.fetchall()]
+    by_id = {int(row["id"]): row for row in periods}
+
+    cursor = await conn.execute(
+        f"""
+        SELECT *
+        FROM crypto_strategy_trades
+        WHERE market = 'crypto'
+          AND scanner IN ({scanner_placeholders})
+          AND direction = 'long'
+        ORDER BY opened_on DESC, period_id DESC
+        """,
+        tuple(ACTIVE_CRYPTO_SCANNERS),
+    )
+    for raw_trade in await cursor.fetchall():
+        trade = dict(raw_trade)
+        period_id = int(trade["period_id"])
+        row = by_id.get(period_id)
+        if row is None:
+            row = {
+                "id": period_id,
+                "market": trade["market"],
+                "scanner": trade["scanner"],
+                "signal_key": trade["signal_key"],
+                "ticker_a": trade["ticker"],
+                "ticker_b": "",
+                "direction": trade["direction"],
+                "first_seen_date": trade["opened_on"],
+                "last_seen_date": trade["closed_on"],
+                "observation_count": 1,
+            }
+            periods.append(row)
+            by_id[period_id] = row
+        row.update({
+            "status": "closed",
+            "ended_date": trade["closed_on"],
+            "confidence": trade["confidence"],
+            "strategy_admitted_date": trade["opened_on"],
+            "strategy_confidence": trade["confidence"],
+            "strategy_entry_price": trade["entry_price"],
+            "strategy_entry_recorded_at": trade["entry_recorded_at"],
+            "strategy_entry_source": trade["entry_source"],
+            "strategy_exit_date": trade["closed_on"],
+            "strategy_exit_price": trade["exit_price"],
+            "strategy_exit_recorded_at": trade["exit_recorded_at"],
+            "strategy_exit_reason": trade["exit_reason"],
+            "strategy_return_pct": trade["return_pct"],
+            "strategy_cash_result": trade["cash_result"],
+            "strategy_stake": trade["stake"],
+            "strategy_version": trade["strategy_version"],
+            "close_reason": trade["exit_reason"],
+            "closed_price": trade["exit_price"],
+        })
+    return sorted(
+        periods,
+        key=lambda row: (
+            str(row.get("strategy_admitted_date") or row.get("first_seen_date") or ""),
+            int(row.get("id") or 0),
+        ),
+        reverse=True,
+    )
 
 
 async def _refresh_crypto_prices_for_today(tickers: Iterable[str]) -> dict:
@@ -189,22 +266,11 @@ async def export_crypto_picks_csv(request: Request):
         prices = await fetch_prices(conn, "crypto")
         if prices.empty:
             raise HTTPException(status_code=404, detail="No crypto data")
-        scanner_placeholders = ", ".join("?" for _ in ACTIVE_CRYPTO_SCANNERS)
-        cursor = await conn.execute(
-            f"""
-            SELECT *
-            FROM scanner_signal_periods
-            WHERE market = 'crypto'
-              AND scanner IN ({scanner_placeholders})
-              AND direction = 'long'
-            ORDER BY first_seen_date DESC, id DESC
-            """,
-            tuple(ACTIVE_CRYPTO_SCANNERS),
-        )
-        periods = [dict(row) for row in await cursor.fetchall()]
+        wide = prices.pivot(index="date", columns="ticker", values="close")
+        wide = wide.sort_index()
+        await snapshot_crypto_strategy_positions(conn, wide)
+        periods = await _fetch_crypto_strategy_periods(conn)
 
-    wide = prices.pivot(index="date", columns="ticker", values="close")
-    wide = wide.sort_index()
     data_date = str(max(wide.index))[:10]
 
     periods = apply_crypto_confidence_admission(periods)
@@ -372,6 +438,12 @@ async def crypto_picks_tab(
             wide = prices.pivot(index="date", columns="ticker", values="close")
             wide = wide.sort_index()
             data_date = str(max(wide.index))[:10]
+            await snapshot_crypto_strategy_positions(conn, wide)
+            current_daily_prices = {
+                str(ticker): float(series.dropna().iloc[-1])
+                for ticker, series in wide.items()
+                if not series.dropna().empty
+            }
             scanner_results = {}
             for scanner in ACTIVE_CRYPTO_SCANNERS:
                 frame, active_snapshot = build_scanner_snapshot(wide, scanner)
@@ -381,6 +453,7 @@ async def crypto_picks_tab(
                     scanner,
                     data_date,
                     active_snapshot,
+                    current_prices=current_daily_prices,
                 )
                 records = (
                     frame.to_dict(orient="records")
@@ -402,21 +475,8 @@ async def crypto_picks_tab(
                     )
                 ]
 
-            scanner_placeholders = ", ".join(
-                "?" for _ in ACTIVE_CRYPTO_SCANNERS
-            )
-            cursor = await conn.execute(
-                f"""
-                SELECT *
-                FROM scanner_signal_periods
-                WHERE market = 'crypto'
-                  AND scanner IN ({scanner_placeholders})
-                  AND direction = 'long'
-                ORDER BY first_seen_date DESC, id DESC
-                """,
-                tuple(ACTIVE_CRYPTO_SCANNERS),
-            )
-            period_rows = [dict(row) for row in await cursor.fetchall()]
+            await snapshot_crypto_strategy_positions(conn, wide)
+            period_rows = await _fetch_crypto_strategy_periods(conn)
 
         completed_periods = apply_crypto_confidence_admission(period_rows)
 

@@ -141,6 +141,17 @@ CREATE TABLE IF NOT EXISTS scanner_signal_periods (
     confidence        TEXT,
     strategy_admitted_date TEXT,
     strategy_confidence TEXT,
+    strategy_entry_price REAL,
+    strategy_entry_recorded_at TEXT,
+    strategy_entry_source TEXT,
+    strategy_exit_date TEXT,
+    strategy_exit_price REAL,
+    strategy_exit_recorded_at TEXT,
+    strategy_exit_reason TEXT,
+    strategy_return_pct REAL,
+    strategy_cash_result REAL,
+    strategy_stake REAL,
+    strategy_version TEXT,
     first_seen_date   TEXT NOT NULL,
     last_seen_date    TEXT NOT NULL,
     observation_count INTEGER NOT NULL DEFAULT 1,
@@ -339,6 +350,40 @@ CREATE TABLE IF NOT EXISTS content_publications (
 )
 """
 
+CREATE_EXTENSION_FEED_SNAPSHOTS = """
+CREATE TABLE IF NOT EXISTS extension_feed_snapshots (
+    market       TEXT PRIMARY KEY,
+    payload      TEXT NOT NULL,
+    data_date    TEXT NOT NULL,
+    generated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
+CREATE_CRYPTO_STRATEGY_TRADES = """
+CREATE TABLE IF NOT EXISTS crypto_strategy_trades (
+    period_id INTEGER PRIMARY KEY,
+    market TEXT NOT NULL DEFAULT 'crypto',
+    scanner TEXT NOT NULL,
+    signal_key TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    confidence TEXT,
+    opened_on TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    entry_recorded_at TEXT NOT NULL,
+    entry_source TEXT NOT NULL,
+    closed_on TEXT NOT NULL,
+    exit_price REAL NOT NULL,
+    exit_recorded_at TEXT NOT NULL,
+    exit_reason TEXT NOT NULL,
+    return_pct REAL NOT NULL,
+    cash_result REAL NOT NULL,
+    stake REAL NOT NULL,
+    strategy_version TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
 CREATE_CONTENT_PUBLICATION_INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_content_status ON content_publications(status, data_date)",
     "CREATE INDEX IF NOT EXISTS idx_content_ticker ON content_publications(market, ticker, created_at)",
@@ -369,6 +414,8 @@ ALL_TABLES_SQL = [
     CREATE_PAYMENT_ORDERS,
     CREATE_USER_SUBSCRIPTIONS,
     CREATE_CONTENT_PUBLICATIONS,
+    CREATE_EXTENSION_FEED_SNAPSHOTS,
+    CREATE_CRYPTO_STRATEGY_TRADES,
 ]
 
 ALL_INDICES_SQL = (

@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     content_public_asset_base_url: str = ""
 
     log_level: str = "info"
+    readiness_max_age_hours: int = 48
+    readiness_crypto_price_max_age_hours: int = 48
+    readiness_equity_price_max_age_hours: int = 120
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

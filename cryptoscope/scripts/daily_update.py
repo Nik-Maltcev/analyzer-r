@@ -14,6 +14,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.api.public_extension import refresh_extension_feed_snapshots
+from app.core.scanner_history import sync_all_scanner_states
 from app.data.brazil import fetch_brazil_prices, upsert_brazil_prices
 from app.data.fetcher import fetch_batch
 from app.data.indonesia import fetch_indonesia_prices, upsert_indonesia_prices
@@ -29,7 +31,6 @@ from app.data.moex import (
     reprice_active_ru_favorites,
     upsert_ru_prices,
 )
-from app.data.us_stocks import fetch_us_stock_prices, upsert_us_stock_prices
 from app.data.tickers import (
     ALL_MARKETS,
     BRAZIL_TICKERS,
@@ -38,7 +39,7 @@ from app.data.tickers import (
     RU_TICKERS,
     STOCK_TICKERS,
 )
-from app.core.scanner_history import sync_all_scanner_states
+from app.data.us_stocks import fetch_us_stock_prices, upsert_us_stock_prices
 
 DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
 API_KEY = os.environ.get("TWELVEDATA_API_KEY", "")
@@ -302,14 +303,28 @@ def main() -> int:
         print("Scanner signal history updated")
     except Exception as exc:
         print(f"Scanner signal history update failed: {exc}")
+        return 1
 
-    # Recompute analysis
-    if total > 0:
-        print("Recomputing pair analysis...")
-        compute_script = os.environ.get("COMPUTE_ANALYSIS_PATH") or str(SCRIPT_DIR / "compute_analysis.py")
-        result = subprocess.run([sys.executable, compute_script], check=False)
-        if result.returncode != 0:
-            print(f"compute_analysis failed with exit code {result.returncode}")
+    # Recompute even when providers returned no new rows. This verifies the
+    # existing dataset instead of reporting success with stale/broken pairs.
+    print("Recomputing pair analysis...")
+    compute_script = os.environ.get("COMPUTE_ANALYSIS_PATH") or str(SCRIPT_DIR / "compute_analysis.py")
+    result = subprocess.run([sys.executable, compute_script], check=False)
+    if result.returncode != 0:
+        print(f"compute_analysis failed with exit code {result.returncode}")
+        return result.returncode
+
+    try:
+        refreshed = asyncio.run(
+            refresh_extension_feed_snapshots(
+                ENABLED_MARKETS,
+                db_path=DB_PATH,
+            )
+        )
+        print(f"Extension feed snapshots refreshed: {refreshed}")
+    except Exception as exc:
+        print(f"Extension feed snapshot refresh failed: {exc}")
+        return 1
 
     print("Running crypto content automation...")
     content_script = SCRIPT_DIR / "run_content_automation.py"

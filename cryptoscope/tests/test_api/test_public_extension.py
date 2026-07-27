@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from app.config import get_settings
 from app.db.database import set_db_path
+from app.api.public_extension import refresh_extension_feed_snapshots
 
 
 @pytest.fixture
@@ -58,6 +59,7 @@ def app(temp_db, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_public_feed_does_not_require_authentication(app):
+    await refresh_extension_feed_snapshots(["br"])
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/public/extension/feed?market=br")
@@ -73,6 +75,7 @@ async def test_public_feed_does_not_require_authentication(app):
 
 @pytest.mark.asyncio
 async def test_public_feed_rejects_market_outside_edition(app):
+    await refresh_extension_feed_snapshots(["br"])
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/public/extension/feed?market=ru")
@@ -81,14 +84,15 @@ async def test_public_feed_rejects_market_outside_edition(app):
 
 
 @pytest.mark.asyncio
-async def test_empty_public_feed_is_not_cached(app):
+async def test_empty_public_feed_uses_precomputed_snapshot(app):
+    await refresh_extension_feed_snapshots(["stocks"])
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/public/extension/feed?market=stocks")
 
     assert response.status_code == 200
     assert response.json()["items"] == []
-    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["cache-control"] == "public, max-age=300"
 
 
 @pytest.mark.asyncio
@@ -118,6 +122,7 @@ async def test_public_feed_falls_back_to_active_scanner_signals(app, temp_db):
         )
         conn.commit()
 
+    await refresh_extension_feed_snapshots(["br"])
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/public/extension/feed?market=br")
