@@ -67,6 +67,29 @@
         </span>
     </div>
 
+    {% if active_summary %}
+    <section class="momentum-forward-stats crypto-active-stats" aria-labelledby="crypto-active-stats-title">
+        <header class="momentum-forward-head">
+            <div>
+                <span class="section-kicker">Открытые позиции</span>
+                <h3 id="crypto-active-stats-title">Активные сигналы сейчас</h3>
+            </div>
+            <span>По последнему расчёту · $100 на позицию</span>
+        </header>
+        <div class="momentum-forward-metrics crypto-active-metrics">
+            <div><span>Активно</span><strong>{{ active_summary.positions_total }}</strong></div>
+            <div><span>В плюсе</span><strong class="positive">{{ active_summary.positions_profitable }}</strong></div>
+            <div><span>В минусе</span><strong class="negative">{{ active_summary.positions_unprofitable }}</strong></div>
+            <div><span>Без изменений</span><strong>{{ active_summary.positions_flat }}</strong></div>
+            <div>
+                <span>Текущий результат</span>
+                <strong class="{% if active_summary.result > 0 %}positive{% elif active_summary.result < 0 %}negative{% endif %}">{{ active_summary.result_display }}</strong>
+                <small>{{ active_summary.return_display }} от открытого объёма</small>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
     {% if weekly_summary %}
     <section class="crypto-weekly-summary" aria-label="Статистика закрытых криптопозиций за {{ result_window_days }} дней">
         <header class="crypto-weekly-summary-head">

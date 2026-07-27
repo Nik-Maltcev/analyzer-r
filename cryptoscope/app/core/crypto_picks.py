@@ -1262,6 +1262,42 @@ def build_crypto_window_summary(
     return summary
 
 
+def build_crypto_active_summary(
+    rows: Iterable[dict[str, Any]],
+) -> dict[str, Any]:
+    """Summarize currently open positions separately from closed history."""
+    active = [
+        row for row in rows if str(row.get("status") or "") == "active"
+    ]
+    result = sum(float(row.get("cash_result") or 0) for row in active)
+    profitable = sum(
+        float(row.get("cash_result") or 0) > 0 for row in active
+    )
+    unprofitable = sum(
+        float(row.get("cash_result") or 0) < 0 for row in active
+    )
+    flat = len(active) - profitable - unprofitable
+    invested = sum(float(row.get("stake") or 0) for row in active)
+    return_pct = result / invested * 100 if invested else 0.0
+    return {
+        "positions_total": len(active),
+        "positions_profitable": profitable,
+        "positions_unprofitable": unprofitable,
+        "positions_flat": flat,
+        "invested": round(invested, 2),
+        "result": round(result, 2),
+        "result_display": (
+            f"+${result:.2f}"
+            if result > 0
+            else f"-${abs(result):.2f}"
+            if result < 0
+            else "$0.00"
+        ),
+        "return_pct": round(return_pct, 4),
+        "return_display": f"{return_pct:+.2f}%",
+    }
+
+
 def _validate_crypto_window_math(summary: dict[str, Any]) -> None:
     """Keep every visible window total tied to the same position cohort."""
     if (

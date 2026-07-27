@@ -18,6 +18,7 @@ from app.core.crypto_picks import (
     CRYPTO_PICKS_TRACKING_START,
     aggregate_crypto_long_picks,
     apply_crypto_confidence_admission,
+    build_crypto_active_summary,
     build_crypto_window_summary,
     build_price_progress,
     build_crypto_signal_export,
@@ -412,6 +413,7 @@ async def crypto_picks_tab(
         "sell_actions": [],
         "sell_total": 0,
         "weekly_summary": None,
+        "active_summary": None,
         "result_window_days": window_days,
         "result_window_options": RESULT_WINDOW_OPTIONS,
         "refresh_result": None,
@@ -595,16 +597,18 @@ async def crypto_picks_tab(
             pick["progress_change_display"] = (
                 progress[0]["change_display"] if progress else "—"
             )
+        filtered_rows = filter_crypto_rows_by_confidence(
+            report["rows"],
+            confidence_filter,
+        )
         weekly_summary = build_crypto_window_summary(
-            filter_crypto_rows_by_confidence(
-                report["rows"],
-                confidence_filter,
-            ),
+            filtered_rows,
             report_date,
             days=window_days,
             prices_by_ticker=prices_by_ticker,
             tracking_start_date=CRYPTO_PICKS_TRACKING_START,
         )
+        active_summary = build_crypto_active_summary(filtered_rows)
         history = weekly_summary["completed_history"]
         history_profitable = weekly_summary["positions_profitable"]
         history_cash_result = weekly_summary["realized_result"]
@@ -636,6 +640,7 @@ async def crypto_picks_tab(
                 "sell_actions": sell_actions,
                 "sell_total": len(sell_actions),
                 "weekly_summary": weekly_summary,
+                "active_summary": active_summary,
             },
         )
     except HTTPException:

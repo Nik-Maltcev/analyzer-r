@@ -516,6 +516,40 @@ body.app-is-loading {
     font-size: 18px;
 }
 
+.momentum-forward-metrics small {
+    color: var(--text-muted);
+    font-size: 9px;
+}
+
+.crypto-active-metrics {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.momentum-live-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-top: 1px solid var(--border-subtle);
+    background: var(--surface-2);
+}
+
+.crypto-model-live-result {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.crypto-model-live-result strong {
+    font-family: var(--font-mono);
+}
+
+.crypto-model-live-result span {
+    color: var(--text-muted);
+    font-size: 9px;
+}
+
 .momentum-forward-metrics .positive,
 .momentum-run-row .positive {
     color: var(--green-bright);
@@ -1492,6 +1526,22 @@ body.app-is-loading {
 
     .momentum-forward-metrics > div:nth-child(2n) {
         border-right: 0;
+    }
+
+    .crypto-active-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .momentum-live-metrics {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .momentum-live-metrics > div {
+        border-right: 0;
+    }
+
+    .crypto-active-metrics > div:last-child {
+        grid-column: 1 / -1;
     }
 
     .momentum-run-table-head {

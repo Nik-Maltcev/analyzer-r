@@ -58,6 +58,18 @@ def _price(value: Any) -> str:
     return f"${number:.8f}".rstrip("0").rstrip(".")
 
 
+def _signed_money(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if number > 0:
+        return f"+${number:.2f}"
+    if number < 0:
+        return f"-${abs(number):.2f}"
+    return "$0.00"
+
+
 async def ensure_momentum_portfolio_schema(conn) -> None:
     await conn.execute(CREATE_MOMENTUM_PORTFOLIO_RUNS)
     await conn.execute(CREATE_MOMENTUM_PORTFOLIO_ALLOCATIONS)
@@ -225,6 +237,43 @@ async def sync_momentum_portfolio_journal(db_path: str) -> dict[str, Any]:
         await ensure_momentum_portfolio_schema(conn)
         cursor = await conn.execute(
             """
+            SELECT MAX(date) AS data_date
+            FROM prices
+            WHERE market = 'crypto'
+            """
+        )
+        latest_row = await cursor.fetchone()
+        data_date = str(latest_row["data_date"] or "")[:10]
+        if not data_date:
+            return {"status": "no_crypto_prices", "created": False}
+
+        cursor = await conn.execute(
+            """
+            SELECT
+                EXISTS(
+                    SELECT 1
+                    FROM momentum_portfolio_runs
+                    WHERE run_date = ?
+                ) AS has_current,
+                EXISTS(
+                    SELECT 1
+                    FROM momentum_portfolio_runs
+                    WHERE finalized_on IS NULL AND run_date < ?
+                ) AS has_pending
+            """,
+            (data_date, data_date),
+        )
+        journal_state = await cursor.fetchone()
+        if journal_state["has_current"] and not journal_state["has_pending"]:
+            return {
+                "status": "already_recorded",
+                "created": False,
+                "run_date": data_date,
+                "finalized": 0,
+            }
+
+        cursor = await conn.execute(
+            """
             SELECT ticker, date, close
             FROM prices
             WHERE market = 'crypto'
@@ -241,7 +290,6 @@ async def sync_momentum_portfolio_journal(db_path: str) -> dict[str, Any]:
             columns="ticker",
             values="close",
         ).sort_index()
-        data_date = str(max(wide.index))[:10]
         histories = _daily_histories(wide)
         finalized = await _finalize_previous_runs(
             conn,
@@ -278,9 +326,9 @@ async def sync_momentum_portfolio_journal(db_path: str) -> dict[str, Any]:
             latest_prices=current_prices,
             capital=MODEL_CAPITAL,
         )
-        await conn.execute(
+        insert_cursor = await conn.execute(
             """
-            INSERT INTO momentum_portfolio_runs (
+            INSERT OR IGNORE INTO momentum_portfolio_runs (
                 run_date, strategy_version, status, entries_allowed,
                 capital, allocated, reserve, candidates_total,
                 selected_total, btc_above_sma50, btc_distance_pct,
@@ -309,6 +357,14 @@ async def sync_momentum_portfolio_journal(db_path: str) -> dict[str, Any]:
                 model["breadth_ratio"],
             ),
         )
+        if insert_cursor.rowcount == 0:
+            await conn.commit()
+            return {
+                "status": "already_recorded",
+                "created": False,
+                "run_date": data_date,
+                "finalized": finalized,
+            }
         for allocation in model["allocations"]:
             await conn.execute(
                 """
@@ -463,3 +519,70 @@ async def fetch_momentum_portfolio_report(conn) -> dict[str, Any]:
         "compounded_return_display": f"{compounded * 100:+.2f}%",
         "strategy_version": STRATEGY_VERSION,
     }
+
+
+def apply_momentum_live_prices(
+    report: dict[str, Any],
+    latest_prices: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Mark the open daily portfolio without changing its journal rows."""
+    latest_prices = latest_prices or {}
+    current = report.get("current")
+    active_cash = 0.0
+    active_positions = 0
+
+    if current and not current.get("finalized_on"):
+        for item in current.get("allocations") or []:
+            invested = float(item.get("allocation") or 0)
+            entry_price = float(item.get("entry_price") or 0)
+            mark_price = latest_prices.get(str(item.get("ticker") or ""))
+            try:
+                mark_price = float(mark_price)
+            except (TypeError, ValueError):
+                mark_price = entry_price
+            if not math.isfinite(mark_price) or mark_price <= 0:
+                mark_price = entry_price
+
+            return_pct = (
+                (mark_price / entry_price - 1) * 100
+                if invested > 0 and entry_price > 0
+                else 0.0
+            )
+            cash_result = invested * return_pct / 100
+            item["current_price"] = mark_price
+            item["current_price_display"] = _price(mark_price)
+            item["current_return_pct"] = return_pct
+            item["current_return_display"] = f"{return_pct:+.2f}%"
+            item["current_cash_result"] = cash_result
+            item["current_cash_result_display"] = _signed_money(cash_result)
+            if invested > 0:
+                active_positions += 1
+                active_cash += cash_result
+
+    active_capital = float(current.get("capital") or 0) if current else 0.0
+    active_return = (
+        active_cash / active_capital * 100
+        if active_capital > 0
+        else 0.0
+    )
+    realized_cash = float(report.get("cumulative_cash") or 0)
+    total_cash = realized_cash + active_cash
+    completed_factor = 1 + float(
+        report.get("compounded_return_pct") or 0
+    ) / 100
+    total_return = (
+        completed_factor * (1 + active_return / 100) - 1
+    ) * 100
+
+    report.update({
+        "active_positions_total": active_positions,
+        "active_cash": round(active_cash, 2),
+        "active_cash_display": _signed_money(active_cash),
+        "active_return_pct": round(active_return, 4),
+        "active_return_display": f"{active_return:+.2f}%",
+        "total_cash": round(total_cash, 2),
+        "total_cash_display": _signed_money(total_cash),
+        "total_return_pct": round(total_return, 4),
+        "total_return_display": f"{total_return:+.2f}%",
+    })
+    return report

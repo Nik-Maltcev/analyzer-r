@@ -8,6 +8,7 @@ from unittest.mock import patch
 import aiosqlite
 
 from app.core.momentum_portfolio import (
+    apply_momentum_live_prices,
     fetch_momentum_portfolio_report,
     sync_momentum_portfolio_journal,
 )
@@ -129,3 +130,40 @@ def test_momentum_portfolio_journal_freezes_completed_daily_run():
                 assert repeated["cumulative_cash"] == frozen_cash
 
     asyncio.run(scenario())
+
+
+def test_momentum_portfolio_report_includes_active_mark_and_total():
+    report = {
+        "current": {
+            "capital": 300.0,
+            "finalized_on": None,
+            "allocations": [
+                {
+                    "ticker": "ETH/USD",
+                    "allocation": 180.0,
+                    "entry_price": 100.0,
+                },
+                {
+                    "ticker": "SOL/USD",
+                    "allocation": 120.0,
+                    "entry_price": 50.0,
+                },
+            ],
+        },
+        "cumulative_cash": 12.0,
+        "compounded_return_pct": 4.0,
+    }
+
+    marked = apply_momentum_live_prices(
+        report,
+        {
+            "ETH/USD": 110.0,
+            "SOL/USD": 45.0,
+        },
+    )
+
+    assert marked["active_positions_total"] == 2
+    assert marked["active_cash"] == 6.0
+    assert marked["total_cash"] == 18.0
+    assert marked["active_return_pct"] == 2.0
+    assert marked["total_return_pct"] == 6.08
