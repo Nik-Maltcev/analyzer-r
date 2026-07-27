@@ -68,11 +68,11 @@
     </div>
 
     {% if weekly_summary %}
-    <section class="crypto-weekly-summary" aria-label="Статистика криптопозиций за {{ result_window_days }} дней">
+    <section class="crypto-weekly-summary" aria-label="Статистика закрытых криптопозиций за {{ result_window_days }} дней">
         <header class="crypto-weekly-summary-head">
             <div>
                 <span class="section-kicker">Последние {{ result_window_days }} дней</span>
-                <h3>Результаты стратегии</h3>
+                <h3>Результаты закрытых позиций</h3>
             </div>
             <div class="crypto-window-controls">
                 <div class="crypto-filter-row">
@@ -119,8 +119,8 @@
         </header>
         <div class="crypto-weekly-metrics">
             <div class="crypto-weekly-metric">
-                <span>Открыто позиций</span>
-                <strong>{{ weekly_summary.positions_total }}</strong>
+                <span>Закрыто позиций</span>
+                <strong>{{ weekly_summary.positions_completed }}</strong>
                 <small>$100 на каждую</small>
             </div>
             <div class="crypto-weekly-metric">
@@ -134,34 +134,34 @@
                 <small>из завершённых</small>
             </div>
             <div class="crypto-weekly-metric">
-                <span>Ещё активны</span>
-                <strong>{{ weekly_summary.positions_active }}</strong>
-                <small>по текущей цене</small>
+                <span>Без изменений</span>
+                <strong>{{ weekly_summary.positions_flat }}</strong>
+                <small>нулевой результат</small>
             </div>
         </div>
         <div class="crypto-weekly-results">
-            <div class="crypto-weekly-result-item">
-                <span>Закрытые позиции</span>
+            <div class="crypto-weekly-result-item is-total">
+                <span>Зафиксированный результат</span>
                 <strong class="{% if weekly_summary.realized_result > 0 %}positive{% elif weekly_summary.realized_result < 0 %}negative{% endif %}">
                     {{ weekly_summary.realized_result_display }}
                 </strong>
-                <small>зафиксированный результат</small>
+                <small class="{% if weekly_summary.portfolio_return_pct > 0 %}positive{% elif weekly_summary.portfolio_return_pct < 0 %}negative{% endif %}">
+                    {{ weekly_summary.return_display }} от вложенного объёма
+                </small>
             </div>
             <div class="crypto-weekly-result-item">
-                <span>Активные позиции</span>
-                <strong class="{% if weekly_summary.unrealized_result > 0 %}positive{% elif weekly_summary.unrealized_result < 0 %}negative{% endif %}">
-                    {{ weekly_summary.unrealized_result_display }}
+                <span>Средняя сделка</span>
+                <strong class="{% if weekly_summary.average_result > 0 %}positive{% elif weekly_summary.average_result < 0 %}negative{% endif %}">
+                    {{ weekly_summary.average_result_display }}
                 </strong>
-                <small>текущий результат</small>
+                <small>при $100 на позицию</small>
             </div>
-            <div class="crypto-weekly-result-item is-total">
-                <span>Итого</span>
-                <strong class="{% if weekly_summary.total_result > 0 %}positive{% elif weekly_summary.total_result < 0 %}negative{% endif %}">
-                    {{ weekly_summary.result_display }}
+            <div class="crypto-weekly-result-item">
+                <span>Доля прибыльных</span>
+                <strong class="{% if weekly_summary.win_rate is not none and weekly_summary.win_rate >= 50 %}positive{% elif weekly_summary.win_rate is not none %}negative{% endif %}">
+                    {{ weekly_summary.win_rate_display }}{% if weekly_summary.win_rate is not none %}%{% endif %}
                 </strong>
-                <small class="{% if weekly_summary.portfolio_return_pct > 0 %}positive{% elif weekly_summary.portfolio_return_pct < 0 %}negative{% endif %}">
-                    {{ weekly_summary.return_display }}
-                </small>
+                <small>{{ weekly_summary.positions_profitable }} из {{ weekly_summary.positions_completed }} закрыты в плюсе</small>
             </div>
         </div>
         <div class="crypto-chart-grid">
@@ -169,9 +169,9 @@
                 <header>
                     <div>
                         <span class="section-kicker">Динамика</span>
-                        <h4 id="crypto-result-chart-title">Результат портфеля</h4>
+                        <h4 id="crypto-result-chart-title">Накопленный результат</h4>
                     </div>
-                    <span>закрытые зафиксированы · активные по рынку</span>
+                    <span>по фактическим датам закрытия</span>
                 </header>
                 <div class="crypto-chart-canvas">
                     <canvas id="crypto-result-timeline-chart"></canvas>
@@ -215,8 +215,8 @@
                         {% endif %}
                     </div>
                     <div class="crypto-confidence-volume">
-                        <span>Всего {{ group.positions_total }}</span>
-                        <small>активны {{ group.positions_active }}</small>
+                        <span>Закрыто {{ group.positions_completed }}</span>
+                        <small>$100 на сделку</small>
                     </div>
                     <div class="crypto-confidence-result">
                         <strong class="{% if group.realized_result > 0 %}positive{% elif group.realized_result < 0 %}negative{% endif %}">
@@ -253,8 +253,8 @@
                         {% endif %}
                     </div>
                     <div class="crypto-confidence-volume">
-                        <span>Всего {{ group.positions_total }}</span>
-                        <small>активны {{ group.positions_active }}</small>
+                        <span>Закрыто {{ group.positions_completed }}</span>
+                        <small>$100 на сделку</small>
                     </div>
                     <div class="crypto-confidence-result">
                         <strong class="{% if group.realized_result > 0 %}positive{% elif group.realized_result < 0 %}negative{% endif %}">
@@ -267,7 +267,7 @@
             </div>
         </section>
         <footer>
-            Позиции, открытые за этот период. Итог включает зафиксированный результат закрытых и текущую оценку активных. Комиссии и проскальзывание не учитываются.
+            В статистику входят позиции, фактически закрытые в выбранный период. Отбор выполняется по дате закрытия; активные позиции не влияют на результат. Комиссии и проскальзывание не учитываются.
         </footer>
     </section>
     {% endif %}
@@ -434,7 +434,7 @@
         <header class="crypto-history-header">
             <div>
                 <h3><i data-lucide="history"></i>История закрытых позиций за {{ weekly_summary.days }} дней</h3>
-                <p>Это те же закрытые позиции и тот же зафиксированный результат, что показаны в сводке выше. Сигнал закрывается по сроку, при исчезновении условия, вручную или после роста не менее чем на 30% за сутки. Комиссии и цена исполнения сделки не учитываются.</p>
+                <p>Позиции отобраны по фактической дате закрытия. Это тот же зафиксированный результат, что показан в сводке выше. Сигнал закрывается по сроку, при исчезновении условия, вручную или после роста не менее чем на 30% за сутки. Комиссии и цена исполнения сделки не учитываются.</p>
             </div>
             <div class="crypto-history-summary">
                 <span><strong>{{ history_total }}</strong> завершено</span>
@@ -493,7 +493,7 @@
         </div>
         {% else %}
         <div class="crypto-history-empty">
-            История появится, когда первый LONG-сигнал пройдёт полное окно наблюдения.
+            За выбранный период закрытых позиций нет.
         </div>
         {% endif %}
     </section>

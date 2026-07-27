@@ -11,7 +11,7 @@ from app.core.crypto_picks import (
 )
 
 
-def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
+def test_crypto_window_summary_uses_positions_closed_in_last_seven_days():
     summary = build_crypto_window_summary(
         [
             {
@@ -26,7 +26,7 @@ def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
             {
                 "status": "completed",
                 "start_date": "2026-07-10",
-                "result_date": "2026-07-16",
+                "result_date": "2026-07-17",
                 "stake": 100,
                 "return_pct": 20,
                 "cash_result": 20,
@@ -59,6 +59,15 @@ def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
                 "cash_result": 0,
                 "confidence": "Низкая",
             },
+            {
+                "status": "completed",
+                "start_date": "2026-07-23",
+                "result_date": "2026-07-24",
+                "stake": 100,
+                "return_pct": 30,
+                "cash_result": 30,
+                "confidence": "Высокая",
+            },
         ],
         "2026-07-23",
     )
@@ -66,19 +75,22 @@ def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
     assert summary["start_date"] == "2026-07-17"
     assert summary["end_date"] == "2026-07-23"
     assert summary["positions_total"] == 4
-    assert summary["positions_active"] == 1
-    assert summary["positions_completed"] == 3
-    assert summary["positions_profitable"] == 1
+    assert summary["positions_active"] == 0
+    assert summary["positions_completed"] == 4
+    assert summary["positions_profitable"] == 2
     assert summary["positions_unprofitable"] == 1
     assert summary["positions_flat"] == 1
     assert summary["total_invested"] == 400
-    assert summary["total_result"] == -5
-    assert summary["realized_result"] == 0
-    assert summary["unrealized_result"] == -5
-    assert summary["realized_result_display"] == "$0.00"
-    assert summary["unrealized_result_display"] == "-$5.00"
-    assert summary["portfolio_return_pct"] == -1.25
-    assert len(summary["completed_history"]) == 3
+    assert summary["total_result"] == 20
+    assert summary["realized_result"] == 20
+    assert summary["unrealized_result"] == 0
+    assert summary["realized_result_display"] == "+$20.00"
+    assert summary["unrealized_result_display"] == "$0.00"
+    assert summary["average_result"] == 5
+    assert summary["average_result_display"] == "+$5.00"
+    assert summary["win_rate"] == 50
+    assert summary["portfolio_return_pct"] == 5
+    assert len(summary["completed_history"]) == 4
     assert sum(
         item["cash_result"] for item in summary["completed_history"]
     ) == summary["realized_result"]
@@ -89,16 +101,16 @@ def test_crypto_window_summary_uses_positions_opened_in_last_seven_days():
         item["label"]: item
         for item in summary["confidence_breakdown"]
     }
-    assert by_confidence["Высокая"]["positions_total"] == 2
+    assert by_confidence["Высокая"]["positions_total"] == 1
     assert by_confidence["Высокая"]["positions_completed"] == 1
     assert by_confidence["Высокая"]["positions_profitable"] == 1
-    assert by_confidence["Высокая"]["positions_active"] == 1
+    assert by_confidence["Высокая"]["positions_active"] == 0
     assert by_confidence["Высокая"]["win_rate"] == 100
     assert by_confidence["Высокая"]["realized_result"] == 10
-    assert by_confidence["Средняя"]["positions_total"] == 1
-    assert by_confidence["Средняя"]["positions_profitable"] == 0
-    assert by_confidence["Средняя"]["win_rate"] == 0
-    assert by_confidence["Средняя"]["realized_result"] == -10
+    assert by_confidence["Средняя"]["positions_total"] == 2
+    assert by_confidence["Средняя"]["positions_profitable"] == 1
+    assert by_confidence["Средняя"]["win_rate"] == 50
+    assert by_confidence["Средняя"]["realized_result"] == 10
     assert by_confidence["Низкая"]["positions_total"] == 1
     assert by_confidence["Низкая"]["positions_flat"] == 1
     assert by_confidence["Низкая"]["win_rate"] == 0
@@ -172,9 +184,9 @@ def test_crypto_window_summary_breaks_down_results_by_scanner():
         "momentum",
     ]
     momentum = by_scanner["Momentum"]
-    assert momentum["positions_total"] == 3
+    assert momentum["positions_total"] == 2
     assert momentum["positions_completed"] == 2
-    assert momentum["positions_active"] == 1
+    assert momentum["positions_active"] == 0
     assert momentum["positions_profitable"] == 1
     assert momentum["win_rate"] == 50
     assert momentum["realized_result"] == 4
@@ -432,19 +444,19 @@ def test_crypto_window_summary_supports_longer_windows():
         prices_by_ticker=prices,
     )
 
-    assert seven_days["positions_total"] == 1
-    assert fourteen_days["positions_total"] == 2
-    assert thirty_days["positions_total"] == 2
-    assert fourteen_days["total_result"] == 3
-    assert seven_days["result_timeline"][-1]["result"] == -2
-    assert fourteen_days["result_timeline"][-1]["result"] == 3
+    assert seven_days["positions_total"] == 0
+    assert fourteen_days["positions_total"] == 1
+    assert thirty_days["positions_total"] == 1
+    assert fourteen_days["total_result"] == 5
+    assert seven_days["result_timeline"][-1]["result"] == 0
+    assert fourteen_days["result_timeline"][-1]["result"] == 5
 
 
 def test_crypto_window_summary_clamps_to_tracking_start():
     summary = build_crypto_window_summary(
         [
             {
-                "status": "active",
+                "status": "completed",
                 "ticker": "ETH/USD",
                 "start_date": "2026-07-20",
                 "result_date": "2026-07-24",

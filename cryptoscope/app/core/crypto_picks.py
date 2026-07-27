@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from bisect import bisect_right
 from datetime import datetime, timedelta
 from typing import Any, Iterable
 
@@ -811,7 +810,7 @@ def build_crypto_window_summary(
     prices_by_ticker: dict[str, Iterable[tuple[Any, Any]]] | None = None,
     tracking_start_date: Any = None,
 ) -> dict[str, Any]:
-    """Summarize the cohort of positions opened in a trailing date window."""
+    """Summarize positions closed inside a trailing date window."""
     target_key = _date_key(data_date)
     window_days = max(1, _safe_int(days, 7))
     if target_key[0] != 0:
@@ -832,6 +831,10 @@ def build_crypto_window_summary(
             "unrealized_result": 0.0,
             "realized_result_display": "$0.00",
             "unrealized_result_display": "$0.00",
+            "average_result": 0.0,
+            "average_result_display": "$0.00",
+            "win_rate": None,
+            "win_rate_display": "—",
             "portfolio_return_pct": 0.0,
             "start_date": None,
             "end_date": None,
@@ -856,34 +859,40 @@ def build_crypto_window_summary(
     start_iso = start_date.strftime("%Y-%m-%d")
     end_iso = end_date.strftime("%Y-%m-%d")
     available_days = (end_date - start_date).days + 1
-    relevant: list[dict[str, Any]] = []
+    completed: list[dict[str, Any]] = []
 
     for row in rows:
-        position_start = _date_key(
-            row.get("tracked_from_date") or row.get("start_date")
-        )
+        position_start = _date_key(row.get("start_date"))
         position_end = _date_key(row.get("result_date"))
         if (
-            position_start[0] == 0
+            row.get("status") != "active"
+            and position_start[0] == 0
             and position_end[0] == 0
-            and position_start[1] >= start_iso
-            and position_start[1] <= end_iso
+            and position_end[1] >= start_iso
+            and position_end[1] <= end_iso
         ):
-            relevant.append(row)
+            completed.append(row)
 
-    completed = [
-        row for row in relevant if row.get("status") != "active"
-    ]
-    active = [
-        row for row in relevant if row.get("status") == "active"
-    ]
-    total_invested = sum(float(row.get("stake") or 0) for row in relevant)
-    total_result = sum(float(row.get("cash_result") or 0) for row in relevant)
+    total_invested = sum(float(row.get("stake") or 0) for row in completed)
     realized_result = sum(
         float(row.get("cash_result") or 0) for row in completed
     )
-    unrealized_result = sum(
-        float(row.get("cash_result") or 0) for row in active
+    average_result = (
+        realized_result / len(completed)
+        if completed
+        else 0.0
+    )
+    profitable = sum(
+        1 for row in completed if float(row.get("return_pct") or 0) > 0
+    )
+    unprofitable = sum(
+        1 for row in completed if float(row.get("return_pct") or 0) < 0
+    )
+    flat = len(completed) - profitable - unprofitable
+    win_rate = (
+        round(profitable / len(completed) * 100, 1)
+        if completed
+        else None
     )
 
     summary = {
@@ -895,22 +904,16 @@ def build_crypto_window_summary(
             if tracking_start is not None
             else start_date.strftime("%d.%m.%Y")
         ),
-        "positions_total": len(relevant),
-        "positions_active": len(active),
+        "positions_total": len(completed),
+        "positions_active": 0,
         "positions_completed": len(completed),
-        "positions_profitable": sum(
-            1 for row in completed if float(row.get("return_pct") or 0) > 0
-        ),
-        "positions_unprofitable": sum(
-            1 for row in completed if float(row.get("return_pct") or 0) < 0
-        ),
-        "positions_flat": sum(
-            1 for row in completed if float(row.get("return_pct") or 0) == 0
-        ),
+        "positions_profitable": profitable,
+        "positions_unprofitable": unprofitable,
+        "positions_flat": flat,
         "total_invested": round(total_invested, 2),
-        "total_result": round(total_result, 2),
+        "total_result": round(realized_result, 2),
         "realized_result": round(realized_result, 2),
-        "unrealized_result": round(unrealized_result, 2),
+        "unrealized_result": 0.0,
         "realized_result_display": (
             f"+${realized_result:.2f}"
             if realized_result > 0
@@ -918,15 +921,23 @@ def build_crypto_window_summary(
             if realized_result < 0
             else "$0.00"
         ),
-        "unrealized_result_display": (
-            f"+${unrealized_result:.2f}"
-            if unrealized_result > 0
-            else f"-${abs(unrealized_result):.2f}"
-            if unrealized_result < 0
+        "unrealized_result_display": "$0.00",
+        "average_result": round(average_result, 2),
+        "average_result_display": (
+            f"+${average_result:.2f}"
+            if average_result > 0
+            else f"-${abs(average_result):.2f}"
+            if average_result < 0
             else "$0.00"
         ),
+        "win_rate": win_rate,
+        "win_rate_display": (
+            f"{win_rate:.1f}".rstrip("0").rstrip(".")
+            if win_rate is not None
+            else "—"
+        ),
         "portfolio_return_pct": round(
-            total_result / total_invested * 100,
+            realized_result / total_invested * 100,
             4,
         ) if total_invested else 0.0,
         "start_date": start_iso,
@@ -934,25 +945,24 @@ def build_crypto_window_summary(
         "start_date_display": start_date.strftime("%d.%m"),
         "end_date_display": end_date.strftime("%d.%m"),
         "result_display": (
-            f"+${total_result:.2f}"
-            if total_result > 0
-            else f"-${abs(total_result):.2f}"
-            if total_result < 0
+            f"+${realized_result:.2f}"
+            if realized_result > 0
+            else f"-${abs(realized_result):.2f}"
+            if realized_result < 0
             else "$0.00"
         ),
         "return_display": (
-            f"{total_result / total_invested * 100:+.2f}%"
+            f"{realized_result / total_invested * 100:+.2f}%"
             if total_invested
             else "+0.00%"
         ),
-        "result_timeline": _build_portfolio_result_timeline(
-            relevant,
+        "result_timeline": _build_closed_result_timeline(
+            completed,
             start_iso,
             end_iso,
-            prices_by_ticker or {},
         ),
-        "confidence_breakdown": _build_confidence_breakdown(relevant),
-        "scanner_breakdown": _build_scanner_breakdown(relevant),
+        "confidence_breakdown": _build_confidence_breakdown(completed),
+        "scanner_breakdown": _build_scanner_breakdown(completed),
         "completed_history": _build_completed_position_history(completed),
     }
     _validate_crypto_window_math(summary)
@@ -1105,63 +1115,30 @@ def _build_completed_position_history(
     )
 
 
-def _build_portfolio_result_timeline(
+def _build_closed_result_timeline(
     rows: Iterable[dict[str, Any]],
     start_date: str,
     end_date: str,
-    prices_by_ticker: dict[str, Iterable[tuple[Any, Any]]],
 ) -> list[dict[str, Any]]:
-    """Mark each window day with the cohort's actual or fixed USD result."""
-    positions = list(rows)
-    price_cache: dict[str, tuple[list[str], list[float]]] = {}
-    for ticker, price_rows in prices_by_ticker.items():
-        normalized: list[tuple[str, float]] = []
-        for raw_date, raw_price in price_rows:
-            date_key = _date_key(raw_date)
-            price = _safe_float(raw_price)
-            if (
-                date_key[0] == 0
-                and price is not None
-                and price > 0
-                and date_key[1] <= end_date
-            ):
-                normalized.append((date_key[1], price))
-        normalized.sort(key=lambda item: item[0])
-        price_cache[str(ticker)] = (
-            [item[0] for item in normalized],
-            [item[1] for item in normalized],
+    """Build cumulative realized P&L by the actual close date."""
+    result_by_date: dict[str, float] = {}
+    for row in rows:
+        close_key = _date_key(row.get("result_date"))
+        if close_key[0] != 0:
+            continue
+        result_by_date[close_key[1]] = (
+            result_by_date.get(close_key[1], 0.0)
+            + float(row.get("cash_result") or 0)
         )
 
     current = datetime.strptime(start_date, "%Y-%m-%d")
     end = datetime.strptime(end_date, "%Y-%m-%d")
     timeline: list[dict[str, Any]] = []
+    cumulative_result = 0.0
     while current <= end:
         date_iso = current.strftime("%Y-%m-%d")
-        total_result = 0.0
-        for row in positions:
-            position_start = str(row.get("start_date") or "")
-            position_end = str(row.get("result_date") or "")
-            if not position_start or date_iso < position_start:
-                continue
-
-            if position_end and date_iso >= position_end:
-                total_result += float(row.get("cash_result") or 0)
-                continue
-
-            ticker = str(row.get("ticker") or "")
-            price_dates, price_values = price_cache.get(ticker, ([], []))
-            price_index = bisect_right(price_dates, date_iso) - 1
-            if price_index >= 0 and price_dates[price_index] >= position_start:
-                stake = float(row.get("stake") or 0)
-                quantity = _safe_float(row.get("quantity"))
-                start_price = _safe_float(row.get("start_price"))
-                if quantity is None and start_price:
-                    quantity = stake / start_price
-                if quantity is not None:
-                    total_result += quantity * price_values[price_index] - stake
-                    continue
-
-        rounded_result = round(total_result, 2)
+        cumulative_result += result_by_date.get(date_iso, 0.0)
+        rounded_result = round(cumulative_result, 2)
         timeline.append({
             "date": date_iso,
             "date_display": current.strftime("%d.%m"),
