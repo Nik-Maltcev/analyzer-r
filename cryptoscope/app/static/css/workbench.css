@@ -453,6 +453,122 @@ body.app-is-loading {
     line-height: 1.5;
 }
 
+.momentum-strategy-version {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 9px;
+}
+
+.momentum-forward-stats,
+.momentum-run-history {
+    margin-bottom: 18px;
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+}
+
+.momentum-forward-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.momentum-forward-head h3 {
+    margin: 3px 0 0;
+    color: var(--text-bright);
+    font-size: 14px;
+}
+
+.momentum-forward-head > span {
+    color: var(--text-muted);
+    font-size: 9px;
+}
+
+.momentum-forward-metrics {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.momentum-forward-metrics > div {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+    padding: 13px 16px;
+    border-right: 1px solid var(--border-subtle);
+}
+
+.momentum-forward-metrics > div:last-child {
+    border-right: 0;
+}
+
+.momentum-forward-metrics span {
+    color: var(--text-muted);
+    font-size: 9px;
+    text-transform: uppercase;
+}
+
+.momentum-forward-metrics strong {
+    color: var(--text-bright);
+    font-family: var(--font-mono);
+    font-size: 18px;
+}
+
+.momentum-forward-metrics .positive,
+.momentum-run-row .positive {
+    color: var(--green-bright);
+}
+
+.momentum-forward-metrics .negative,
+.momentum-run-row .negative {
+    color: var(--red-bright);
+}
+
+.momentum-run-row {
+    display: grid;
+    grid-template-columns:
+        minmax(100px, 0.65fr)
+        minmax(280px, 1.5fr)
+        minmax(140px, 0.85fr)
+        minmax(110px, 0.7fr)
+        minmax(140px, 0.8fr);
+    align-items: center;
+    gap: 14px;
+    min-height: 52px;
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-dim);
+    font-size: 10px;
+}
+
+.momentum-run-row:last-child {
+    border-bottom: 0;
+}
+
+.momentum-run-table-head {
+    min-height: 34px;
+    color: var(--text-muted);
+    font-size: 9px;
+    text-transform: uppercase;
+    background: var(--surface-2);
+}
+
+.momentum-run-assets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.momentum-run-assets span {
+    padding: 3px 6px;
+    border: 1px solid var(--border-subtle);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 9px;
+}
+
 .crypto-weekly-summary {
     margin-bottom: 18px;
     background: var(--surface-1);
@@ -1358,6 +1474,39 @@ body.app-is-loading {
 
     .crypto-model-row > div:nth-child(6)::before {
         content: 'Обычное движение';
+    }
+
+    .momentum-forward-head {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .momentum-forward-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .momentum-forward-metrics > div {
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .momentum-forward-metrics > div:nth-child(2n) {
+        border-right: 0;
+    }
+
+    .momentum-run-table-head {
+        display: none;
+    }
+
+    .momentum-run-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: start;
+        gap: 10px;
+        padding: 13px 14px;
+    }
+
+    .momentum-run-assets {
+        justify-content: flex-end;
     }
 
     .crypto-weekly-summary-head {
@@ -3344,7 +3493,7 @@ html[data-view-mode='beginner'] .signals-page {
     }
 
     .navbar-tabs.has-admin-tab {
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(5, 1fr);
     }
 
     .navbar-end {

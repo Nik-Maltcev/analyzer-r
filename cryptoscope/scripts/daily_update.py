@@ -15,6 +15,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.api.public_extension import refresh_extension_feed_snapshots
+from app.core.momentum_portfolio import sync_momentum_portfolio_journal
 from app.core.scanner_history import sync_all_scanner_states
 from app.data.brazil import fetch_brazil_prices, upsert_brazil_prices
 from app.data.fetcher import fetch_batch
@@ -304,6 +305,16 @@ def main() -> int:
     except Exception as exc:
         print(f"Scanner signal history update failed: {exc}")
         return 1
+
+    if "crypto" in ENABLED_MARKETS:
+        try:
+            portfolio_result = asyncio.run(
+                sync_momentum_portfolio_journal(DB_PATH)
+            )
+            print(f"Momentum portfolio journal: {portfolio_result}")
+        except Exception as exc:
+            print(f"Momentum portfolio journal update failed: {exc}")
+            return 1
 
     # Recompute even when providers returned no new rows. This verifies the
     # existing dataset instead of reporting success with stale/broken pairs.

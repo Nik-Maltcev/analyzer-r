@@ -384,6 +384,63 @@ CREATE TABLE IF NOT EXISTS crypto_strategy_trades (
 )
 """
 
+CREATE_MOMENTUM_PORTFOLIO_RUNS = """
+CREATE TABLE IF NOT EXISTS momentum_portfolio_runs (
+    run_date TEXT PRIMARY KEY,
+    strategy_version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    entries_allowed INTEGER NOT NULL,
+    capital REAL NOT NULL,
+    allocated REAL NOT NULL,
+    reserve REAL NOT NULL,
+    candidates_total INTEGER NOT NULL,
+    selected_total INTEGER NOT NULL,
+    btc_above_sma50 INTEGER,
+    btc_distance_pct REAL,
+    breadth_positive INTEGER NOT NULL,
+    breadth_total INTEGER NOT NULL,
+    breadth_pct REAL,
+    finalized_on TEXT,
+    cash_result REAL,
+    return_pct REAL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    finalized_at TEXT
+)
+"""
+
+CREATE_MOMENTUM_PORTFOLIO_ALLOCATIONS = """
+CREATE TABLE IF NOT EXISTS momentum_portfolio_allocations (
+    run_date TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    rank INTEGER NOT NULL,
+    confidence TEXT,
+    momentum_score REAL NOT NULL,
+    volatility_pct REAL NOT NULL,
+    weight REAL NOT NULL,
+    allocation REAL NOT NULL,
+    units REAL NOT NULL,
+    entry_price REAL NOT NULL,
+    exit_date TEXT,
+    exit_price REAL,
+    return_pct REAL,
+    cash_result REAL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (run_date, ticker),
+    FOREIGN KEY (run_date) REFERENCES momentum_portfolio_runs(run_date)
+)
+"""
+
+CREATE_MOMENTUM_PORTFOLIO_INDICES = [
+    """
+    CREATE INDEX IF NOT EXISTS idx_momentum_portfolio_finalized
+    ON momentum_portfolio_runs(finalized_on, run_date)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_momentum_portfolio_allocations_ticker
+    ON momentum_portfolio_allocations(ticker, run_date)
+    """,
+]
+
 CREATE_CONTENT_PUBLICATION_INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_content_status ON content_publications(status, data_date)",
     "CREATE INDEX IF NOT EXISTS idx_content_ticker ON content_publications(market, ticker, created_at)",
@@ -416,6 +473,8 @@ ALL_TABLES_SQL = [
     CREATE_CONTENT_PUBLICATIONS,
     CREATE_EXTENSION_FEED_SNAPSHOTS,
     CREATE_CRYPTO_STRATEGY_TRADES,
+    CREATE_MOMENTUM_PORTFOLIO_RUNS,
+    CREATE_MOMENTUM_PORTFOLIO_ALLOCATIONS,
 ]
 
 ALL_INDICES_SQL = (
@@ -425,4 +484,5 @@ ALL_INDICES_SQL = (
     + CREATE_HOURLY_INDICES
     + CREATE_AUTH_INDICES
     + CREATE_CONTENT_PUBLICATION_INDICES
+    + CREATE_MOMENTUM_PORTFOLIO_INDICES
 )

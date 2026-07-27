@@ -1,0 +1,161 @@
+<div class="tab-page momentum-portfolio-page">
+    <div class="page-header crypto-picks-header">
+        <div>
+            <span class="section-kicker">Админский forward-test</span>
+            <h2><i class="page-title-icon" data-lucide="chart-no-axes-combined"></i>Momentum 3</h2>
+            <p class="page-desc">Три лучших Momentum LONG-сигнала, фильтр рынка и размер позиции по волатильности.</p>
+        </div>
+        <div class="momentum-strategy-version">{{ report.strategy_version }}</div>
+    </div>
+
+    <div class="crypto-calculation-note">
+        <i data-lucide="shield-check"></i>
+        <span>
+            Это отдельная гипотеза с капиталом $300. Состав фиксируется по дневному закрытию,
+            на следующем дневном срезе портфель закрывается и формируется заново.
+            Завершённые результаты не пересчитываются и не влияют на раздел «Крипта».
+        </span>
+    </div>
+
+    {% if current %}
+    <section class="crypto-model-portfolio" aria-labelledby="momentum-current-title">
+        <header class="crypto-model-head">
+            <div>
+                <span class="section-kicker">Срез на {{ current.run_date_display }}</span>
+                <h3 id="momentum-current-title">Текущий модельный портфель</h3>
+                <p>Результат будет зафиксирован на следующем доступном дневном закрытии.</p>
+            </div>
+            <span class="crypto-model-status is-{{ current.status }}">
+                {% if current.entries_allowed %}
+                <i data-lucide="circle-check"></i>
+                {% else %}
+                <i data-lucide="pause-circle"></i>
+                {% endif %}
+                {{ current.status_label }}
+            </span>
+        </header>
+
+        <div class="crypto-model-overview">
+            <div>
+                <span>Модельный капитал</span>
+                <strong>{{ current.capital_display }}</strong>
+                <small>до 3 позиций</small>
+            </div>
+            <div>
+                <span>Распределено</span>
+                <strong>{{ current.allocated_display }}</strong>
+                <small>по равному риску</small>
+            </div>
+            <div>
+                <span>Резерв в USDT</span>
+                <strong>{{ current.reserve_display }}</strong>
+                <small>если фильтр выключил входы</small>
+            </div>
+            <div>
+                <span>Кандидаты</span>
+                <strong>{{ current.selected_total }} / {{ current.candidates_total }}</strong>
+                <small>выбрано из подходящих</small>
+            </div>
+        </div>
+
+        <div class="crypto-market-filter">
+            <div class="{% if current.btc_above_sma50 %}is-passed{% else %}is-failed{% endif %}">
+                <span>BTC против SMA50</span>
+                <strong>{{ current.btc_distance_display }}</strong>
+                <small>{% if current.btc_above_sma50 %}выше средней{% else %}не выше средней{% endif %}</small>
+            </div>
+            <div class="{% if current.breadth_pct and current.breadth_pct >= 50 %}is-passed{% else %}is-failed{% endif %}">
+                <span>Ширина рынка</span>
+                <strong>{{ current.breadth_display }}</strong>
+                <small>{{ current.breadth_positive }} из {{ current.breadth_total }} монет выше SMA20</small>
+            </div>
+            <p>{{ current.status_detail }}</p>
+        </div>
+
+        {% if current.allocations %}
+        <div class="crypto-model-table" role="table" aria-label="Текущий Momentum-портфель">
+            <div class="crypto-model-row crypto-model-table-head" role="row">
+                <span>Монета</span>
+                <span>Momentum</span>
+                <span>Волатильность</span>
+                <span>Доля</span>
+                <span>Сумма</span>
+                <span>Цена входа</span>
+            </div>
+            {% for item in current.allocations %}
+            <div class="crypto-model-row" role="row">
+                <div class="crypto-model-asset">
+                    <strong>{{ item.rank }}. {{ item.symbol }}</strong>
+                    <span>{{ item.ticker }}</span>
+                </div>
+                <div>
+                    <strong>{{ item.momentum_score_display }}</strong>
+                    <span>{{ item.confidence }} уверенность</span>
+                </div>
+                <div><strong>{{ item.volatility_display }}</strong><span>20 дней</span></div>
+                <div><strong>{{ item.weight_display }}</strong><span>модельная доля</span></div>
+                <div><strong>{{ item.allocation_display }}</strong><span>{% if current.entries_allowed %}в позиции{% else %}не инвестировано{% endif %}</span></div>
+                <div><strong>{{ item.entry_price_display }}</strong><span>дневное закрытие</span></div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="crypto-model-empty">Подходящих Momentum LONG-сигналов сейчас нет.</div>
+        {% endif %}
+    </section>
+    {% endif %}
+
+    <section class="momentum-forward-stats" aria-labelledby="momentum-stats-title">
+        <header class="momentum-forward-head">
+            <div>
+                <span class="section-kicker">Отдельная статистика</span>
+                <h3 id="momentum-stats-title">Результаты гипотезы</h3>
+            </div>
+            <span>Только завершённые дневные портфели</span>
+        </header>
+        <div class="momentum-forward-metrics">
+            <div><span>Завершено дней</span><strong>{{ report.completed_total }}</strong></div>
+            <div><span>Дней в плюсе</span><strong class="positive">{{ report.positive_total }}</strong></div>
+            <div><span>Дней в минусе</span><strong class="negative">{{ report.negative_total }}</strong></div>
+            <div><span>Доля плюсовых</span><strong>{{ report.win_rate_display }}</strong></div>
+            <div><span>Итог в деньгах</span><strong class="{% if report.cumulative_cash >= 0 %}positive{% else %}negative{% endif %}">{{ report.cumulative_cash_display }}</strong></div>
+            <div><span>Доходность капитала</span><strong class="{% if report.compounded_return_pct >= 0 %}positive{% else %}negative{% endif %}">{{ report.compounded_return_display }}</strong></div>
+        </div>
+    </section>
+
+    <section class="momentum-run-history" aria-labelledby="momentum-history-title">
+        <header class="momentum-forward-head">
+            <div>
+                <span class="section-kicker">Журнал</span>
+                <h3 id="momentum-history-title">Дневные портфели</h3>
+            </div>
+            <span>До 30 последних срезов</span>
+        </header>
+        {% if report.runs %}
+        <div class="momentum-run-table">
+            <div class="momentum-run-row momentum-run-table-head">
+                <span>Дата входа</span><span>Состав</span><span>Режим</span><span>Закрытие</span><span>Результат</span>
+            </div>
+            {% for run in report.runs %}
+            <div class="momentum-run-row">
+                <strong>{{ run.run_date_display }}</strong>
+                <div class="momentum-run-assets">
+                    {% for item in run.allocations %}
+                    <span>{{ item.symbol }} · {{ item.allocation_display }}</span>
+                    {% else %}
+                    <span>USDT 100%</span>
+                    {% endfor %}
+                </div>
+                <span>{{ run.status_label }}</span>
+                <span>{% if run.finalized_on %}{{ run.finalized_on_display }}{% else %}Ожидается{% endif %}</span>
+                <strong class="{% if run.cash_result is not none and run.cash_result >= 0 %}positive{% elif run.cash_result is not none %}negative{% endif %}">
+                    {% if run.finalized_on %}{{ run.cash_result_display }} · {{ run.return_display }}{% else %}—{% endif %}
+                </strong>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="crypto-model-empty">Первый дневной срез появится после ежедневного обновления данных.</div>
+        {% endif %}
+    </section>
+</div>

@@ -181,6 +181,7 @@ function appLoadingMessage(source, target) {
     if (targetId === 'main-content') {
         const tab = source?.dataset?.tab;
         if (tab === 'crypto') return 'Открываем раздел «Крипта»';
+        if (tab === 'momentum-portfolio') return 'Открываем Momentum 3';
         if (tab === 'favorites') return 'Открываем портфель';
         if (tab === 'data') return 'Открываем данные';
         return 'Открываем раздел';
