@@ -1,6 +1,9 @@
+from datetime import datetime, timedelta
+
 from app.core.crypto_picks import (
     aggregate_crypto_long_picks,
     apply_crypto_confidence_admission,
+    build_admin_momentum_portfolio,
     build_completed_crypto_history,
     build_crypto_signal_export,
     build_crypto_window_summary,
@@ -9,6 +12,104 @@ from app.core.crypto_picks import (
     is_excluded_crypto_confidence,
     select_crypto_sell_actions,
 )
+
+
+def _model_price_history(
+    daily_moves: list[float],
+    start_price: float = 100.0,
+) -> list[tuple[str, float]]:
+    current = start_price
+    rows = [("2026-01-01", current)]
+    start = datetime(2026, 1, 1)
+    for index in range(1, 61):
+        current *= 1 + daily_moves[(index - 1) % len(daily_moves)]
+        rows.append((
+            (start + timedelta(days=index)).strftime("%Y-%m-%d"),
+            current,
+        ))
+    return rows
+
+
+def test_admin_momentum_portfolio_allows_entries_and_equalizes_risk():
+    prices = {
+        "BTC/USD": _model_price_history([0.01]),
+        "AAA/USD": _model_price_history([0.015, -0.002]),
+        "BBB/USD": _model_price_history([0.025, -0.005]),
+        "CCC/USD": _model_price_history([0.045, -0.01]),
+        "DDD/USD": _model_price_history([0.01, 0.002]),
+    }
+    signals = [
+        {
+            "ticker": "AAA/USD",
+            "recommendation_class": "long",
+            "confidence": "Высокая",
+            "momentum_score": 15,
+        },
+        {
+            "ticker": "BBB/USD",
+            "recommendation_class": "long",
+            "confidence": "Высокая",
+            "momentum_score": 12,
+        },
+        {
+            "ticker": "CCC/USD",
+            "recommendation_class": "long",
+            "confidence": "Высокая",
+            "momentum_score": 10,
+        },
+    ]
+
+    portfolio = build_admin_momentum_portfolio(
+        signals,
+        prices,
+        capital=300,
+    )
+
+    assert portfolio["status"] == "risk_on"
+    assert portfolio["entries_allowed"] is True
+    assert portfolio["selected_total"] == 3
+    assert portfolio["allocated"] == 300
+    assert portfolio["reserve"] == 0
+    assert [item["symbol"] for item in portfolio["allocations"]] == [
+        "AAA",
+        "BBB",
+        "CCC",
+    ]
+    assert portfolio["allocations"][0]["weight"] <= 0.5
+    assert (
+        portfolio["allocations"][0]["target_allocation"]
+        > portfolio["allocations"][2]["target_allocation"]
+    )
+
+
+def test_admin_momentum_portfolio_pauses_entries_when_btc_filter_fails():
+    prices = {
+        "BTC/USD": _model_price_history([-0.01]),
+        "AAA/USD": _model_price_history([0.015, -0.002]),
+        "BBB/USD": _model_price_history([0.025, -0.005]),
+        "CCC/USD": _model_price_history([0.045, -0.01]),
+        "DDD/USD": _model_price_history([0.01, 0.002]),
+    }
+
+    portfolio = build_admin_momentum_portfolio(
+        [
+            {
+                "ticker": "AAA/USD",
+                "recommendation_class": "long",
+                "confidence": "Высокая",
+                "momentum_score": 15,
+            },
+        ],
+        prices,
+        capital=300,
+    )
+
+    assert portfolio["status"] == "paused"
+    assert portfolio["entries_allowed"] is False
+    assert portfolio["allocated"] == 0
+    assert portfolio["reserve"] == 300
+    assert portfolio["allocations"][0]["target_allocation"] == 0
+    assert portfolio["allocations"][0]["model_allocation"] == 150
 
 
 def test_crypto_window_summary_uses_positions_closed_in_last_seven_days():

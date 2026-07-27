@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import statistics
 from datetime import datetime, timedelta
 from typing import Any, Iterable
 
@@ -30,6 +31,10 @@ CONFIDENCE_RANK = {
 
 CONFIDENCE_LEVELS = ("Низкая", "Средняя", "Высокая")
 UNKNOWN_CONFIDENCE = "Без уровня"
+
+ADMIN_MOMENTUM_MODEL_CAPITAL = 300.0
+ADMIN_MOMENTUM_MODEL_POSITIONS = 3
+ADMIN_MOMENTUM_MODEL_MAX_WEIGHT = 0.5
 
 CONFIDENCE_KEY = {
     "Низкая": "low",
@@ -150,6 +155,294 @@ def _format_price(value: Any) -> str:
     if price >= 0.01:
         return f"${price:.5f}".rstrip("0").rstrip(".")
     return f"${price:.8f}".rstrip("0").rstrip(".")
+
+
+def _format_usd(value: Any) -> str:
+    number = _safe_float(value)
+    if number is None:
+        return "—"
+    return f"${number:,.2f}".replace(",", " ")
+
+
+def _normalized_price_history(
+    rows: Iterable[tuple[Any, Any]],
+) -> list[tuple[str, float]]:
+    normalized: dict[str, float] = {}
+    for raw_date, raw_price in rows:
+        date_key = _date_key(raw_date)
+        price = _safe_float(raw_price)
+        if (
+            date_key[0] == 0
+            and price is not None
+            and price > 0
+        ):
+            normalized[date_key[1]] = price
+    return sorted(normalized.items(), key=lambda item: item[0])
+
+
+def _realized_volatility_pct(
+    rows: Iterable[tuple[Any, Any]],
+    lookback_days: int = 20,
+) -> float | None:
+    history = _normalized_price_history(rows)
+    prices = [price for _date, price in history[-(lookback_days + 1):]]
+    if len(prices) < 9:
+        return None
+    returns = [
+        math.log(current / previous)
+        for previous, current in zip(prices, prices[1:])
+        if previous > 0 and current > 0
+    ]
+    if len(returns) < 8:
+        return None
+    return max(statistics.pstdev(returns) * 100, 0.25)
+
+
+def _capped_inverse_volatility_weights(
+    volatilities: list[float],
+    max_weight: float,
+) -> list[float]:
+    """Allocate equal volatility risk while keeping a per-asset weight cap."""
+    if not volatilities:
+        return []
+
+    scores = [1 / max(float(volatility), 0.25) for volatility in volatilities]
+    weights = [0.0 for _ in scores]
+    remaining_indices = set(range(len(scores)))
+    remaining_weight = 1.0
+
+    while remaining_indices and remaining_weight > 1e-12:
+        score_total = sum(scores[index] for index in remaining_indices)
+        if score_total <= 0:
+            break
+        tentative = {
+            index: remaining_weight * scores[index] / score_total
+            for index in remaining_indices
+        }
+        capped = [
+            index
+            for index, weight in tentative.items()
+            if weight > max_weight
+        ]
+        if not capped:
+            for index, weight in tentative.items():
+                weights[index] = weight
+            break
+        for index in capped:
+            weights[index] = max_weight
+            remaining_weight -= max_weight
+            remaining_indices.remove(index)
+
+    return weights
+
+
+def build_admin_momentum_portfolio(
+    momentum_signals: Iterable[dict[str, Any]],
+    prices_by_ticker: dict[str, Iterable[tuple[Any, Any]]],
+    latest_prices: dict[str, Any] | None = None,
+    capital: float = ADMIN_MOMENTUM_MODEL_CAPITAL,
+    max_positions: int = ADMIN_MOMENTUM_MODEL_POSITIONS,
+    max_weight: float = ADMIN_MOMENTUM_MODEL_MAX_WEIGHT,
+) -> dict[str, Any]:
+    """Build an admin-only, regime-filtered equal-risk Momentum portfolio."""
+    normalized_capital = max(0.0, float(capital))
+    normalized_max_positions = max(1, int(max_positions))
+    normalized_max_weight = min(1.0, max(0.1, float(max_weight)))
+    latest_prices = latest_prices or {}
+
+    histories = {
+        ticker: _normalized_price_history(rows)
+        for ticker, rows in prices_by_ticker.items()
+    }
+    btc_ticker = next(
+        (
+            ticker
+            for ticker in histories
+            if _ticker_symbol(ticker) == "BTC"
+        ),
+        None,
+    )
+    btc_history = histories.get(btc_ticker or "", [])
+    btc_above_sma50: bool | None = None
+    btc_price = None
+    btc_sma50 = None
+    btc_distance_pct = None
+    if len(btc_history) >= 50:
+        btc_price = btc_history[-1][1]
+        btc_sma50 = sum(price for _date, price in btc_history[-50:]) / 50
+        btc_above_sma50 = btc_price > btc_sma50
+        btc_distance_pct = (btc_price / btc_sma50 - 1) * 100
+
+    breadth_total = 0
+    breadth_positive = 0
+    for history in histories.values():
+        if len(history) < 20:
+            continue
+        current = history[-1][1]
+        sma20 = sum(price for _date, price in history[-20:]) / 20
+        breadth_total += 1
+        if current > sma20:
+            breadth_positive += 1
+    breadth_ratio = (
+        breadth_positive / breadth_total
+        if breadth_total
+        else None
+    )
+    breadth_passed = (
+        breadth_ratio is not None and breadth_ratio >= 0.5
+    )
+    filter_ready = btc_above_sma50 is not None and breadth_total >= 5
+    entries_allowed = bool(
+        filter_ready and btc_above_sma50 and breadth_passed
+    )
+
+    candidates: list[dict[str, Any]] = []
+    for raw_signal in momentum_signals:
+        if raw_signal.get("recommendation_class") != "long":
+            continue
+        ticker = str(raw_signal.get("ticker") or "").strip()
+        volatility = _realized_volatility_pct(
+            prices_by_ticker.get(ticker, []),
+        )
+        current_price = _safe_float(latest_prices.get(ticker))
+        if current_price is None and histories.get(ticker):
+            current_price = histories[ticker][-1][1]
+        momentum_score = _safe_float(raw_signal.get("momentum_score"))
+        if (
+            not ticker
+            or volatility is None
+            or current_price is None
+            or current_price <= 0
+            or momentum_score is None
+        ):
+            continue
+        confidence = _normalize_confidence(raw_signal.get("confidence"))
+        candidates.append({
+            "ticker": ticker,
+            "symbol": _ticker_symbol(ticker),
+            "confidence": confidence,
+            "confidence_rank": CONFIDENCE_RANK.get(confidence, 0),
+            "momentum_score": momentum_score,
+            "volatility_pct": volatility,
+            "current_price": current_price,
+        })
+
+    candidates.sort(
+        key=lambda item: (
+            -item["confidence_rank"],
+            -item["momentum_score"],
+            item["volatility_pct"],
+            item["symbol"],
+        )
+    )
+    selected = candidates[:normalized_max_positions]
+    weights = _capped_inverse_volatility_weights(
+        [item["volatility_pct"] for item in selected],
+        normalized_max_weight,
+    )
+
+    allocations = []
+    for rank, (candidate, weight) in enumerate(
+        zip(selected, weights),
+        start=1,
+    ):
+        model_allocation = normalized_capital * weight
+        target_allocation = model_allocation if entries_allowed else 0.0
+        units = (
+            target_allocation / candidate["current_price"]
+            if target_allocation > 0
+            else 0.0
+        )
+        estimated_day_swing = (
+            target_allocation * candidate["volatility_pct"] / 100
+        )
+        allocations.append({
+            **candidate,
+            "rank": rank,
+            "weight": round(weight, 6),
+            "weight_display": f"{weight * 100:.1f}%",
+            "model_allocation": round(model_allocation, 2),
+            "model_allocation_display": _format_usd(model_allocation),
+            "target_allocation": round(target_allocation, 2),
+            "target_allocation_display": _format_usd(target_allocation),
+            "units": units,
+            "units_display": f"{units:.8f}".rstrip("0").rstrip("."),
+            "current_price_display": _format_price(candidate["current_price"]),
+            "momentum_score_display": f"{candidate['momentum_score']:+.2f}",
+            "volatility_display": f"{candidate['volatility_pct']:.2f}%",
+            "estimated_day_swing": round(estimated_day_swing, 2),
+            "estimated_day_swing_display": _format_usd(
+                estimated_day_swing
+            ),
+        })
+
+    allocated = sum(item["target_allocation"] for item in allocations)
+    model_allocated = sum(item["model_allocation"] for item in allocations)
+    reserve = max(0.0, normalized_capital - allocated)
+    model_reserve = max(0.0, normalized_capital - model_allocated)
+
+    if not filter_ready:
+        status = "unavailable"
+        status_label = "Недостаточно данных"
+        status_detail = "Новые покупки отключены до полного расчёта фильтра."
+    elif entries_allowed:
+        status = "risk_on"
+        status_label = "Покупки разрешены"
+        status_detail = "Оба условия рыночного фильтра выполнены."
+    else:
+        status = "paused"
+        status_label = "Новые покупки на паузе"
+        status_detail = (
+            "Список кандидатов показан для наблюдения, капитал остаётся в USDT."
+        )
+
+    return {
+        "strategy": "Momentum + market filter + volatility sizing",
+        "status": status,
+        "status_label": status_label,
+        "status_detail": status_detail,
+        "entries_allowed": entries_allowed,
+        "capital": round(normalized_capital, 2),
+        "capital_display": _format_usd(normalized_capital),
+        "max_positions": normalized_max_positions,
+        "max_weight_pct": round(normalized_max_weight * 100),
+        "candidates_total": len(candidates),
+        "selected_total": len(allocations),
+        "allocations": allocations,
+        "allocated": round(allocated, 2),
+        "allocated_display": _format_usd(allocated),
+        "reserve": round(reserve, 2),
+        "reserve_display": _format_usd(reserve),
+        "model_reserve": round(model_reserve, 2),
+        "model_reserve_display": _format_usd(model_reserve),
+        "btc_ticker": btc_ticker,
+        "btc_price_display": _format_price(btc_price),
+        "btc_sma50_display": _format_price(btc_sma50),
+        "btc_above_sma50": btc_above_sma50,
+        "btc_distance_pct": (
+            round(btc_distance_pct, 2)
+            if btc_distance_pct is not None
+            else None
+        ),
+        "btc_distance_display": (
+            f"{btc_distance_pct:+.2f}%"
+            if btc_distance_pct is not None
+            else "—"
+        ),
+        "breadth_positive": breadth_positive,
+        "breadth_total": breadth_total,
+        "breadth_ratio": (
+            round(breadth_ratio * 100, 1)
+            if breadth_ratio is not None
+            else None
+        ),
+        "breadth_display": (
+            f"{breadth_ratio * 100:.1f}%"
+            if breadth_ratio is not None
+            else "—"
+        ),
+        "breadth_passed": breadth_passed,
+    }
 
 
 def build_price_progress(

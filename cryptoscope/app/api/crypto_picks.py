@@ -18,6 +18,7 @@ from app.core.crypto_picks import (
     CRYPTO_PICKS_TRACKING_START,
     aggregate_crypto_long_picks,
     apply_crypto_confidence_admission,
+    build_admin_momentum_portfolio,
     build_crypto_window_summary,
     build_price_progress,
     build_crypto_signal_export,
@@ -422,6 +423,7 @@ async def crypto_picks_tab(
             None,
         ),
         "auto_close_result": [],
+        "model_portfolio": None,
     }
 
     try:
@@ -595,6 +597,11 @@ async def crypto_picks_tab(
             pick["progress_change_display"] = (
                 progress[0]["change_display"] if progress else "—"
             )
+        model_portfolio = build_admin_momentum_portfolio(
+            scanner_results.get("momentum", []),
+            daily_prices_by_ticker,
+            latest_prices=latest_prices,
+        )
         weekly_summary = build_crypto_window_summary(
             filter_crypto_rows_by_confidence(
                 report["rows"],
@@ -636,6 +643,7 @@ async def crypto_picks_tab(
                 "sell_actions": sell_actions,
                 "sell_total": len(sell_actions),
                 "weekly_summary": weekly_summary,
+                "model_portfolio": model_portfolio,
             },
         )
     except HTTPException:
