@@ -181,7 +181,7 @@ async def test_app_page(app):
         assert 'data-market="id"' not in response.text
         assert 'data-market="ru"' in response.text
         assert 'data-tab="ai"' not in response.text
-        assert "/static/js/main.js?v=20260718-gateway-retry1" in response.text
+        assert "/static/js/main.js?v=20260727-loading-overlay1" in response.text
         assert response.text.index("</nav>") < response.text.index('id="auth-modal"')
 
 
@@ -193,10 +193,8 @@ async def test_index_page_can_open_ru_market(app):
         assert response.status_code == 200
         assert 'window.CRYPTOSCOPE_INITIAL_MARKET = "ru"' in response.text
         assert 'data-market="ru"' in response.text
-        assert "market=ru" in response.text
-        assert response.text.count(
-            "hx-vals='js:{market: window.currentMarket}'"
-        ) == 3
+        assert 'hx-vals=\'{"mode":"all","market":"ru"}\'' in response.text
+        assert "window.currentMarket" in response.text
 
 
 @pytest.mark.asyncio

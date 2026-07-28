@@ -23,11 +23,18 @@ from app.content.card import render_signal_card, render_update_card
 from app.content.providers import OpenRouterClient
 from app.content.telegram import TelegramPublisher
 from app.content.threads import ThreadsPublisher
+from app.core.calculator import (
+    CALCULATION_VERSION,
+    calc_single_performance,
+    frozen_execution_settings,
+    infer_position_kind,
+)
 from app.core.scanner_history import (
     SCANNER_HORIZONS,
     is_scanner_signal_within_horizon,
 )
 from app.core.scanners import drawdown_scan, momentum_scan
+from app.core.signals import elapsed_holding_days
 from app.data.mexc_market import refresh_crypto_live_prices
 from app.db.schema import (
     CREATE_CONTENT_PUBLICATION_INDICES,
@@ -35,6 +42,7 @@ from app.db.schema import (
     CREATE_FAVORITES,
     CREATE_SCANNER_SIGNAL_INDICES,
     CREATE_SCANNER_SIGNAL_PERIODS,
+    FAVORITE_COLUMN_MIGRATIONS,
 )
 
 HIGH_CONFIDENCE = "high"
@@ -64,6 +72,19 @@ def directional_return_pct(direction: str, entry: float, current: float) -> floa
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute(CREATE_FAVORITES)
+    favorite_columns = {
+        str(row[1])
+        for row in conn.execute("PRAGMA table_info(favorites)").fetchall()
+    }
+    if "market" not in favorite_columns:
+        conn.execute(
+            "ALTER TABLE favorites ADD COLUMN market TEXT DEFAULT 'crypto'"
+        )
+    for column, definition in FAVORITE_COLUMN_MIGRATIONS.items():
+        if column not in favorite_columns:
+            conn.execute(
+                f"ALTER TABLE favorites ADD COLUMN {column} {definition}"
+            )
     conn.execute(CREATE_SCANNER_SIGNAL_PERIODS)
     for statement in CREATE_SCANNER_SIGNAL_INDICES:
         conn.execute(statement)
@@ -292,8 +313,11 @@ def _favorite_for_candidate(
         INSERT INTO favorites (
             pair, market, position_kind, source, ticker_a, ticker_b,
             signal, signal_type, price_a_entry, price_b_entry,
-            entry_time, status, halflife, user_id
+            capital_at_entry, leverage_at_entry,
+            taker_fee_pct_at_entry, funding_rate_pct_at_entry,
+            calculation_version, entry_time, status, halflife, user_id
         ) VALUES (?, 'crypto', 'single', ?, ?, '', ?, ?, ?, 0,
+                  1000, 1, 0.02, 0.01, ?,
                   datetime('now'), 'active', ?, ?)
         """,
         (
@@ -303,6 +327,7 @@ def _favorite_for_candidate(
             "Content monitoring",
             "long_a" if candidate.direction == "long" else "short_a",
             candidate.entry_price,
+            CALCULATION_VERSION,
             SCANNER_HORIZONS[candidate.scanner],
             user_id,
         ),
@@ -1099,19 +1124,77 @@ def _close_favorite(
     conn: sqlite3.Connection,
     favorite_id: int | None,
     current: float,
-    return_pct: float,
-) -> None:
+) -> bool:
     if not favorite_id:
-        return
-    conn.execute(
+        return False
+    favorite = conn.execute(
+        """
+        SELECT *
+        FROM favorites
+        WHERE id = ? AND status = 'active'
+        """,
+        (int(favorite_id),),
+    ).fetchone()
+    if favorite is None:
+        return False
+    if infer_position_kind(
+        favorite["position_kind"],
+        favorite["ticker_b"],
+    ) != "single":
+        raise ValueError(
+            "Content automation can only close single-leg favorites"
+        )
+    execution = frozen_execution_settings(favorite)
+    hold_days = elapsed_holding_days(favorite["entry_time"])
+    performance = calc_single_performance(
+        str(favorite["signal_type"]),
+        float(favorite["price_a_entry"] or 0),
+        float(current),
+        capital=float(execution["capital"]),
+        leverage=float(execution["leverage"]),
+        taker_fee_pct=float(execution["taker_fee_pct"]),
+        funding_rate_8h_pct=float(execution["funding_rate_pct"]),
+        hold_days=hold_days,
+    )
+    if not performance.get("complete"):
+        raise ValueError(
+            f"Cannot close favorite {favorite_id}: incomplete calculation"
+        )
+    cursor = conn.execute(
         """
         UPDATE favorites
         SET status = 'closed', exit_time = datetime('now'), exit_price_a = ?,
-            exit_price_b = 0, exit_pnl_pct = ?, exit_pair_move_pct = ?
+            exit_price_b = 0, exit_pnl_pct = ?,
+            exit_net_pnl = ?, exit_net_return_pct = ?,
+            exit_pair_move_pct = ?, exit_total_cost = ?,
+            close_capital = ?, exit_spread_move_pp = ?,
+            exit_unlevered_return_pct = ?, exit_gross_pnl = ?,
+            exit_gross_return_pct = ?, exit_hold_days = ?,
+            exit_leverage = ?, exit_taker_fee_pct = ?,
+            exit_funding_rate_pct = ?, calculation_version = ?
         WHERE id = ? AND status = 'active'
         """,
-        (current, return_pct, return_pct, int(favorite_id)),
+        (
+            float(current),
+            float(performance["unlevered_return_pct"]),
+            float(performance["net_pnl"]),
+            float(performance["net_return_pct"]),
+            float(performance["unlevered_return_pct"]),
+            float(performance["total_cost"]),
+            float(execution["capital"]),
+            float(performance["spread_move_pp"]),
+            float(performance["unlevered_return_pct"]),
+            float(performance["gross_pnl"]),
+            float(performance["gross_return_pct"]),
+            float(hold_days),
+            float(execution["leverage"]),
+            float(execution["taker_fee_pct"]),
+            float(execution["funding_rate_pct"]),
+            CALCULATION_VERSION,
+            int(favorite_id),
+        ),
     )
+    return cursor.rowcount == 1
 
 
 def _update_active_publications(
@@ -1276,7 +1359,7 @@ def _update_active_publications(
             ),
         )
         if closed:
-            _close_favorite(conn, row["favorite_id"], current, return_pct)
+            _close_favorite(conn, row["favorite_id"], current)
         conn.commit()
         updated.append({
             "id": int(row["id"]),

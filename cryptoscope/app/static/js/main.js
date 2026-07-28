@@ -768,6 +768,11 @@ function toggleFavorite(pairId, tickerA, tickerB, signal, signalType, zAtEntry, 
     appendNumber('price_b_entry', priceB);
     appendNumber('halflife', halflife);
     appendNumber('corr', corr);
+    const execution = getFavoritePnlSettings();
+    appendNumber('capital', execution.capital);
+    appendNumber('leverage', execution.leverage);
+    appendNumber('taker_fee', execution.taker_fee);
+    appendNumber('funding_rate', execution.funding_rate);
 
     fetch(`/api/favorites/toggle?${params.toString()}`, {
         method: 'POST'

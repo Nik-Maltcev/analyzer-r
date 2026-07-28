@@ -88,6 +88,33 @@ def test_drawdown_allows_long_only_after_rebound_confirmation():
     assert row["recommendation_reason"] == "Отскок подтверждается"
 
 
+def test_drawdown_recovery_is_future_upside_not_future_low():
+    history = np.full(100, 100.0)
+    history[20] = 80.0
+    history[21:50] = np.linspace(88.0, 110.0, 29)
+    history[80] = 80.0
+    history[81:100] = np.linspace(82.0, 90.0, 19)
+
+    result = drawdown_scan(history.reshape(-1, 1), ["RECOVERY"])
+    row = result.iloc[0]
+
+    assert row["avg_historical_recovery"] > 0
+    assert row["avg_additional_drawdown_pct"] >= 0
+
+
+def test_drawdown_recovery_includes_thirtieth_future_observation():
+    history = np.full(150, 100.0)
+    history[20] = 80.0
+    history[21:50] = 80.0
+    history[50] = 120.0
+    history[-1] = 80.0
+
+    result = drawdown_scan(history.reshape(-1, 1), ["DAY30"])
+    row = result.iloc[0]
+
+    assert row["avg_historical_recovery"] == 50.0
+
+
 def test_correlation_break_recommends_avoiding_unvalidated_pair():
     rng = np.random.default_rng(42)
     returns_a = rng.normal(0, 0.01, 120)

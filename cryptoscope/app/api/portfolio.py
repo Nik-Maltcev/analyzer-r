@@ -74,7 +74,10 @@ async def get_spread(
     
     # Backtest
     bt_df = run_backtest(zscores_arr) if zscores_arr is not None else pd.DataFrame()
-    spread_sd = compute_spread_sd_pct(pa, pb, cg["hedge_ratio"] or 1.0)
+    hedge_ratio = cg.get("hedge_ratio")
+    if hedge_ratio is None or not np.isfinite(float(hedge_ratio)):
+        hedge_ratio = 1.0
+    spread_sd = compute_spread_sd_pct(pa, pb, float(hedge_ratio))
     bt_stats = backtest_stats(bt_df, spread_sd)
     
     z_values = zscores_arr.tolist() if zscores_arr is not None else []

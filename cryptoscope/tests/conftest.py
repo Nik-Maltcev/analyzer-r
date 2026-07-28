@@ -61,7 +61,9 @@ def temp_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS prices (
             ticker TEXT NOT NULL, date TEXT NOT NULL, close REAL NOT NULL,
-            volume REAL, market TEXT, PRIMARY KEY (ticker, date)
+            volume REAL, market TEXT,
+            provider TEXT NOT NULL DEFAULT 'legacy',
+            PRIMARY KEY (ticker, date)
         )
     """)
 
@@ -93,6 +95,15 @@ def temp_db():
             exit_net_pnl REAL, exit_net_return_pct REAL,
             exit_pair_move_pct REAL, exit_total_cost REAL,
             close_capital REAL,
+            capital_at_entry REAL, leverage_at_entry REAL,
+            taker_fee_pct_at_entry REAL,
+            funding_rate_pct_at_entry REAL,
+            calculation_version TEXT,
+            exit_spread_move_pp REAL,
+            exit_unlevered_return_pct REAL,
+            exit_gross_pnl REAL, exit_gross_return_pct REAL,
+            exit_hold_days REAL, exit_leverage REAL,
+            exit_taker_fee_pct REAL, exit_funding_rate_pct REAL,
             status TEXT DEFAULT 'active', halflife INTEGER, corr REAL,
             user_id TEXT DEFAULT 'local', created_at TEXT
         )

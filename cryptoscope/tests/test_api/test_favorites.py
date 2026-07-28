@@ -50,7 +50,24 @@ def app(temp_db):
 
 
 @pytest.mark.asyncio
-async def test_ru_favorite_uses_moex_market_prices(app, temp_db):
+async def test_ru_favorite_uses_moex_market_prices(
+    app,
+    temp_db,
+    monkeypatch,
+):
+    async def fake_refresh(tickers, ttl_seconds=0):
+        assert sorted(tickers) == ["GAZP", "SBER"]
+        assert ttl_seconds == 0
+        return {
+            "prices": {"SBER": 110.0, "GAZP": 190.0},
+            "updated_at": datetime.now(timezone.utc),
+            "cached": False,
+        }
+
+    monkeypatch.setattr(
+        "app.api.favorites.refresh_ru_live_prices",
+        fake_refresh,
+    )
     conn = sqlite3.connect(temp_db)
     _add_auth_session(conn)
     conn.executemany(
@@ -87,8 +104,9 @@ async def test_ru_favorite_uses_moex_market_prices(app, temp_db):
         assert favorite["market"] == "ru"
         assert favorite["price_a_now"] == 110
         assert favorite["price_b_now"] == 190
-        assert favorite["pnl_total_pct"] == 15.0
-        assert favorite["pair_move_pct"] == 15.0
+        assert favorite["pnl_total_pct"] == 7.5
+        assert favorite["pair_move_pct"] == 7.5
+        assert favorite["spread_move_pp"] == 15.0
         assert favorite["gross_pnl"] == 75.0
         assert favorite["commissions"] == 0.4
         assert favorite["funding_cost"] == 0.0
@@ -98,7 +116,6 @@ async def test_ru_favorite_uses_moex_market_prices(app, temp_db):
         tab_response = await client.get("/tab/favorites")
         assert tab_response.status_code == 200
         assert "Обновить котировки RU" in tab_response.text
-        assert "Движение пары" in tab_response.text
         assert "Доходность" in tab_response.text
         assert "+7.46%" in tab_response.text
         assert "$+74.60" in tab_response.text
@@ -120,7 +137,101 @@ async def test_ru_favorite_uses_moex_market_prices(app, temp_db):
         """
     ).fetchone()
     conn.close()
-    assert closed == (110, 190, 15.0, "closed", 74.6, 7.46, 15.0, 0.4, 1000.0)
+    assert closed == (110, 190, 7.5, "closed", 74.6, 7.46, 7.5, 0.4, 1000.0)
+
+
+@pytest.mark.asyncio
+async def test_crypto_close_uses_fresh_server_quote_or_stays_open(
+    app,
+    temp_db,
+    monkeypatch,
+):
+    conn = sqlite3.connect(temp_db)
+    _add_auth_session(conn)
+    conn.execute(
+        """
+        INSERT INTO prices (ticker, date, close, volume, market)
+        VALUES ('XMR/USD', '2026-07-27', 300, 1, 'crypto')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO favorites (
+            pair, market, ticker_a, ticker_b, signal, signal_type,
+            position_kind, price_a_entry, price_b_entry, entry_time,
+            status, user_id, capital_at_entry, leverage_at_entry,
+            taker_fee_pct_at_entry, funding_rate_pct_at_entry,
+            calculation_version
+        )
+        VALUES (
+            'XMR/USD', 'crypto', 'XMR/USD', '', 'Test', 'long_a',
+            'single', 300, 0, '2026-07-27 12:00:00',
+            'active', ?, 100, 1, 0, 0, 'pnl-v2-weighted'
+        )
+        """,
+        (TEST_USER_ID,),
+    )
+    conn.commit()
+    conn.close()
+
+    async def missing_quote(tickers, ttl_seconds=0):
+        return {
+            "prices": {},
+            "updated_at": datetime.now(timezone.utc),
+            "cached": False,
+            "provider": "mexc",
+        }
+
+    monkeypatch.setattr(
+        "app.api.favorites.refresh_crypto_live_prices",
+        missing_quote,
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        client.cookies.set(SESSION_COOKIE_NAME, TEST_SESSION)
+        failed = await client.post(
+            "/api/favorites/close/1",
+            params={"exit_price_a": 1, "exit_pnl_pct": 9999},
+        )
+    assert failed.status_code == 502
+
+    conn = sqlite3.connect(temp_db)
+    assert conn.execute(
+        "SELECT status FROM favorites WHERE id = 1"
+    ).fetchone()[0] == "active"
+    conn.close()
+
+    async def fresh_quote(tickers, ttl_seconds=0):
+        assert tickers == ["XMR/USD"]
+        assert ttl_seconds == 0
+        return {
+            "prices": {"XMR/USD": 330.0},
+            "updated_at": datetime.now(timezone.utc),
+            "cached": False,
+            "provider": "mexc",
+        }
+
+    monkeypatch.setattr(
+        "app.api.favorites.refresh_crypto_live_prices",
+        fresh_quote,
+    )
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        client.cookies.set(SESSION_COOKIE_NAME, TEST_SESSION)
+        closed_response = await client.post(
+            "/api/favorites/close/1",
+            params={"exit_price_a": 1, "exit_pnl_pct": 9999},
+        )
+    assert closed_response.status_code == 200
+
+    conn = sqlite3.connect(temp_db)
+    closed = conn.execute(
+        """
+        SELECT status, exit_price_a, exit_pnl_pct, exit_net_pnl
+        FROM favorites WHERE id = 1
+        """
+    ).fetchone()
+    conn.close()
+    assert closed == ("closed", 330.0, 10.0, 10.0)
 
 
 @pytest.mark.asyncio
@@ -322,7 +433,11 @@ async def test_scanner_single_position_tracks_pnl_and_recommendation(
 
         response = await client.get(
             "/api/favorites",
-            params={"capital": 1000, "taker_fee": 0.02},
+            params={
+                "capital": 5000,
+                "leverage": 10,
+                "taker_fee": 1,
+            },
         )
         tab = await client.get("/tab/favorites")
         scanner = await client.get("/tab/scanner/momentum?market=stocks")
@@ -331,8 +446,11 @@ async def test_scanner_single_position_tracks_pnl_and_recommendation(
             f"/api/favorites/close/{favorite_id}",
             params={
                 "use_net": "true",
-                "capital": 1000,
-                "taker_fee": 0.02,
+                "capital": 5000,
+                "leverage": 10,
+                "taker_fee": 1,
+                "exit_price_a": 1,
+                "exit_pnl_pct": 9999,
             },
         )
 
@@ -345,9 +463,11 @@ async def test_scanner_single_position_tracks_pnl_and_recommendation(
     assert favorite["price_a_now"] == 140
     assert favorite["pair_move_pct"] == pytest.approx(10.2362)
     assert favorite["commissions"] == 0.4
+    assert favorite["capital"] == 1000
+    assert favorite["leverage"] == 1
+    assert favorite["taker_fee_pct"] == 0.02
 
     assert tab.status_code == 200
-    assert "Движение позиции" in tab.text
     assert "Momentum" in tab.text
     assert "Держать" in tab.text
     assert "TEST /" not in tab.text
@@ -360,7 +480,9 @@ async def test_scanner_single_position_tracks_pnl_and_recommendation(
     closed_row = conn.execute(
         """
         SELECT status, exit_price_a, exit_price_b, exit_pnl_pct,
-               exit_net_pnl, exit_net_return_pct
+               exit_net_pnl, exit_net_return_pct,
+               close_capital, exit_leverage, exit_taker_fee_pct,
+               exit_unlevered_return_pct, calculation_version
         FROM favorites WHERE id = ?
         """,
         (favorite_id,),
@@ -372,6 +494,11 @@ async def test_scanner_single_position_tracks_pnl_and_recommendation(
     assert closed_row[3] == pytest.approx(10.1962)
     assert closed_row[4] == pytest.approx(101.96)
     assert closed_row[5] == pytest.approx(10.1962)
+    assert closed_row[6] == 1000
+    assert closed_row[7] == 1
+    assert closed_row[8] == 0.02
+    assert closed_row[9] == pytest.approx(10.2362)
+    assert closed_row[10] == "pnl-v2-weighted"
 
 
 @pytest.mark.asyncio

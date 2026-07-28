@@ -18,7 +18,11 @@
             {% set hpnl = h.history_pnl_money if h.history_pnl_money is defined else none %}
             {% set hpct = h.history_pnl_pct if h.history_pnl_pct is defined else h.exit_pnl_pct %}
             <tr>
-                <td><strong>{{ h.ticker_a }}/{{ h.ticker_b }}</strong></td>
+                <td>
+                    <strong>
+                        {{ h.ticker_a }}{% if h.ticker_b %}/{{ h.ticker_b }}{% endif %}
+                    </strong>
+                </td>
                 <td>
                     <span class="badge {% if h.signal_type == 'short_a' %}badge-orange{% elif h.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
                         {{ h.signal_type|default('wait') }}
@@ -31,7 +35,15 @@
                     <strong>${{ '%+.2f'|format(hpnl) }}</strong>
                     <span>{{ '%+.2f'|format(hpct) }}%</span>
                     {% if h.history_total_cost is defined and h.history_total_cost %}
-                    <small>расходы ${{ '%.2f'|format(h.history_total_cost) }}</small>
+                    <small>расчётные расходы ${{ '%.2f'|format(h.history_total_cost) }}</small>
+                    {% endif %}
+                    {% if h.history_gross_pnl is defined and h.history_gross_pnl is not none %}
+                    <small>
+                        до расходов ${{ '%+.2f'|format(h.history_gross_pnl) }}
+                        {% if h.history_gross_return_pct is defined and h.history_gross_return_pct is not none %}
+                        ({{ '%+.2f'|format(h.history_gross_return_pct) }}%)
+                        {% endif %}
+                    </small>
                     {% endif %}
                     {% else %}
                     —

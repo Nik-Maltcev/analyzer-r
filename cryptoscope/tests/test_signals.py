@@ -11,6 +11,7 @@ from app.core.signals import (
     correlation_matrix,
     determine_signal,
     determine_strength,
+    elapsed_holding_days,
     estimate_signal_timing,
     is_actionable_signal,
     resolve_signal_started_at,
@@ -47,6 +48,30 @@ class TestDetermineSignal:
     def test_none_inputs(self):
         result = determine_signal(z_now=None, z_forecast=None, ticker_a="BTC", ticker_b="ETH")
         assert result["signal_type"] == "wait"
+
+    def test_negative_hedge_ratio_uses_same_direction_legs_for_long_spread(self):
+        result = determine_signal(
+            z_now=-2.3,
+            z_forecast=-1.0,
+            ticker_a="BTC",
+            ticker_b="ETH",
+            hedge_ratio=-1.5,
+        )
+
+        assert result["signal_type"] == "long_a"
+        assert result["signal"] == "Лонг BTC / Лонг ETH"
+
+    def test_negative_hedge_ratio_uses_same_direction_legs_for_short_spread(self):
+        result = determine_signal(
+            z_now=2.3,
+            z_forecast=1.0,
+            ticker_a="BTC",
+            ticker_b="ETH",
+            hedge_ratio=-1.5,
+        )
+
+        assert result["signal_type"] == "short_a"
+        assert result["signal"] == "Шорт BTC / Шорт ETH"
 
 
 class TestDetermineStrength:
@@ -100,6 +125,16 @@ class TestPairScore:
 
 
 class TestSignalTiming:
+    def test_elapsed_holding_days_uses_exact_24_hour_periods(self):
+        assert elapsed_holding_days(
+            "2026-06-26 12:00:00",
+            now=datetime(2026, 6, 27, 0, tzinfo=timezone.utc),
+        ) == 0.5
+        assert elapsed_holding_days(
+            "2026-06-26 12:00:00",
+            now=datetime(2026, 6, 28, 0, tzinfo=timezone.utc),
+        ) == 1.5
+
     def test_estimates_remaining_days_and_end_date(self):
         now = datetime(2026, 6, 27, 12, tzinfo=timezone.utc)
 

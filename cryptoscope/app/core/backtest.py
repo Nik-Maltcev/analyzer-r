@@ -15,8 +15,12 @@ def run_backtest(zscores: np.ndarray, entry_threshold: float = 2.0,
     """
     Simulate pair trading on Z-score series.
     
-    Entry: |Z| >= entry_threshold
-    Exit:  |Z| <= exit_threshold  OR  |Z| >= stop_threshold (stop loss)
+    A threshold is known only after that session closes. Entry and exit are
+    therefore executed at the next finite observation, never at the same
+    close that generated the decision.
+
+    Entry decision: |Z| >= entry_threshold
+    Exit decision:  |Z| <= exit_threshold OR |Z| >= stop_threshold
     
     Returns DataFrame with trades: entry_idx, exit_idx, entry_z, exit_z, pnl_sigma, days
     """
@@ -25,23 +29,54 @@ def run_backtest(zscores: np.ndarray, entry_threshold: float = 2.0,
     entry_idx = None
     entry_z = None
     position_type = None  # 'long' (buy spread) or 'short' (sell spread)
+    entry_signal_idx = None
+    pending_entry = None
+    pending_exit_idx = None
     
     for i in range(len(zscores)):
         z = zscores[i]
         if np.isnan(z):
             continue
-        
+
+        if pending_exit_idx is not None:
+            pnl_sigma = (
+                entry_z - z
+                if position_type == "short"
+                else z - entry_z
+            )
+            trades.append({
+                "entry_signal_idx": int(entry_signal_idx),
+                "exit_signal_idx": int(pending_exit_idx),
+                "entry_idx": int(entry_idx),
+                "exit_idx": int(i),
+                "entry_z": float(entry_z),
+                "exit_z": float(z),
+                "pnl_sigma": float(pnl_sigma),
+                "days": int(i - entry_idx),
+                "type": position_type,
+            })
+            in_position = False
+            entry_idx = None
+            entry_z = None
+            entry_signal_idx = None
+            position_type = None
+            pending_exit_idx = None
+            continue
+
+        if pending_entry is not None:
+            in_position = True
+            entry_idx = i
+            entry_z = z
+            entry_signal_idx = pending_entry["signal_idx"]
+            position_type = pending_entry["type"]
+            pending_entry = None
+            continue
+
         if not in_position:
             if z >= entry_threshold:
-                in_position = True
-                entry_idx = i
-                entry_z = z
-                position_type = 'short'
+                pending_entry = {"signal_idx": i, "type": "short"}
             elif z <= -entry_threshold:
-                in_position = True
-                entry_idx = i
-                entry_z = z
-                position_type = 'long'
+                pending_entry = {"signal_idx": i, "type": "long"}
         else:
             exit_signal = False
             if position_type == 'short':
@@ -52,27 +87,22 @@ def run_backtest(zscores: np.ndarray, entry_threshold: float = 2.0,
                     exit_signal = True
             
             if exit_signal:
-                pnl_sigma = (
-                    entry_z - z
-                    if position_type == "short"
-                    else z - entry_z
-                )
-                
-                trades.append({
-                    "entry_idx": int(entry_idx),
-                    "exit_idx": int(i),
-                    "entry_z": float(entry_z),
-                    "exit_z": float(z),
-                    "pnl_sigma": float(pnl_sigma),
-                    "days": int(i - entry_idx),
-                    "type": position_type,
-                })
-                in_position = False
-                entry_idx = None
-                entry_z = None
-                position_type = None
-    
-    return pd.DataFrame(trades)
+                pending_exit_idx = i
+
+    return pd.DataFrame(
+        trades,
+        columns=[
+            "entry_signal_idx",
+            "exit_signal_idx",
+            "entry_idx",
+            "exit_idx",
+            "entry_z",
+            "exit_z",
+            "pnl_sigma",
+            "days",
+            "type",
+        ],
+    )
 
 
 def backtest_stats(
@@ -89,16 +119,24 @@ def backtest_stats(
         }
     
     n = len(trades)
-    wins = trades[trades["pnl_sigma"] > 0]
-    losses = trades[trades["pnl_sigma"] < 0]
+    result_column = (
+        "return_pct"
+        if "return_pct" in trades.columns
+        else "pnl_sigma"
+    )
+    wins = trades[trades[result_column] > 0]
+    losses = trades[trades[result_column] < 0]
     
     win_rate = len(wins) / n if n > 0 else 0
     avg_pnl_sigma = float(trades["pnl_sigma"].mean())
-    avg_pnl_pct = (
-        avg_pnl_sigma * spread_sd_pct * 100
-        if spread_sd_pct is not None
-        else None
-    )
+    if "return_pct" in trades.columns:
+        avg_pnl_pct = float(trades["return_pct"].mean())
+    else:
+        avg_pnl_pct = (
+            avg_pnl_sigma * spread_sd_pct * 100
+            if spread_sd_pct is not None
+            else None
+        )
     
     return {
         "n_trades": n,
@@ -110,8 +148,16 @@ def backtest_stats(
         ),
         "avg_pnl_sigma": round(avg_pnl_sigma, 4),
         "avg_hold": round(float(trades["days"].mean()), 1),
-        "avg_win": round(float(wins["pnl_sigma"].mean()), 4) if len(wins) > 0 else None,
-        "avg_loss": round(float(losses["pnl_sigma"].mean()), 4) if len(losses) > 0 else None,
+        "avg_win": (
+            round(float(wins[result_column].mean()), 4)
+            if len(wins) > 0
+            else None
+        ),
+        "avg_loss": (
+            round(float(losses[result_column].mean()), 4)
+            if len(losses) > 0
+            else None
+        ),
         "has_history": True,
         "validated": n >= MIN_VALIDATED_TRADES,
         "total_pnl_sigma": round(float(trades["pnl_sigma"].sum()), 4),
@@ -133,6 +179,44 @@ def compute_spread_sd_pct(
         return float(np.std(spread, ddof=0))
     except Exception:
         return None
+
+
+def attach_pair_returns(
+    trades: pd.DataFrame,
+    price_a: np.ndarray,
+    price_b: np.ndarray,
+    hedge_ratio: float,
+) -> pd.DataFrame:
+    """Attach exact hedge-weighted price returns to backtest trades."""
+    if trades.empty:
+        result = trades.copy()
+        result["return_pct"] = pd.Series(dtype=float)
+        return result
+
+    a = np.asarray(price_a, dtype=float)
+    b = np.asarray(price_b, dtype=float)
+    hedge = float(hedge_ratio)
+    hedge_weight = abs(hedge)
+    weight_a = 1.0 / (1.0 + hedge_weight)
+    weight_b = hedge_weight / (1.0 + hedge_weight)
+    returns: list[float] = []
+
+    for row in trades.itertuples(index=False):
+        entry_idx = int(row.entry_idx)
+        exit_idx = int(row.exit_idx)
+        return_a = (a[exit_idx] / a[entry_idx] - 1) * 100
+        return_b = (b[exit_idx] / b[entry_idx] - 1) * 100
+        if row.type == "long":
+            leg_a = return_a
+            leg_b = return_b if hedge < 0 else -return_b
+        else:
+            leg_a = -return_a
+            leg_b = -return_b if hedge < 0 else return_b
+        returns.append(leg_a * weight_a + leg_b * weight_b)
+
+    result = trades.copy()
+    result["return_pct"] = returns
+    return result
 
 
 def out_of_sample_backtest(
@@ -175,6 +259,12 @@ def out_of_sample_backtest(
     test_spread = np.log(test_a) - hedge_ratio * np.log(test_b)
     test_zscores = (test_spread - spread_mean) / spread_sd
     trades = run_backtest(test_zscores)
+    trades = attach_pair_returns(
+        trades,
+        test_a,
+        test_b,
+        hedge_ratio,
+    )
 
     # Spread changes are normalized by total gross notional allocated to both
     # legs, so the percentage matches a hedge-ratio-weighted pair position.

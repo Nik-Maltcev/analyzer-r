@@ -5,8 +5,14 @@ import math
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import AuthUser, require_current_or_legacy_user
-from app.core.calculator import calc_pair_performance, calc_single_performance
-from app.core.signals import estimate_signal_timing
+from app.core.calculator import (
+    CALCULATION_VERSION,
+    calc_pair_performance,
+    calc_single_performance,
+    frozen_execution_settings,
+    infer_position_kind,
+)
+from app.core.signals import elapsed_holding_days, estimate_signal_timing
 from app.data.mexc_market import refresh_crypto_live_prices
 from app.data.moex import get_ru_live_snapshot, refresh_ru_live_prices
 from app.db.database import (
@@ -53,31 +59,6 @@ def _get_current_price(ticker: str, db_prices: dict, market: str) -> float:
         if live is not None and live > 0:
             return float(live)
     return float(db_prices.get((market, ticker), 0) or 0)
-
-
-def _pair_pnl(signal_type, entry_a, entry_b, price_a_now, price_b_now) -> float:
-    pnl_a = (
-        (price_a_now / entry_a - 1) * 100
-        if entry_a and entry_a > 0 and price_a_now
-        else 0
-    )
-    pnl_b = (
-        (price_b_now / entry_b - 1) * 100
-        if entry_b and entry_b > 0 and price_b_now
-        else 0
-    )
-    if signal_type == "short_a":
-        return -pnl_a + pnl_b
-    if signal_type == "long_a":
-        return pnl_a - pnl_b
-    return 0
-
-
-def _single_pnl(signal_type, entry_price, price_now) -> float:
-    if not entry_price or entry_price <= 0 or not price_now:
-        return 0
-    price_return = (price_now / entry_price - 1) * 100
-    return -price_return if signal_type == "short_a" else price_return
 
 
 @router.get("/live-status")
@@ -145,7 +126,10 @@ async def get_favorites(
     active_positions = []
     for _, row in favs.iterrows():
         market = row.get("market") or "crypto"
-        position_kind = row.get("position_kind") or "pair"
+        position_kind = infer_position_kind(
+            row.get("position_kind"),
+            row.get("ticker_b"),
+        )
         is_single = position_kind == "single"
         entry_a = row.get("price_a_entry")
         entry_b = row.get("price_b_entry")
@@ -170,36 +154,36 @@ async def get_favorites(
             price_b_now = float(latest_prices.get((market, row["ticker_b"]), 0) or 0)
 
         sig_type = row.get("signal_type", "wait")
-        pnl_total = (
-            _single_pnl(sig_type, entry_a, price_a_now)
-            if is_single
-            else _pair_pnl(
-                sig_type,
-                entry_a,
-                entry_b,
-                price_a_now,
-                price_b_now,
-            )
-        )
-
         hl = _query_int(row.get("halflife"), None)
         entry_time = row.get("entry_time")
         timing = estimate_signal_timing(entry_time, hl)
         days_held = timing["signal_days_elapsed"]
+        hold_days_exact = elapsed_holding_days(entry_time)
         hl_remaining = timing["signal_days_remaining"]
         is_expired = timing["signal_is_expired"]
+        execution = frozen_execution_settings(
+            row,
+            fallback_capital=capital,
+            fallback_leverage=leverage,
+            fallback_taker_fee_pct=taker_fee,
+            fallback_funding_rate_pct=(
+                funding_rate if market == "crypto" else 0
+            ),
+        )
         performance = (
             calc_single_performance(
                 sig_type,
                 entry_a,
                 price_a_now,
-                capital=capital,
-                leverage=leverage,
-                taker_fee_pct=taker_fee,
+                capital=execution["capital"],
+                leverage=execution["leverage"],
+                taker_fee_pct=execution["taker_fee_pct"],
                 funding_rate_8h_pct=(
-                    funding_rate if market == "crypto" else 0
+                    execution["funding_rate_pct"]
+                    if market == "crypto"
+                    else 0
                 ),
-                hold_days=days_held,
+                hold_days=hold_days_exact,
             )
             if is_single
             else calc_pair_performance(
@@ -208,17 +192,23 @@ async def get_favorites(
                 entry_b,
                 price_a_now,
                 price_b_now,
-                capital=capital,
-                leverage=leverage,
-                taker_fee_pct=taker_fee,
+                capital=execution["capital"],
+                leverage=execution["leverage"],
+                taker_fee_pct=execution["taker_fee_pct"],
                 funding_rate_8h_pct=(
-                    funding_rate if market == "crypto" else 0
+                    execution["funding_rate_pct"]
+                    if market == "crypto"
+                    else 0
                 ),
-                hold_days=days_held,
+                hold_days=hold_days_exact,
                 hedge_ratio=_query_float(
                     row.get("hedge_ratio_entry"), 1.0
                 ),
             )
+        )
+        pnl_total = _query_float(
+            performance.get("pair_move_pct"),
+            0.0,
         )
         pair_risk = (
             {}
@@ -254,6 +244,10 @@ async def get_favorites(
             "days_held": days_held,
             "hl_remaining": hl_remaining,
             "is_expired": is_expired,
+            "hold_days_exact": round(hold_days_exact, 4),
+            "legacy_execution_assumptions": execution[
+                "legacy_execution_assumptions"
+            ],
             "signal_eligible": _query_int(
                 pair_risk.get("signal_eligible"),
                 default_eligible,
@@ -312,6 +306,10 @@ async def toggle_fav(
     market: str = Query("crypto"),
     position_kind: str = Query("pair"),
     source: str = Query("signal"),
+    capital: float = Query(1000.0, ge=10),
+    leverage: float = Query(1.0, ge=1, le=20),
+    taker_fee: float = Query(0.02, ge=0, le=1),
+    funding_rate: float = Query(0.01, ge=0, le=1),
     user: AuthUser = Depends(require_current_or_legacy_user),
 ):
     """Toggle favorite (add/remove)."""
@@ -336,6 +334,13 @@ async def toggle_fav(
             corr=_query_float(corr, 0),
             position_kind=position_kind,
             source=source,
+            capital_at_entry=capital,
+            leverage_at_entry=leverage,
+            taker_fee_pct_at_entry=taker_fee,
+            funding_rate_pct_at_entry=(
+                funding_rate if market == "crypto" else 0
+            ),
+            calculation_version=CALCULATION_VERSION,
         )
     return result
 
@@ -439,7 +444,7 @@ async def close_fav(
     fav_id: int,
     exit_price_a: float = Query(0),
     exit_price_b: float = Query(0),
-    exit_pnl_pct: float = Query(0),
+    exit_pnl_pct: float | None = Query(None),
     use_net: bool = Query(False),
     capital: float = Query(1000.0, ge=10),
     leverage: float = Query(1.0, ge=1, le=20),
@@ -461,11 +466,63 @@ async def close_fav(
             raise HTTPException(status_code=404, detail="Позиция не найдена")
         if favorite:
             market = favorite["market"] or "crypto"
-            is_single = (favorite["position_kind"] or "pair") == "single"
-            raw_pair_pnl = exit_pnl_pct
+            is_single = infer_position_kind(
+                favorite["position_kind"],
+                favorite["ticker_b"],
+            ) == "single"
             performance = {"complete": False}
-            latest_prices = {}
-            for ticker in (favorite["ticker_a"], favorite["ticker_b"]):
+            tickers = [
+                str(ticker)
+                for ticker in (favorite["ticker_a"], favorite["ticker_b"])
+                if ticker
+            ]
+            latest_prices: dict[tuple[str, str], float] = {}
+
+            if market in {"crypto", "ru"}:
+                try:
+                    if market == "crypto":
+                        live_result = await refresh_crypto_live_prices(
+                            tickers,
+                            ttl_seconds=0,
+                        )
+                        provider_name = "MEXC"
+                    else:
+                        live_result = await refresh_ru_live_prices(
+                            tickers,
+                            ttl_seconds=0,
+                        )
+                        provider_name = "MOEX"
+                except Exception as exc:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(
+                            f"{market.upper()}: не удалось получить свежую "
+                            "серверную котировку. Позиция не закрыта."
+                        ),
+                    ) from exc
+
+                live_prices = live_result.get("prices") or {}
+                missing = [
+                    ticker
+                    for ticker in tickers
+                    if _query_float(live_prices.get(ticker), 0.0) <= 0
+                ]
+                if missing:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(
+                            f"{provider_name} не вернул свежую котировку для "
+                            f"{', '.join(missing)}. Позиция не закрыта."
+                        ),
+                    )
+                latest_prices.update({
+                    (market, ticker): float(live_prices[ticker])
+                    for ticker in tickers
+                })
+
+            for ticker in tickers:
+                if (market, ticker) in latest_prices:
+                    continue
                 if not ticker:
                     continue
                 price_cursor = await conn.execute(
@@ -480,14 +537,22 @@ async def close_fav(
                 if price_row:
                     latest_prices[(market, ticker)] = float(price_row[0])
 
-            if exit_price_a <= 0:
-                exit_price_a = _get_current_price(
-                    favorite["ticker_a"], latest_prices, market
+            # The server quote is authoritative. Client-supplied P&L and exit
+            # prices must never be able to rewrite the trade journal.
+            exit_price_a = _get_current_price(
+                favorite["ticker_a"],
+                latest_prices,
+                market,
+            )
+            exit_price_b = (
+                0.0
+                if is_single
+                else _get_current_price(
+                    favorite["ticker_b"],
+                    latest_prices,
+                    market,
                 )
-            if not is_single and exit_price_b <= 0:
-                exit_price_b = _get_current_price(
-                    favorite["ticker_b"], latest_prices, market
-                )
+            )
             entry_a = _query_float(favorite["price_a_entry"], 0.0)
             entry_b = _query_float(favorite["price_b_entry"], 0.0)
             can_price_position = (
@@ -495,38 +560,45 @@ async def close_fav(
                 and exit_price_a > 0
                 and (is_single or (entry_b > 0 and exit_price_b > 0))
             )
-            if can_price_position:
-                raw_pair_pnl = (
-                    _single_pnl(
-                        favorite["signal_type"],
-                        entry_a,
-                        exit_price_a,
-                    )
-                    if is_single
-                    else _pair_pnl(
-                        favorite["signal_type"],
-                        entry_a,
-                        entry_b,
-                        exit_price_a,
-                        exit_price_b,
-                    )
+            if not can_price_position:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Не удалось получить полные серверные котировки. "
+                        "Позиция не закрыта."
+                    ),
                 )
+            if can_price_position:
                 timing = estimate_signal_timing(
                     favorite["entry_time"],
                     _query_int(favorite["halflife"]),
+                )
+                hold_days_exact = elapsed_holding_days(
+                    favorite["entry_time"]
+                )
+                execution = frozen_execution_settings(
+                    favorite,
+                    fallback_capital=capital,
+                    fallback_leverage=leverage,
+                    fallback_taker_fee_pct=taker_fee,
+                    fallback_funding_rate_pct=(
+                        funding_rate if market == "crypto" else 0
+                    ),
                 )
                 performance = (
                     calc_single_performance(
                         favorite["signal_type"],
                         entry_a,
                         exit_price_a,
-                        capital=capital,
-                        leverage=leverage,
-                        taker_fee_pct=taker_fee,
+                        capital=execution["capital"],
+                        leverage=execution["leverage"],
+                        taker_fee_pct=execution["taker_fee_pct"],
                         funding_rate_8h_pct=(
-                            funding_rate if market == "crypto" else 0
+                            execution["funding_rate_pct"]
+                            if market == "crypto"
+                            else 0
                         ),
-                        hold_days=timing["signal_days_elapsed"],
+                        hold_days=hold_days_exact,
                     )
                     if is_single
                     else calc_pair_performance(
@@ -535,30 +607,39 @@ async def close_fav(
                         entry_b,
                         exit_price_a,
                         exit_price_b,
-                        capital=capital,
-                        leverage=leverage,
-                        taker_fee_pct=taker_fee,
+                        capital=execution["capital"],
+                        leverage=execution["leverage"],
+                        taker_fee_pct=execution["taker_fee_pct"],
                         funding_rate_8h_pct=(
-                            funding_rate if market == "crypto" else 0
+                            execution["funding_rate_pct"]
+                            if market == "crypto"
+                            else 0
                         ),
-                        hold_days=timing["signal_days_elapsed"],
+                        hold_days=hold_days_exact,
                         hedge_ratio=_query_float(
                             favorite["hedge_ratio_entry"], 1.0
                         ),
                     )
                 )
-            if exit_pnl_pct == 0:
-                if use_net and performance.get("complete"):
-                    exit_pnl_pct = performance.get(
-                        "net_return_pct",
-                        raw_pair_pnl,
-                    )
-                else:
-                    exit_pnl_pct = raw_pair_pnl
-                exit_pnl_pct = round(exit_pnl_pct, 4)
+            if not performance.get("complete"):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Расчёт позиции неполный. Позиция не закрыта.",
+                )
+            exit_pnl_pct = round(
+                _query_float(
+                    performance.get(
+                        "net_return_pct"
+                        if use_net
+                        else "unlevered_return_pct"
+                    ),
+                    0.0,
+                ),
+                4,
+            )
             exit_pair_move_pct = _query_float(
-                performance.get("pair_move_pct"),
-                raw_pair_pnl,
+                performance.get("unlevered_return_pct"),
+                0.0,
             )
             exit_net_return_pct = _query_float(
                 performance.get("net_return_pct"),
@@ -566,7 +647,7 @@ async def close_fav(
             )
             exit_net_pnl = _query_float(
                 performance.get("net_pnl"),
-                capital * exit_net_return_pct / 100,
+                execution["capital"] * exit_net_return_pct / 100,
             )
             exit_total_cost = _query_float(performance.get("total_cost"), 0.0)
         result = await close_favorite(
@@ -580,7 +661,37 @@ async def close_fav(
             exit_net_return_pct=round(exit_net_return_pct, 4),
             exit_pair_move_pct=round(exit_pair_move_pct, 4),
             exit_total_cost=round(exit_total_cost, 2),
-            close_capital=round(capital, 2),
+            close_capital=round(float(execution["capital"]), 2),
+            exit_spread_move_pp=round(
+                _query_float(performance.get("spread_move_pp"), 0.0),
+                4,
+            ),
+            exit_unlevered_return_pct=round(
+                _query_float(
+                    performance.get("unlevered_return_pct"),
+                    0.0,
+                ),
+                4,
+            ),
+            exit_gross_pnl=round(
+                _query_float(performance.get("gross_pnl"), 0.0),
+                2,
+            ),
+            exit_gross_return_pct=round(
+                _query_float(performance.get("gross_return_pct"), 0.0),
+                4,
+            ),
+            exit_hold_days=round(hold_days_exact, 6),
+            exit_leverage=round(float(execution["leverage"]), 4),
+            exit_taker_fee_pct=round(
+                float(execution["taker_fee_pct"]),
+                6,
+            ),
+            exit_funding_rate_pct=round(
+                float(execution["funding_rate_pct"]),
+                6,
+            ),
+            calculation_version=CALCULATION_VERSION,
         )
     return result
 

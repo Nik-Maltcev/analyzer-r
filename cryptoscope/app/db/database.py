@@ -105,8 +105,32 @@ async def init_db(db_path: str | None = None):
         await conn.execute(
             """
             UPDATE favorites
-            SET position_kind = COALESCE(position_kind, 'pair'),
-                source = COALESCE(source, 'signal')
+            SET position_kind = CASE
+                    WHEN TRIM(COALESCE(ticker_b, '')) = '' THEN 'single'
+                    ELSE COALESCE(position_kind, 'pair')
+                END,
+                source = COALESCE(source, 'signal'),
+                capital_at_entry = COALESCE(
+                    capital_at_entry,
+                    close_capital,
+                    1000.0
+                ),
+                leverage_at_entry = COALESCE(leverage_at_entry, 1.0),
+                taker_fee_pct_at_entry = COALESCE(
+                    taker_fee_pct_at_entry,
+                    0.02
+                ),
+                funding_rate_pct_at_entry = COALESCE(
+                    funding_rate_pct_at_entry,
+                    CASE
+                        WHEN COALESCE(market, 'crypto') = 'crypto' THEN 0.01
+                        ELSE 0.0
+                    END
+                ),
+                calculation_version = COALESCE(
+                    calculation_version,
+                    'legacy-estimated-v1'
+                )
             """
         )
         await conn.execute(
@@ -397,6 +421,19 @@ async def toggle_favorite(conn: aiosqlite.Connection, pair: str, ticker_a: str, 
     price_b = kwargs.get("price_b_entry", 0) or 0
     position_kind = kwargs.get("position_kind", "pair")
     source = kwargs.get("source", "signal")
+    capital_at_entry = max(float(kwargs.get("capital_at_entry", 1000)), 0)
+    leverage_at_entry = max(float(kwargs.get("leverage_at_entry", 1)), 0)
+    taker_fee_pct_at_entry = max(
+        float(kwargs.get("taker_fee_pct_at_entry", 0.02)),
+        0,
+    )
+    funding_rate_pct_at_entry = max(
+        float(kwargs.get("funding_rate_pct_at_entry", 0.01)),
+        0,
+    )
+    calculation_version = str(
+        kwargs.get("calculation_version") or "pnl-v2-weighted"
+    )
     if position_kind not in {"pair", "single"}:
         position_kind = "pair"
     if position_kind == "single":
@@ -443,8 +480,13 @@ async def toggle_favorite(conn: aiosqlite.Connection, pair: str, ticker_a: str, 
         INSERT INTO favorites (pair, market, position_kind, source,
                               ticker_a, ticker_b, signal, signal_type, z_at_entry,
                               hedge_ratio_entry, spread_mean_entry, spread_sd_entry,
-                              price_a_entry, price_b_entry, entry_time, status, halflife, corr, user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 'active', ?, ?, ?)
+                              price_a_entry, price_b_entry,
+                              capital_at_entry, leverage_at_entry,
+                              taker_fee_pct_at_entry, funding_rate_pct_at_entry,
+                              calculation_version,
+                              entry_time, status, halflife, corr, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                datetime('now'), 'active', ?, ?, ?)
     """, (
         pair, market, position_kind, source, ticker_a, ticker_b,
         kwargs.get("signal", ""),
@@ -455,6 +497,11 @@ async def toggle_favorite(conn: aiosqlite.Connection, pair: str, ticker_a: str, 
         model.get("spread_sd_entry"),
         price_a,
         price_b,
+        capital_at_entry,
+        leverage_at_entry,
+        taker_fee_pct_at_entry,
+        funding_rate_pct_at_entry,
+        calculation_version,
         kwargs.get("halflife"),
         kwargs.get("corr", 0),
         user_id,
@@ -470,7 +517,16 @@ async def close_favorite(conn: aiosqlite.Connection, fav_id: int, exit_price_a: 
                          exit_net_return_pct: float | None = None,
                          exit_pair_move_pct: float | None = None,
                          exit_total_cost: float | None = None,
-                         close_capital: float | None = None) -> dict[str, Any]:
+                         close_capital: float | None = None,
+                         exit_spread_move_pp: float | None = None,
+                         exit_unlevered_return_pct: float | None = None,
+                         exit_gross_pnl: float | None = None,
+                         exit_gross_return_pct: float | None = None,
+                         exit_hold_days: float | None = None,
+                         exit_leverage: float | None = None,
+                         exit_taker_fee_pct: float | None = None,
+                         exit_funding_rate_pct: float | None = None,
+                         calculation_version: str | None = None) -> dict[str, Any]:
     """Close an active favorite position."""
     if user_id is None:
         cursor = await conn.execute("""
@@ -478,12 +534,21 @@ async def close_favorite(conn: aiosqlite.Connection, fav_id: int, exit_price_a: 
                 exit_price_a = ?, exit_price_b = ?, exit_pnl_pct = ?,
                 exit_net_pnl = ?, exit_net_return_pct = ?,
                 exit_pair_move_pct = ?, exit_total_cost = ?,
-                close_capital = ?
+                close_capital = ?, exit_spread_move_pp = ?,
+                exit_unlevered_return_pct = ?, exit_gross_pnl = ?,
+                exit_gross_return_pct = ?, exit_hold_days = ?,
+                exit_leverage = ?, exit_taker_fee_pct = ?,
+                exit_funding_rate_pct = ?,
+                calculation_version = COALESCE(?, calculation_version)
             WHERE id = ?
         """, (
             exit_price_a, exit_price_b, exit_pnl_pct,
             exit_net_pnl, exit_net_return_pct, exit_pair_move_pct,
-            exit_total_cost, close_capital, fav_id,
+            exit_total_cost, close_capital, exit_spread_move_pp,
+            exit_unlevered_return_pct, exit_gross_pnl,
+            exit_gross_return_pct, exit_hold_days, exit_leverage,
+            exit_taker_fee_pct, exit_funding_rate_pct,
+            calculation_version, fav_id,
         ))
     else:
         cursor = await conn.execute("""
@@ -491,12 +556,21 @@ async def close_favorite(conn: aiosqlite.Connection, fav_id: int, exit_price_a: 
                 exit_price_a = ?, exit_price_b = ?, exit_pnl_pct = ?,
                 exit_net_pnl = ?, exit_net_return_pct = ?,
                 exit_pair_move_pct = ?, exit_total_cost = ?,
-                close_capital = ?
+                close_capital = ?, exit_spread_move_pp = ?,
+                exit_unlevered_return_pct = ?, exit_gross_pnl = ?,
+                exit_gross_return_pct = ?, exit_hold_days = ?,
+                exit_leverage = ?, exit_taker_fee_pct = ?,
+                exit_funding_rate_pct = ?,
+                calculation_version = COALESCE(?, calculation_version)
             WHERE id = ? AND user_id = ?
         """, (
             exit_price_a, exit_price_b, exit_pnl_pct,
             exit_net_pnl, exit_net_return_pct, exit_pair_move_pct,
-            exit_total_cost, close_capital, fav_id, user_id,
+            exit_total_cost, close_capital, exit_spread_move_pp,
+            exit_unlevered_return_pct, exit_gross_pnl,
+            exit_gross_return_pct, exit_hold_days, exit_leverage,
+            exit_taker_fee_pct, exit_funding_rate_pct,
+            calculation_version, fav_id, user_id,
         ))
     await conn.commit()
     return {"action": "closed", "id": fav_id, "updated": cursor.rowcount == 1}

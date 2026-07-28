@@ -9,7 +9,12 @@ from fastapi.responses import HTMLResponse
 from zoneinfo import ZoneInfo
 
 from app.auth import get_current_or_legacy_user
-from app.core.calculator import calc_pair_performance, calc_single_performance
+from app.core.calculator import (
+    calc_pair_performance,
+    calc_single_performance,
+    frozen_execution_settings,
+    infer_position_kind,
+)
 from app.core.cointegration import compute_fixed_zscore, compute_zscore, engle_granger
 from app.core.scanners import (
     apply_scanner_market_context,
@@ -27,7 +32,11 @@ from app.core.scanner_history import (
     is_scanner_signal_within_horizon,
     sync_scanner_periods,
 )
-from app.core.signals import estimate_signal_timing, is_actionable_signal
+from app.core.signals import (
+    elapsed_holding_days,
+    estimate_signal_timing,
+    is_actionable_signal,
+)
 from app.data.mexc_market import (
     get_crypto_live_snapshot,
     refresh_crypto_live_prices,
@@ -1121,7 +1130,10 @@ async def tab_favorites(
 
         for _, row in favs.iterrows():
             market = row.get("market") or "crypto"
-            position_kind = row.get("position_kind") or "pair"
+            position_kind = infer_position_kind(
+                row.get("position_kind"),
+                row.get("ticker_b"),
+            )
             is_single = position_kind == "single"
             source = row.get("source") or "signal"
             entry_a = row.get("price_a_entry")
@@ -1139,28 +1151,37 @@ async def tab_favorites(
                 if is_single
                 else latest_prices.get((market, row["ticker_b"]), 0)
             )
-            pnl_a = (p_a / entry_a - 1) * 100 if entry_a and entry_a > 0 and p_a else 0
-            pnl_b = (p_b / entry_b - 1) * 100 if entry_b and entry_b > 0 and p_b else 0
             st = row.get("signal_type", "wait")
-            total_pnl = (-pnl_a + pnl_b) if st == "short_a" else (pnl_a - pnl_b) if st == "long_a" else 0
 
             hl = _finite_int(row.get("halflife"))
             z_at_entry = _finite_float(row.get("z_at_entry"))
             entry_time = row.get("entry_time")
             holding_timing = estimate_signal_timing(entry_time, hl)
             days_held = holding_timing["signal_days_elapsed"]
+            hold_days_exact = elapsed_holding_days(entry_time)
+            execution = frozen_execution_settings(
+                row,
+                fallback_capital=capital,
+                fallback_leverage=leverage,
+                fallback_taker_fee_pct=taker_fee,
+                fallback_funding_rate_pct=(
+                    funding_rate if market == "crypto" else 0
+                ),
+            )
             performance = (
                 calc_single_performance(
                     st,
                     entry_a,
                     p_a,
-                    capital=capital,
-                    leverage=leverage,
-                    taker_fee_pct=taker_fee,
+                    capital=execution["capital"],
+                    leverage=execution["leverage"],
+                    taker_fee_pct=execution["taker_fee_pct"],
                     funding_rate_8h_pct=(
-                        funding_rate if market == "crypto" else 0
+                        execution["funding_rate_pct"]
+                        if market == "crypto"
+                        else 0
                     ),
-                    hold_days=days_held,
+                    hold_days=hold_days_exact,
                 )
                 if is_single
                 else calc_pair_performance(
@@ -1169,17 +1190,23 @@ async def tab_favorites(
                     entry_b,
                     p_a,
                     p_b,
-                    capital=capital,
-                    leverage=leverage,
-                    taker_fee_pct=taker_fee,
+                    capital=execution["capital"],
+                    leverage=execution["leverage"],
+                    taker_fee_pct=execution["taker_fee_pct"],
                     funding_rate_8h_pct=(
-                        funding_rate if market == "crypto" else 0
+                        execution["funding_rate_pct"]
+                        if market == "crypto"
+                        else 0
                     ),
-                    hold_days=days_held,
+                    hold_days=hold_days_exact,
                     hedge_ratio=_finite_float(
                         row.get("hedge_ratio_entry"), 1.0
                     ),
                 )
+            )
+            total_pnl = _finite_float(
+                performance.get("pair_move_pct"),
+                0.0,
             )
 
             # Recalculate current Z-score from price history
@@ -1302,6 +1329,10 @@ async def tab_favorites(
                 "corr": row.get("corr"),
                 "halflife": hl,
                 "days_held": days_held,
+                "hold_days_exact": round(hold_days_exact, 4),
+                "legacy_execution_assumptions": execution[
+                    "legacy_execution_assumptions"
+                ],
                 "z_at_entry": round(float(z_at_entry), 2) if z_at_entry else None,
                 "z_now_live": z_now_live,
                 "signal_eligible": signal_eligible,
@@ -1377,7 +1408,11 @@ async def tab_favorites_history(
         for row in history:
             stored_pct = _finite_float(row.get("exit_net_return_pct"))
             stored_money = _finite_float(row.get("exit_net_pnl"))
-            stored_move = _finite_float(row.get("exit_pair_move_pct"))
+            stored_move = _finite_float(
+                row.get("exit_unlevered_return_pct")
+            )
+            if stored_move is None:
+                stored_move = _finite_float(row.get("exit_pair_move_pct"))
             stored_cost = _finite_float(row.get("exit_total_cost"))
             close_capital = _finite_float(row.get("close_capital"), capital)
 
@@ -1395,9 +1430,21 @@ async def tab_favorites_history(
                     else None
                 )
                 row["history_capital"] = close_capital
+                row["history_spread_move_pp"] = _finite_float(
+                    row.get("exit_spread_move_pp")
+                )
+                row["history_gross_pnl"] = _finite_float(
+                    row.get("exit_gross_pnl")
+                )
+                row["history_gross_return_pct"] = _finite_float(
+                    row.get("exit_gross_return_pct")
+                )
                 continue
 
-            is_single = (row.get("position_kind") or "pair") == "single"
+            is_single = infer_position_kind(
+                row.get("position_kind"),
+                row.get("ticker_b"),
+            ) == "single"
             market = row.get("market") or "crypto"
             entry_a = _finite_float(row.get("price_a_entry"))
             entry_b = _finite_float(row.get("price_b_entry"))
@@ -1408,6 +1455,19 @@ async def tab_favorites_history(
                 row.get("entry_time"),
                 _finite_int(row.get("halflife")),
                 now=exit_dt,
+            )
+            hold_days_exact = elapsed_holding_days(
+                row.get("entry_time"),
+                now=exit_dt,
+            )
+            execution = frozen_execution_settings(
+                row,
+                fallback_capital=capital,
+                fallback_leverage=leverage,
+                fallback_taker_fee_pct=taker_fee,
+                fallback_funding_rate_pct=(
+                    funding_rate if market == "crypto" else 0
+                ),
             )
 
             can_reprice = (
@@ -1422,13 +1482,15 @@ async def tab_favorites_history(
                         row.get("signal_type"),
                         entry_a,
                         exit_a,
-                        capital=capital,
-                        leverage=leverage,
-                        taker_fee_pct=taker_fee,
+                        capital=execution["capital"],
+                        leverage=execution["leverage"],
+                        taker_fee_pct=execution["taker_fee_pct"],
                         funding_rate_8h_pct=(
-                            funding_rate if market == "crypto" else 0
+                            execution["funding_rate_pct"]
+                            if market == "crypto"
+                            else 0
                         ),
-                        hold_days=timing["signal_days_elapsed"],
+                        hold_days=hold_days_exact,
                     )
                     if is_single
                     else calc_pair_performance(
@@ -1437,13 +1499,15 @@ async def tab_favorites_history(
                         entry_b,
                         exit_a,
                         exit_b,
-                        capital=capital,
-                        leverage=leverage,
-                        taker_fee_pct=taker_fee,
+                        capital=execution["capital"],
+                        leverage=execution["leverage"],
+                        taker_fee_pct=execution["taker_fee_pct"],
                         funding_rate_8h_pct=(
-                            funding_rate if market == "crypto" else 0
+                            execution["funding_rate_pct"]
+                            if market == "crypto"
+                            else 0
                         ),
-                        hold_days=timing["signal_days_elapsed"],
+                        hold_days=hold_days_exact,
                         hedge_ratio=_finite_float(
                             row.get("hedge_ratio_entry"), 1.0
                         ),
@@ -1466,14 +1530,27 @@ async def tab_favorites_history(
                 row["history_total_cost"] = _finite_float(
                     performance.get("total_cost"),
                 )
-                row["history_capital"] = capital
+                row["history_capital"] = execution["capital"]
+                row["history_spread_move_pp"] = _finite_float(
+                    performance.get("spread_move_pp")
+                )
+                row["history_gross_pnl"] = _finite_float(
+                    performance.get("gross_pnl")
+                )
+                row["history_gross_return_pct"] = _finite_float(
+                    performance.get("gross_return_pct")
+                )
             else:
                 fallback_pct = _finite_float(row.get("exit_pnl_pct"), 0.0)
+                fallback_capital = execution["capital"]
                 row["history_pnl_pct"] = fallback_pct
-                row["history_pnl_money"] = round(capital * fallback_pct / 100, 2)
+                row["history_pnl_money"] = round(
+                    fallback_capital * fallback_pct / 100,
+                    2,
+                )
                 row["history_pair_move_pct"] = fallback_pct
                 row["history_total_cost"] = None
-                row["history_capital"] = capital
+                row["history_capital"] = fallback_capital
     except Exception as e:
         return templates.TemplateResponse(request, "components/favorites_history.html", {
             "request": request,

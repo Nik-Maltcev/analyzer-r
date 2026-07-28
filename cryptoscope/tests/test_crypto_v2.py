@@ -81,6 +81,21 @@ def test_crypto_v2_marks_history_and_forward_separately():
     assert modes == {"backtest", "forward"}
 
 
+def test_crypto_v2_executes_confirmation_on_next_daily_close():
+    wide = _rising_market()
+    features = build_crypto_v2_features(wide)
+    result = simulate_crypto_v2(wide, "2025-03-20")
+    first_trade = result["trades"][0]
+    entry_date = pd.Timestamp(first_trade["entry_date"])
+    entry_position = wide.index.get_loc(entry_date)
+
+    assert entry_position > 0
+    decision_date = wide.index[entry_position - 1]
+    ticker = first_trade["ticker"]
+    assert bool(features["confirmed"].at[decision_date, ticker])
+    assert first_trade["entry_price"] == wide.at[entry_date, ticker]
+
+
 def test_crypto_v2_live_price_updates_order_quantity():
     report = {
         "active": [{

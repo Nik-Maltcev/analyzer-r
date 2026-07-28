@@ -17,7 +17,7 @@ from app.db.schema import (
     CREATE_CRYPTO_V2_TRADES,
 )
 
-STRATEGY_VERSION = "crypto-v2-regime-hysteresis-5pos-500-v3"
+STRATEGY_VERSION = "crypto-v2-regime-hysteresis-5pos-500-v4-next-close"
 MODEL_CAPITAL = 500.0
 MAX_POSITIONS = 5
 MAX_POSITION_WEIGHT = 0.50
@@ -218,6 +218,31 @@ def simulate_crypto_v2(
     regime = features["regime"]
     exposure = features["exposure"]
 
+    # A signal is only known after its daily candle closes. Execute every
+    # entry and exit on the next available daily close so the backtest never
+    # fills a trade at a price that was already in the feature calculation.
+    decision_score = score.shift(1)
+    decision_volatility = volatility.shift(1)
+    decision_confidence_rank = confidence_rank.shift(1).fillna(0).astype(int)
+    decision_eligible = eligible.shift(1, fill_value=False)
+    decision_confirmed = confirmed.shift(1, fill_value=False)
+    decision_regime = regime.shift(1, fill_value="unavailable")
+    decision_exposure = exposure.shift(1, fill_value=0.0)
+    decision_btc_above = features["btc_above"].shift(
+        1,
+        fill_value=False,
+    )
+    decision_btc_distance = features["btc_distance"].shift(1)
+    decision_breadth_positive = features["breadth_positive"].shift(
+        1,
+        fill_value=0,
+    )
+    decision_breadth_total = features["breadth_total"].shift(
+        1,
+        fill_value=0,
+    )
+    decision_breadth_pct = features["breadth_pct"].shift(1)
+
     active: dict[str, dict[str, Any]] = {}
     trades: list[dict[str, Any]] = []
     candidates: list[dict[str, Any]] = []
@@ -225,8 +250,8 @@ def simulate_crypto_v2(
 
     for raw_date in prices.index:
         data_date = raw_date.strftime("%Y-%m-%d")
-        day_regime = str(regime.loc[raw_date])
-        day_exposure = _safe_float(exposure.loc[raw_date])
+        day_regime = str(decision_regime.loc[raw_date])
+        day_exposure = _safe_float(decision_exposure.loc[raw_date])
         exited_today: set[str] = set()
 
         if data_date == forward_started_on:
@@ -256,8 +281,8 @@ def simulate_crypto_v2(
             trade["held_sessions"] += 1
             trade["last_evaluated_date"] = data_date
             trade["last_price"] = float(current_price)
-            current_score = score.at[raw_date, ticker]
-            is_eligible = bool(eligible.at[raw_date, ticker])
+            current_score = decision_score.at[raw_date, ticker]
+            is_eligible = bool(decision_eligible.at[raw_date, ticker])
             trade["missing_days"] = (
                 0 if is_eligible else int(trade["missing_days"]) + 1
             )
@@ -290,11 +315,13 @@ def simulate_crypto_v2(
 
         day_candidates: list[dict[str, Any]] = []
         for ticker in prices.columns:
-            if not bool(eligible.at[raw_date, ticker]):
+            if not bool(decision_eligible.at[raw_date, ticker]):
                 continue
-            current_score = score.at[raw_date, ticker]
-            current_volatility = volatility.at[raw_date, ticker]
-            current_rank = int(confidence_rank.at[raw_date, ticker])
+            current_score = decision_score.at[raw_date, ticker]
+            current_volatility = decision_volatility.at[raw_date, ticker]
+            current_rank = int(
+                decision_confidence_rank.at[raw_date, ticker]
+            )
             if pd.isna(current_score) or pd.isna(current_volatility):
                 continue
             day_candidates.append({
@@ -303,7 +330,7 @@ def simulate_crypto_v2(
                 "confidence_rank": current_rank,
                 "momentum_score": float(current_score),
                 "volatility_pct": float(current_volatility),
-                "confirmed": bool(confirmed.at[raw_date, ticker]),
+                "confirmed": bool(decision_confirmed.at[raw_date, ticker]),
                 "selected": False,
                 "rank": None,
                 "regime": day_regime,
@@ -392,22 +419,22 @@ def simulate_crypto_v2(
             "data_date": data_date,
             "btc_above_sma50": (
                 None
-                if pd.isna(features["btc_distance"].loc[raw_date])
-                else int(bool(features["btc_above"].loc[raw_date]))
+                if pd.isna(decision_btc_distance.loc[raw_date])
+                else int(bool(decision_btc_above.loc[raw_date]))
             ),
             "btc_distance_pct": (
                 None
-                if pd.isna(features["btc_distance"].loc[raw_date])
-                else float(features["btc_distance"].loc[raw_date])
+                if pd.isna(decision_btc_distance.loc[raw_date])
+                else float(decision_btc_distance.loc[raw_date])
             ),
             "breadth_positive": int(
-                features["breadth_positive"].loc[raw_date]
+                decision_breadth_positive.loc[raw_date]
             ),
-            "breadth_total": int(features["breadth_total"].loc[raw_date]),
+            "breadth_total": int(decision_breadth_total.loc[raw_date]),
             "breadth_pct": (
                 None
-                if pd.isna(features["breadth_pct"].loc[raw_date])
-                else float(features["breadth_pct"].loc[raw_date])
+                if pd.isna(decision_breadth_pct.loc[raw_date])
+                else float(decision_breadth_pct.loc[raw_date])
             ),
             "regime": day_regime,
             "exposure_factor": day_exposure,

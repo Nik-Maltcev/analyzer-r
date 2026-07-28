@@ -64,7 +64,7 @@
               onchange="storeFavoritePnlSettings(this)"
               onsubmit="storeFavoritePnlSettings(this)">
             <div class="favorite-pnl-field">
-                <label for="favorite-capital">Капитал позиции</label>
+                <label for="favorite-capital">Капитал новой позиции</label>
                 <input class="form-input"
                        id="favorite-capital"
                        name="capital"
@@ -74,7 +74,7 @@
                        value="{{ pnl_settings.capital }}">
             </div>
             <div class="favorite-pnl-field">
-                <label for="favorite-leverage">Плечо</label>
+                <label for="favorite-leverage">Плечо новой позиции</label>
                 <input class="form-input"
                        id="favorite-leverage"
                        name="leverage"
@@ -106,8 +106,9 @@
                        step="0.001"
                        value="{{ pnl_settings.funding_rate }}">
             </div>
-            <button class="btn btn-outline" type="submit">Пересчитать</button>
+            <button class="btn btn-outline" type="submit">Сохранить для новых</button>
             <span class="favorites-pnl-note">
+                Эти параметры фиксируются при добавлении позиции и больше не меняют её результат.
                 Для пар капитал распределяется между ногами по hedge ratio. Комиссия включает вход и предполагаемый выход.
                 Фандинг применяется только к CRYPTO и является оценкой.
             </span>
@@ -138,34 +139,40 @@
                 <!-- Pair movement and account P&L -->
                 {% set pair_move = f.pair_move_pct if f.pair_move_pct is defined else f.pnl_total_pct %}
                 <div class="position-pnl-caption pro-only">
-                    {% if f.is_single %}Движение позиции{% else %}Движение пары{% endif %}
+                    {% if f.is_single %}Изменение цены без плеча{% else %}Доходность пары без плеча{% endif %}
                 </div>
                 <div class="position-pnl-display pro-only {% if pair_move >= 0 %}positive{% else %}negative{% endif %}">
-                    {{ '%+.2f'|format(pair_move) }} п.п.
+                    {{ '%+.2f'|format(pair_move) }}%
                 </div>
                 {% if f.complete %}
                 <div class="position-pnl-breakdown pro-only">
                     <div>
-                        <span>Gross P&amp;L</span>
+                        <span>P&amp;L с плечом {{ f.leverage|round(2) }}x</span>
                         <strong class="{% if f.gross_pnl >= 0 %}positive{% else %}negative{% endif %}">
                             ${{ '%+.2f'|format(f.gross_pnl) }}
                         </strong>
                     </div>
                     <div>
-                        <span>Расходы</span>
+                        <span>Расчётные расходы</span>
                         <strong class="negative">−${{ '%.2f'|format(f.total_cost) }}</strong>
                         <small>
                             комиссия ${{ '%.2f'|format(f.commissions) }}
-                            {% if f.funding_cost > 0 %}· фандинг ≈ ${{ '%.2f'|format(f.funding_cost) }}{% endif %}
+                            {% if f.funding_cost > 0 %}· оценка funding ≈ ${{ '%.2f'|format(f.funding_cost) }}{% endif %}
                         </small>
                     </div>
                     <div class="net-pnl-cell">
-                        <span>Net P&amp;L</span>
+                        <span>Расчётный Net P&amp;L</span>
                         <strong class="{% if f.net_pnl >= 0 %}positive{% else %}negative{% endif %}">
                             ${{ '%+.2f'|format(f.net_pnl) }}
                         </strong>
                         <small>{{ '%+.2f'|format(f.net_return_pct) }}% капитала</small>
                     </div>
+                </div>
+                {% endif %}
+                {% if f.legacy_execution_assumptions %}
+                <div class="pair-risk-note">
+                    <strong>Старый формат позиции</strong>
+                    <span>Параметры исполнения не были сохранены при входе; расходы рассчитаны по историческим настройкам по умолчанию.</span>
                 </div>
                 {% endif %}
 
@@ -308,6 +315,20 @@
                         </span>
                     </div>
                     {% if not f.is_single %}
+                    {% if f.spread_move_pp is defined %}
+                    <div class="detail-row">
+                        <span class="detail-label">Диагностическое движение спреда</span>
+                        <span class="detail-value text-mono">{{ '%+.2f'|format(f.spread_move_pp) }} п.п.</span>
+                    </div>
+                    {% endif %}
+                    {% if f.hedge_ratio is defined %}
+                    <div class="detail-row">
+                        <span class="detail-label">Вес ног A / B</span>
+                        <span class="detail-value text-mono">
+                            ${{ '%.2f'|format(f.leg_a_notional) }} / ${{ '%.2f'|format(f.leg_b_notional) }}
+                        </span>
+                    </div>
+                    {% endif %}
                     <div class="detail-row">
                         <span class="detail-label">{{ f.leg_b_side }} {{ f.ticker_b }}</span>
                         <span class="detail-value text-mono {% if f.leg_b_pnl_pct >= 0 %}positive{% else %}negative{% endif %}">

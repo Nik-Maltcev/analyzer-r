@@ -176,6 +176,18 @@ def test_ru_storage_migrates_ticker_and_repairs_favorite_entry():
         VALUES ('TCSG_SBER', 'ru', 'TCSG', 'SBER', 0, 0, '2026-06-25 12:00:00', 'active')
         """
     )
+    conn.execute(
+        """
+        INSERT INTO favorites (
+            pair, market, ticker_a, ticker_b,
+            price_a_entry, price_b_entry, entry_time, status
+        )
+        VALUES (
+            'SBER_TCSG', 'ru', 'SBER', 'TCSG',
+            280, 2400, '2026-06-25 12:00:00', 'active'
+        )
+        """
+    )
 
     migrate_legacy_ru_ticker(conn)
     new_prices = pd.DataFrame([
@@ -190,9 +202,22 @@ def test_ru_storage_migrates_ticker_and_repairs_favorite_entry():
     assert conn.execute(
         "SELECT close FROM prices WHERE ticker = 'T' AND date = '2024-11-27'"
     ).fetchone()[0] == 2500
-    assert conn.execute(
-        "SELECT pair, ticker_a, market, price_b_entry FROM favorites"
-    ).fetchone() == ("T_SBER", "T", "ru", 295)
+    repaired = conn.execute(
+        """
+        SELECT pair, ticker_a, market, price_a_entry, price_b_entry
+        FROM favorites
+        WHERE pair = 'T_SBER'
+        """
+    ).fetchone()
+    assert repaired == ("T_SBER", "T", "ru", 2500, 295)
+    immutable = conn.execute(
+        """
+        SELECT price_a_entry, price_b_entry
+        FROM favorites
+        WHERE pair = 'SBER_T'
+        """
+    ).fetchone()
+    assert immutable == (280, 2400)
     assert latest_ru_start_dates(conn, ["SBER"], overlap_days=1) == {
         "SBER": "2026-06-25"
     }

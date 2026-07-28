@@ -4,6 +4,85 @@ import math
 from typing import Dict, Any, Optional
 
 
+CALCULATION_VERSION = "pnl-v2-weighted"
+VALID_SIGNAL_TYPES = {"long_a", "short_a"}
+
+
+def _finite_non_negative(value: object, default: float = 0.0) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    if not math.isfinite(parsed) or parsed < 0:
+        return float(default)
+    return parsed
+
+
+def _positive_price(value: object) -> bool:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(parsed) and parsed > 0
+
+
+def infer_position_kind(position_kind: object, ticker_b: object) -> str:
+    """Return a stable position type, including legacy single-leg rows."""
+    normalized = str(position_kind or "").strip().lower()
+    if normalized == "single" or not str(ticker_b or "").strip():
+        return "single"
+    return "pair"
+
+
+def frozen_execution_settings(
+    row: object,
+    *,
+    fallback_capital: float = 1000.0,
+    fallback_leverage: float = 1.0,
+    fallback_taker_fee_pct: float = 0.02,
+    fallback_funding_rate_pct: float = 0.01,
+) -> Dict[str, float | str | bool]:
+    """Read entry-time execution assumptions without mutating the trade."""
+    getter = getattr(row, "get", None)
+
+    def get(name: str, default=None):
+        if callable(getter):
+            return getter(name, default)
+        try:
+            return row[name]
+        except (KeyError, IndexError, TypeError):
+            return default
+
+    def finite(name: str, default: float, minimum: float = 0.0) -> float:
+        try:
+            value = float(get(name, default))
+        except (TypeError, ValueError):
+            value = default
+        if not math.isfinite(value) or value < minimum:
+            return float(default)
+        return value
+
+    calculation_version = str(
+        get("calculation_version") or "legacy-estimated-v1"
+    )
+    return {
+        "capital": finite("capital_at_entry", fallback_capital),
+        "leverage": finite("leverage_at_entry", fallback_leverage),
+        "taker_fee_pct": finite(
+            "taker_fee_pct_at_entry",
+            fallback_taker_fee_pct,
+        ),
+        "funding_rate_pct": finite(
+            "funding_rate_pct_at_entry",
+            fallback_funding_rate_pct,
+        ),
+        "calculation_version": calculation_version,
+        "legacy_execution_assumptions": calculation_version.startswith(
+            "legacy"
+        ),
+    }
+
+
 def calc_single_performance(
     signal_type: str,
     entry_price: float,
@@ -15,21 +94,16 @@ def calc_single_performance(
     hold_days: float = 0.0,
 ) -> Dict[str, Any]:
     """Calculate net performance for one long or short instrument."""
-    values = (entry_price, price_now)
-    complete = all(
-        isinstance(value, (int, float))
-        and math.isfinite(float(value))
-        and float(value) > 0
-        for value in values
-    )
-    if not complete:
-        return {"complete": False}
+    if signal_type not in VALID_SIGNAL_TYPES:
+        return {"complete": False, "error": "unsupported_signal_type"}
+    if not all(_positive_price(value) for value in (entry_price, price_now)):
+        return {"complete": False, "error": "invalid_price"}
 
-    capital = max(float(capital), 0.0)
-    leverage = max(float(leverage), 0.0)
-    taker_fee_pct = max(float(taker_fee_pct), 0.0)
-    funding_rate_8h_pct = max(float(funding_rate_8h_pct), 0.0)
-    hold_days = max(float(hold_days), 0.0)
+    capital = _finite_non_negative(capital)
+    leverage = _finite_non_negative(leverage)
+    taker_fee_pct = _finite_non_negative(taker_fee_pct)
+    funding_rate_8h_pct = _finite_non_negative(funding_rate_8h_pct)
+    hold_days = _finite_non_negative(hold_days)
 
     price_return = (float(price_now) / float(entry_price) - 1) * 100
     if signal_type == "short_a":
@@ -57,10 +131,13 @@ def calc_single_performance(
 
     return {
         "complete": True,
+        "calculation_version": CALCULATION_VERSION,
         "leg_a_side": side,
         "price_return_a_pct": round(price_return, 4),
         "leg_a_pnl_pct": round(position_move_pct, 4),
+        "spread_move_pp": round(position_move_pct, 4),
         "pair_move_pct": round(position_move_pct, 4),
+        "unlevered_return_pct": round(position_move_pct, 4),
         "capital": round(capital, 2),
         "leverage": round(leverage, 2),
         "gross_exposure": round(gross_exposure, 2),
@@ -76,6 +153,7 @@ def calc_single_performance(
         "net_return_pct": round(net_return_pct, 4),
         "taker_fee_pct": taker_fee_pct,
         "funding_rate_pct": funding_rate_8h_pct,
+        "funding_is_estimate": funding_cost > 0,
         "hold_days": round(hold_days, 2),
     }
 
@@ -99,47 +177,49 @@ def calc_pair_performance(
     divided between the legs using ``1 : abs(hedge_ratio)``. Commission covers
     one complete entry and one complete exit of the gross pair exposure.
     """
+    if signal_type not in VALID_SIGNAL_TYPES:
+        return {"complete": False, "error": "unsupported_signal_type"}
     values = (entry_a, entry_b, price_a_now, price_b_now)
-    complete = all(
-        isinstance(value, (int, float))
-        and math.isfinite(float(value))
-        and float(value) > 0
-        for value in values
-    )
-    if not complete:
-        return {"complete": False}
+    if not all(_positive_price(value) for value in values):
+        return {"complete": False, "error": "invalid_price"}
 
-    capital = max(float(capital), 0.0)
-    leverage = max(float(leverage), 0.0)
-    taker_fee_pct = max(float(taker_fee_pct), 0.0)
-    funding_rate_8h_pct = max(float(funding_rate_8h_pct), 0.0)
-    hold_days = max(float(hold_days), 0.0)
-    hedge_ratio = (
-        abs(float(hedge_ratio))
-        if isinstance(hedge_ratio, (int, float))
-        and math.isfinite(float(hedge_ratio))
-        else 1.0
-    )
-    if hedge_ratio <= 0:
-        hedge_ratio = 1.0
+    capital = _finite_non_negative(capital)
+    leverage = _finite_non_negative(leverage)
+    taker_fee_pct = _finite_non_negative(taker_fee_pct)
+    funding_rate_8h_pct = _finite_non_negative(funding_rate_8h_pct)
+    hold_days = _finite_non_negative(hold_days)
+    try:
+        signed_hedge_ratio = float(hedge_ratio)
+    except (TypeError, ValueError):
+        signed_hedge_ratio = 1.0
+    if not math.isfinite(signed_hedge_ratio):
+        signed_hedge_ratio = 1.0
+    hedge_weight = abs(signed_hedge_ratio)
 
     price_return_a = (float(price_a_now) / float(entry_a) - 1) * 100
     price_return_b = (float(price_b_now) / float(entry_b) - 1) * 100
 
     if signal_type == "long_a":
-        leg_a_side, leg_b_side = "Лонг", "Шорт"
-        leg_a_pnl, leg_b_pnl = price_return_a, -price_return_b
-    elif signal_type == "short_a":
-        leg_a_side, leg_b_side = "Шорт", "Лонг"
-        leg_a_pnl, leg_b_pnl = -price_return_a, price_return_b
+        leg_a_side = "Лонг"
+        leg_a_pnl = price_return_a
+        if signed_hedge_ratio < 0:
+            leg_b_side, leg_b_pnl = "Лонг", price_return_b
+        else:
+            leg_b_side, leg_b_pnl = "Шорт", -price_return_b
     else:
-        leg_a_side = leg_b_side = "Ожидание"
-        leg_a_pnl = leg_b_pnl = 0.0
+        leg_a_side = "Шорт"
+        leg_a_pnl = -price_return_a
+        if signed_hedge_ratio < 0:
+            leg_b_side, leg_b_pnl = "Шорт", -price_return_b
+        else:
+            leg_b_side, leg_b_pnl = "Лонг", price_return_b
 
-    pair_move_pct = leg_a_pnl + leg_b_pnl
+    # The unweighted sum is useful as a spread diagnostic, but it is not the
+    # return earned by the hedge-ratio-weighted portfolio.
+    spread_move_pp = leg_a_pnl + leg_b_pnl
     gross_exposure = capital * leverage
-    weight_a = 1.0 / (1.0 + hedge_ratio)
-    weight_b = hedge_ratio / (1.0 + hedge_ratio)
+    weight_a = 1.0 / (1.0 + hedge_weight)
+    weight_b = hedge_weight / (1.0 + hedge_weight)
     leg_a_notional = gross_exposure * weight_a
     leg_b_notional = gross_exposure * weight_b
     weighted_pair_return_pct = (
@@ -167,21 +247,23 @@ def calc_pair_performance(
 
     return {
         "complete": True,
+        "calculation_version": CALCULATION_VERSION,
         "leg_a_side": leg_a_side,
         "leg_b_side": leg_b_side,
         "price_return_a_pct": round(price_return_a, 4),
         "price_return_b_pct": round(price_return_b, 4),
         "leg_a_pnl_pct": round(leg_a_pnl, 4),
         "leg_b_pnl_pct": round(leg_b_pnl, 4),
-        "pair_move_pct": round(pair_move_pct, 4),
+        "spread_move_pp": round(spread_move_pp, 4),
+        "pair_move_pct": round(weighted_pair_return_pct, 4),
+        "unlevered_return_pct": round(weighted_pair_return_pct, 4),
         "weighted_pair_return_pct": round(weighted_pair_return_pct, 4),
         "capital": round(capital, 2),
         "leverage": round(leverage, 2),
         "gross_exposure": round(gross_exposure, 2),
-        "leg_notional": round(gross_exposure / 2, 2),
         "leg_a_notional": round(leg_a_notional, 2),
         "leg_b_notional": round(leg_b_notional, 2),
-        "hedge_ratio": round(hedge_ratio, 6),
+        "hedge_ratio": round(signed_hedge_ratio, 6),
         "gross_pnl": round(gross_pnl, 2),
         "gross_return_pct": round(gross_return_pct, 4),
         "commissions": round(commissions, 2),
@@ -191,6 +273,7 @@ def calc_pair_performance(
         "net_return_pct": round(net_return_pct, 4),
         "taker_fee_pct": taker_fee_pct,
         "funding_rate_pct": funding_rate_8h_pct,
+        "funding_is_estimate": funding_cost > 0,
         "hold_days": round(hold_days, 2),
     }
 
@@ -221,8 +304,10 @@ def calc_signal_pnl(
     Returns:
         dict with position_size, commissions, funding, gross_tp, net_tp, etc.
     """
-    capital = max(float(capital), 0.0)
-    leverage = max(float(leverage), 0.0)
+    capital = _finite_non_negative(capital)
+    leverage = _finite_non_negative(leverage)
+    taker_fee_pct = _finite_non_negative(taker_fee_pct)
+    funding_rate_8h_pct = _finite_non_negative(funding_rate_8h_pct)
     position_size = capital * leverage
 
     # position_size is already the total exposure of both legs. It turns over
@@ -230,7 +315,12 @@ def calc_signal_pnl(
     # commissions in the old calculator.
     commissions = position_size * (taker_fee_pct / 100) * 2
     
-    days = hold_days if hold_days is not None else (avg_hold if avg_hold is not None else 5)
+    raw_days = (
+        hold_days
+        if hold_days is not None
+        else (avg_hold if avg_hold is not None else 5)
+    )
+    days = _finite_non_negative(raw_days, 5.0)
     funding = position_size * (funding_rate_8h_pct / 100) * (days * 3)  # ~3 8h periods per day
     
     z_move = avg_pnl_z
@@ -246,17 +336,29 @@ def calc_signal_pnl(
             "complete": False,
             "error": "Недостаточно данных о волатильности спреда",
         }
+    try:
+        z_move = float(z_move)
+        spread_sd = abs(float(spread_sd))
+    except (TypeError, ValueError):
+        return {
+            "complete": False,
+            "error": "Некорректные данные о волатильности спреда",
+        }
+    if not math.isfinite(z_move) or not math.isfinite(spread_sd):
+        return {
+            "complete": False,
+            "error": "Некорректные данные о волатильности спреда",
+        }
 
     hedge_ratio = signal_info.get("hedge_ratio", 1.0)
     try:
         hedge_ratio = abs(float(hedge_ratio))
     except (TypeError, ValueError):
         hedge_ratio = 1.0
-    if not math.isfinite(hedge_ratio) or hedge_ratio <= 0:
+    if not math.isfinite(hedge_ratio):
         hedge_ratio = 1.0
-    spread_sd = abs(float(spread_sd))
     portfolio_spread_sd = spread_sd / (1.0 + hedge_ratio)
-    gross_pnl_pct = float(z_move) * portfolio_spread_sd * 100
+    gross_pnl_pct = z_move * portfolio_spread_sd * 100
     gross_pnl = position_size * (gross_pnl_pct / 100)
     
     net_pnl = gross_pnl - commissions - funding
@@ -301,11 +403,15 @@ def compute_position_details(
     funding_rate: float = 0.01,
 ) -> Dict[str, Any]:
     """Compute detailed position breakdown for a specific pair."""
+    capital = _finite_non_negative(capital)
+    leverage = _finite_non_negative(leverage)
+    taker_fee = _finite_non_negative(taker_fee)
+    funding_rate = _finite_non_negative(funding_rate)
     pos_size = capital * leverage
     commission_total = pos_size * (taker_fee / 100) * 2
-    
-    avg_hold = pair.get("halflife", 30) if pair.get("halflife") else 30
-    days = min(avg_hold, 30)
+
+    avg_hold = _finite_non_negative(pair.get("halflife"), 30.0)
+    days = min(avg_hold, 30.0)
     funding_cost = pos_size * (funding_rate / 100) * days * 3
     
     return {

@@ -359,7 +359,7 @@ def upsert_ru_prices(
 
 
 def reprice_active_ru_favorites(conn: sqlite3.Connection) -> None:
-    """Repair entry prices for RU favorites created while RU data was stale."""
+    """Fill missing RU entry prices without rewriting an existing trade."""
     table = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'favorites'"
     ).fetchone()
@@ -375,25 +375,42 @@ def reprice_active_ru_favorites(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         UPDATE favorites
-        SET price_a_entry = COALESCE((
-                SELECT close
-                FROM prices
-                WHERE market = 'ru'
-                  AND ticker = favorites.ticker_a
-                  AND date <= substr(favorites.entry_time, 1, 10)
-                ORDER BY date DESC
-                LIMIT 1
-            ), price_a_entry),
-            price_b_entry = COALESCE((
-                SELECT close
-                FROM prices
-                WHERE market = 'ru'
-                  AND ticker = favorites.ticker_b
-                  AND date <= substr(favorites.entry_time, 1, 10)
-                ORDER BY date DESC
-                LIMIT 1
-            ), price_b_entry)
-        WHERE market = 'ru' AND status = 'active'
+        SET price_a_entry = CASE
+                WHEN price_a_entry IS NULL OR price_a_entry <= 0
+                THEN COALESCE((
+                    SELECT close
+                    FROM prices
+                    WHERE market = 'ru'
+                      AND ticker = favorites.ticker_a
+                      AND date <= substr(favorites.entry_time, 1, 10)
+                    ORDER BY date DESC
+                    LIMIT 1
+                ), price_a_entry)
+                ELSE price_a_entry
+            END,
+            price_b_entry = CASE
+                WHEN (price_b_entry IS NULL OR price_b_entry <= 0)
+                     AND COALESCE(ticker_b, '') <> ''
+                THEN COALESCE((
+                    SELECT close
+                    FROM prices
+                    WHERE market = 'ru'
+                      AND ticker = favorites.ticker_b
+                      AND date <= substr(favorites.entry_time, 1, 10)
+                    ORDER BY date DESC
+                    LIMIT 1
+                ), price_b_entry)
+                ELSE price_b_entry
+            END
+        WHERE market = 'ru'
+          AND status = 'active'
+          AND (
+              price_a_entry IS NULL OR price_a_entry <= 0
+              OR (
+                  COALESCE(ticker_b, '') <> ''
+                  AND (price_b_entry IS NULL OR price_b_entry <= 0)
+              )
+          )
         """
     )
     conn.commit()

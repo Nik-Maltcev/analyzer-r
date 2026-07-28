@@ -70,11 +70,12 @@ def engle_granger(pa: np.ndarray, pb: np.ndarray, min_obs: int = 60) -> dict:
         )[0]
         ar_phi = float(ar_fit[1])
         halflife = None
-        if np.isfinite(ar_phi) and abs(ar_phi) < 1:
-            if abs(ar_phi) < 1e-8:
-                halflife = 1.0
-            else:
-                halflife = -np.log(2) / np.log(abs(ar_phi))
+        # The usual AR(1) half-life describes monotonic exponential decay and
+        # is only defined for 0 < phi < 1. A negative phi is stationary but
+        # oscillates around the mean, so abs(phi) would invent a misleading
+        # positive holding horizon.
+        if np.isfinite(ar_phi) and 0 < ar_phi < 1:
+            halflife = -np.log(2) / np.log(ar_phi)
 
         return {
             "halflife": (
@@ -110,9 +111,15 @@ def compute_zscore(pa: np.ndarray, pb: np.ndarray, hedge_ratio: Optional[float] 
         dict with zscores (np.array), z_now, sd, mean
     """
     try:
-        hr = hedge_ratio if hedge_ratio is not None and not np.isnan(hedge_ratio) else 1.0
-        
-        ok = (~np.isnan(pa)) & (~np.isnan(pb))
+        pa = np.asarray(pa, dtype=float)
+        pb = np.asarray(pb, dtype=float)
+        hr = (
+            float(hedge_ratio)
+            if hedge_ratio is not None and np.isfinite(float(hedge_ratio))
+            else 1.0
+        )
+
+        ok = np.isfinite(pa) & np.isfinite(pb) & (pa > 0) & (pb > 0)
         la = np.log(pa[ok])
         lb = np.log(pb[ok])
         
@@ -248,9 +255,16 @@ def forecast_zscore(zscores: np.ndarray, min_obs: int = 20) -> dict:
         dict with z_forecast, phi, intercept, resid_sd
     """
     try:
-        zc = zscores[~np.isnan(zscores)]
+        zscores = np.asarray(zscores, dtype=float)
+        zc = zscores[np.isfinite(zscores)]
         if len(zc) < min_obs:
-            return {"z_forecast": float(zscores[-1]) if len(zscores) > 0 else None, "phi": None, "intercept": None, "resid_sd": None}
+            fallback = float(zc[-1]) if len(zc) > 0 else None
+            return {
+                "z_forecast": fallback,
+                "phi": None,
+                "intercept": None,
+                "resid_sd": None,
+            }
         
         y = zc[1:]        # z_{t+1}
         x = zc[:-1]        # z_t
@@ -259,16 +273,31 @@ def forecast_zscore(zscores: np.ndarray, min_obs: int = 20) -> dict:
         coefs = np.linalg.lstsq(Xmat, y, rcond=None)[0]
         intercept, phi = float(coefs[0]), float(coefs[1])
         
-        z_forecast = intercept + phi * float(zc[-1])
-        
         fitted = intercept + phi * x
         resid_sd = float(np.std(y - fitted, ddof=0))
-        
+
+        # An explosive/non-stationary AR(1) fit is not a valid mean-reversion
+        # forecast and must not be allowed to create an actionable signal.
+        z_forecast = (
+            intercept + phi * float(zc[-1])
+            if np.isfinite(phi) and abs(phi) < 1
+            else None
+        )
+
         return {
-            "z_forecast": float(z_forecast),
+            "z_forecast": (
+                float(z_forecast)
+                if z_forecast is not None and np.isfinite(z_forecast)
+                else None
+            ),
             "phi": phi,
             "intercept": intercept,
             "resid_sd": resid_sd,
         }
     except Exception:
-        return {"z_forecast": float(zscores[-1]) if len(zscores) > 0 else None, "phi": None, "intercept": None, "resid_sd": None}
+        return {
+            "z_forecast": None,
+            "phi": None,
+            "intercept": None,
+            "resid_sd": None,
+        }

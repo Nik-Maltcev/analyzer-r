@@ -2,6 +2,8 @@
 
 import sys
 import os
+import math
+import random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -30,11 +32,24 @@ class TestPairPerformance:
 
         assert result["leg_a_pnl_pct"] == -1.0453
         assert result["leg_b_pnl_pct"] == 6.4935
-        assert result["pair_move_pct"] == 5.4482
+        assert result["spread_move_pp"] == 5.4482
+        assert result["pair_move_pct"] == 2.7241
+        assert result["unlevered_return_pct"] == 2.7241
         assert result["gross_pnl"] == 27.24
         assert result["commissions"] == 0.4
         assert result["net_pnl"] == 26.84
         assert result["net_return_pct"] == 2.6841
+        assert result["leg_a_notional"] + result["leg_b_notional"] == 1000
+        assert result["gross_pnl"] == round(
+            result["gross_exposure"]
+            * result["unlevered_return_pct"]
+            / 100,
+            2,
+        )
+        assert result["net_pnl"] == round(
+            result["gross_pnl"] - result["total_cost"],
+            2,
+        )
 
     def test_incomplete_prices_do_not_invent_pnl(self):
         result = calc_pair_performance(
@@ -45,7 +60,127 @@ class TestPairPerformance:
             price_b_now=48,
         )
 
-        assert result == {"complete": False}
+        assert result["complete"] is False
+
+    def test_negative_hedge_ratio_changes_second_leg_direction(self):
+        result = calc_pair_performance(
+            "long_a",
+            entry_a=100,
+            entry_b=100,
+            price_a_now=110,
+            price_b_now=120,
+            capital=1000,
+            leverage=1,
+            taker_fee_pct=0,
+            funding_rate_8h_pct=0,
+            hedge_ratio=-2,
+        )
+
+        assert result["leg_a_side"] == "Лонг"
+        assert result["leg_b_side"] == "Лонг"
+        assert result["hedge_ratio"] == -2
+        assert result["leg_a_notional"] == 333.33
+        assert result["leg_b_notional"] == 666.67
+        assert result["unlevered_return_pct"] == 16.6667
+        assert result["gross_pnl"] == 166.67
+
+    def test_short_negative_hedge_ratio_shorts_both_legs(self):
+        result = calc_pair_performance(
+            "short_a",
+            entry_a=100,
+            entry_b=100,
+            price_a_now=90,
+            price_b_now=80,
+            taker_fee_pct=0,
+            funding_rate_8h_pct=0,
+            hedge_ratio=-1,
+        )
+
+        assert result["leg_a_side"] == "Шорт"
+        assert result["leg_b_side"] == "Шорт"
+        assert result["unlevered_return_pct"] == 15
+
+    def test_unknown_signal_is_not_turned_into_fee_only_loss(self):
+        result = calc_pair_performance(
+            "wait",
+            entry_a=100,
+            entry_b=100,
+            price_a_now=110,
+            price_b_now=90,
+        )
+
+        assert result == {
+            "complete": False,
+            "error": "unsupported_signal_type",
+        }
+
+    def test_zero_hedge_ratio_allocates_nothing_to_second_leg(self):
+        result = calc_pair_performance(
+            "long_a",
+            entry_a=100,
+            entry_b=100,
+            price_a_now=110,
+            price_b_now=50,
+            capital=1000,
+            leverage=1,
+            taker_fee_pct=0,
+            funding_rate_8h_pct=0,
+            hedge_ratio=0,
+        )
+
+        assert result["leg_a_notional"] == 1000
+        assert result["leg_b_notional"] == 0
+        assert result["unlevered_return_pct"] == 10
+        assert result["gross_pnl"] == 100
+
+    def test_randomized_pair_cash_and_percentage_reconcile(self):
+        rng = random.Random(20260728)
+        for _ in range(500):
+            entry_a = rng.uniform(0.001, 5000)
+            entry_b = rng.uniform(0.001, 5000)
+            price_a = entry_a * rng.uniform(0.5, 1.5)
+            price_b = entry_b * rng.uniform(0.5, 1.5)
+            capital = rng.uniform(10, 10000)
+            leverage = rng.uniform(0.1, 10)
+            fee = rng.uniform(0, 0.2)
+            funding = rng.uniform(0, 0.1)
+            hold_days = rng.uniform(0, 30)
+            hedge_ratio = rng.uniform(-5, 5)
+            signal_type = rng.choice(("long_a", "short_a"))
+
+            result = calc_pair_performance(
+                signal_type,
+                entry_a=entry_a,
+                entry_b=entry_b,
+                price_a_now=price_a,
+                price_b_now=price_b,
+                capital=capital,
+                leverage=leverage,
+                taker_fee_pct=fee,
+                funding_rate_8h_pct=funding,
+                hold_days=hold_days,
+                hedge_ratio=hedge_ratio,
+            )
+
+            expected_leg_pnl = (
+                result["leg_a_notional"] * result["leg_a_pnl_pct"] / 100
+                + result["leg_b_notional"] * result["leg_b_pnl_pct"] / 100
+            )
+            assert math.isclose(
+                result["gross_pnl"],
+                expected_leg_pnl,
+                abs_tol=0.06,
+            )
+            assert math.isclose(
+                result["net_pnl"],
+                result["gross_pnl"] - result["total_cost"],
+                abs_tol=0.011,
+            )
+            assert math.isclose(
+                result["net_return_pct"],
+                result["net_pnl"] / result["capital"] * 100,
+                abs_tol=0.011,
+            )
 
 
 class TestSinglePerformance:
@@ -76,6 +211,23 @@ class TestSinglePerformance:
 
         assert result["pair_move_pct"] == 10
         assert result["leg_a_side"] == "Шорт"
+
+    def test_non_finite_execution_settings_do_not_poison_result(self):
+        result = calc_single_performance(
+            "long_a",
+            entry_price=100,
+            price_now=110,
+            capital=math.nan,
+            leverage=math.inf,
+            taker_fee_pct=math.nan,
+            funding_rate_8h_pct=math.inf,
+            hold_days=math.nan,
+        )
+
+        assert result["complete"] is True
+        assert result["capital"] == 0
+        assert result["gross_pnl"] == 0
+        assert result["net_pnl"] == 0
 
 
 class TestCalcSignalPnl:
@@ -170,6 +322,8 @@ def test_pair_performance_uses_hedge_ratio_for_leg_notionals():
 
     assert result["leg_a_notional"] == 250
     assert result["leg_b_notional"] == 750
+    assert result["spread_move_pp"] == 10
+    assert result["unlevered_return_pct"] == 2.5
     assert result["gross_pnl"] == 25
 
 
@@ -193,3 +347,19 @@ class TestComputePositionDetails:
         assert isinstance(result["position_size"], float)
         assert isinstance(result["total_cost"], float)
         assert isinstance(result["estimated_days"], int)
+
+    def test_invalid_inputs_cannot_create_nan_or_negative_costs(self):
+        result = compute_position_details(
+            {"halflife": math.nan},
+            capital=math.nan,
+            leverage=-3,
+            taker_fee=math.inf,
+            funding_rate=-1,
+        )
+
+        assert result["capital"] == 0
+        assert result["leverage"] == 0
+        assert result["position_size"] == 0
+        assert result["commission_total"] == 0
+        assert result["funding_total"] == 0
+        assert result["estimated_days"] == 30

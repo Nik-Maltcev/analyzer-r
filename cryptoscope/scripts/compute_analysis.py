@@ -182,7 +182,13 @@ def compute_market_pairs(
             )
 
             # Signal
-            sig = determine_signal(z_now_val, z_forecast_val, ta, tb)
+            sig = determine_signal(
+                z_now_val,
+                z_forecast_val,
+                ta,
+                tb,
+                hedge_ratio=cg["hedge_ratio"],
+            )
             coint_for_strength = stability["is_coint_stable"]
             strength = determine_strength(coint_for_strength, z_now_val, z_forecast_val)
             guarded = guard_signal(

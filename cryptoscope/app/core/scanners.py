@@ -302,17 +302,31 @@ def drawdown_scan(prices: np.ndarray, tickers: List[str]) -> pd.DataFrame:
         days_from_high = window - np.argmax(recent) - 1
         
         recoveries = []
+        additional_drawdowns = []
         for start in range(0, len(valid) - 30):
             seg_high = float(valid[max(0, start - 10):start + 1].max())
             seg_dd = (1 - valid[start] / seg_high) * 100
             
             if abs(seg_dd - dd_pct) < 3:
-                end = min(start + 30, len(valid))
+                # Include exactly the next 30 observations: start+1 through
+                # start+30. Python's exclusive slice end therefore is +31.
+                end = min(start + 31, len(valid))
+                future_max = float(valid[start + 1:end].max())
                 future_min = float(valid[start + 1:end].min())
-                future_dd = (1 - future_min / valid[start]) * 100
-                recoveries.append(future_dd)
+                recovery_pct = (future_max / valid[start] - 1) * 100
+                additional_dd_pct = max(
+                    0.0,
+                    (1 - future_min / valid[start]) * 100,
+                )
+                recoveries.append(recovery_pct)
+                additional_drawdowns.append(additional_dd_pct)
         
         avg_recovery = float(np.mean(recoveries)) if recoveries else 0
+        avg_additional_drawdown = (
+            float(np.mean(additional_drawdowns))
+            if additional_drawdowns
+            else 0
+        )
 
         p3 = (
             (valid[-1] / valid[-4] - 1) * 100
@@ -360,6 +374,10 @@ def drawdown_scan(prices: np.ndarray, tickers: List[str]) -> pd.DataFrame:
             "high_90d": round(high_90, 4),
             "current": round(current, 4),
             "avg_historical_recovery": round(float(avg_recovery), 2),
+            "avg_additional_drawdown_pct": round(
+                float(avg_additional_drawdown),
+                2,
+            ),
             "pct_3d": round(float(p3), 2),
             "pct_7d": round(float(p7), 2),
             "signal": signal,

@@ -106,7 +106,42 @@ def estimate_signal_timing(
     return timing
 
 
-def determine_signal(z_now: float | None, z_forecast: float | None, ticker_a: str, ticker_b: str) -> dict:
+def elapsed_holding_days(
+    started_at,
+    now: datetime | None = None,
+) -> float:
+    """Return exact elapsed 24-hour periods for cost calculations."""
+    if started_at is None:
+        return 0.0
+    try:
+        if isinstance(started_at, datetime):
+            start_dt = started_at
+        else:
+            timestamp = str(started_at).strip().replace(" ", "T")
+            if timestamp.endswith("Z"):
+                timestamp = f"{timestamp[:-1]}+00:00"
+            start_dt = datetime.fromisoformat(timestamp)
+    except (TypeError, ValueError):
+        return 0.0
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.replace(tzinfo=UTC)
+    else:
+        start_dt = start_dt.astimezone(UTC)
+    now_dt = now or datetime.now(UTC)
+    if now_dt.tzinfo is None:
+        now_dt = now_dt.replace(tzinfo=UTC)
+    else:
+        now_dt = now_dt.astimezone(UTC)
+    return max(0.0, (now_dt - start_dt).total_seconds() / 86400)
+
+
+def determine_signal(
+    z_now: float | None,
+    z_forecast: float | None,
+    ticker_a: str,
+    ticker_b: str,
+    hedge_ratio: float = 1.0,
+) -> dict:
     """
     Determine trading signal from Z-score and forecast.
 
@@ -123,11 +158,18 @@ def determine_signal(z_now: float | None, z_forecast: float | None, ticker_a: st
     z_cur = z_now if z_now is not None else 0
     z_hat = z_forecast if z_forecast is not None else 0
 
+    try:
+        beta_is_negative = float(hedge_ratio) < 0
+    except (TypeError, ValueError):
+        beta_is_negative = False
+
     if z_cur >= 2 or z_hat >= 2:
-        signal = f"Шорт {ticker_a} / Лонг {ticker_b}"
+        side_b = "Шорт" if beta_is_negative else "Лонг"
+        signal = f"Шорт {ticker_a} / {side_b} {ticker_b}"
         signal_type = "short_a"
     elif z_cur <= -2 or z_hat <= -2:
-        signal = f"Лонг {ticker_a} / Шорт {ticker_b}"
+        side_b = "Лонг" if beta_is_negative else "Шорт"
+        signal = f"Лонг {ticker_a} / {side_b} {ticker_b}"
         signal_type = "long_a"
 
     return {"signal": signal, "signal_type": signal_type}

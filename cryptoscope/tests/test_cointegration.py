@@ -86,6 +86,22 @@ class TestEngleGranger:
         if result["halflife"] is not None:
             assert isinstance(result["halflife"], (int, float))
 
+    def test_negative_ar_phi_has_no_half_life(self):
+        rng = np.random.default_rng(20260728)
+        n = 500
+        log_b = np.cumsum(rng.normal(0, 0.01, n)) + 4.0
+        residual = np.zeros(n)
+        for idx in range(1, n):
+            residual[idx] = -0.65 * residual[idx - 1] + rng.normal(0, 0.01)
+        pa = np.exp(0.3 + 1.1 * log_b + residual)
+        pb = np.exp(log_b)
+
+        result = engle_granger(pa, pb)
+
+        assert result["ar_phi"] is not None
+        assert result["ar_phi"] < 0
+        assert result["halflife"] is None
+
 
 class TestFixedZScoreModel:
     def test_entry_prices_are_anchored_to_signal_z(self, sample_prices):
@@ -171,6 +187,23 @@ class TestZScore:
         if result["sd"] is not None:
             assert result["sd"] > 0
 
+    def test_zscore_ignores_non_finite_and_non_positive_prices(
+        self,
+        sample_prices,
+    ):
+        pa, pb = sample_prices
+        pa = pa.copy()
+        pb = pb.copy()
+        pa[0] = np.inf
+        pa[1] = 0
+        pb[2] = -1
+
+        result = compute_zscore(pa, pb)
+
+        assert result["zscores"] is not None
+        assert result["n"] == len(pa) - 3
+        assert np.isfinite(result["z_now"])
+
 
 class TestForecast:
     def test_forecast_output(self, sample_zscore_series):
@@ -205,3 +238,11 @@ class TestForecast:
             assert isinstance(result["phi"], float)
         if result["intercept"] is not None:
             assert isinstance(result["intercept"], float)
+
+    def test_explosive_ar_fit_is_not_used_as_forecast(self):
+        z = np.array([1.2**idx for idx in range(30)], dtype=float)
+
+        result = forecast_zscore(z)
+
+        assert result["phi"] >= 1
+        assert result["z_forecast"] is None
