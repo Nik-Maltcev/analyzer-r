@@ -209,10 +209,10 @@ def test_crypto_window_summary_uses_positions_closed_in_last_seven_days():
     assert by_confidence["Высокая"]["positions_active"] == 0
     assert by_confidence["Высокая"]["win_rate"] == 100
     assert by_confidence["Высокая"]["realized_result"] == 10
-    assert by_confidence["Средняя"]["positions_total"] == 2
-    assert by_confidence["Средняя"]["positions_profitable"] == 1
-    assert by_confidence["Средняя"]["win_rate"] == 50
-    assert by_confidence["Средняя"]["realized_result"] == 10
+    assert by_confidence["Рискованный"]["positions_total"] == 2
+    assert by_confidence["Рискованный"]["positions_profitable"] == 1
+    assert by_confidence["Рискованный"]["win_rate"] == 50
+    assert by_confidence["Рискованный"]["realized_result"] == 10
     assert by_confidence["Низкая"]["positions_total"] == 1
     assert by_confidence["Низкая"]["positions_flat"] == 1
     assert by_confidence["Низкая"]["win_rate"] == 0
@@ -464,7 +464,7 @@ def test_crypto_position_uses_admission_price_without_extending_raw_horizon():
     assert position["confidence"] == "Высокая"
 
 
-def test_confidence_breakdown_skips_empty_low_group():
+def test_confidence_breakdown_skips_empty_groups_and_labels_risky():
     summary = build_crypto_window_summary(
         [
             {
@@ -482,7 +482,7 @@ def test_confidence_breakdown_skips_empty_low_group():
 
     assert [
         item["label"] for item in summary["confidence_breakdown"]
-    ] == ["Средняя", "Высокая"]
+    ] == ["Рискованный"]
 
 
 def test_crypto_window_summary_supports_longer_windows():

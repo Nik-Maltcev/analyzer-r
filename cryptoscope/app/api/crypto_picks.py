@@ -24,7 +24,6 @@ from app.core.crypto_picks import (
     build_price_upper_range,
     build_crypto_signal_export,
     filter_crypto_rows_by_confidence,
-    is_excluded_crypto_confidence,
     select_crypto_sell_actions,
 )
 from app.core.scanner_history import (
@@ -43,24 +42,15 @@ from app.ui.templates import templates
 
 router = APIRouter(prefix="/tab/crypto", tags=["crypto-picks"])
 RESULT_WINDOW_OPTIONS = (7, 14, 30)
-CONFIDENCE_FILTER_OPTIONS = (
-    ("high", "Высокая"),
-    ("medium", "Средняя"),
-)
 
 
 def _normalize_result_window(value: int) -> int:
     return value if value in RESULT_WINDOW_OPTIONS else 7
 
 
-def _parse_confidence_filter(value: str | None) -> list[str]:
-    """Keep known confidence keys in canonical (display) order."""
-    requested = set(str(value or "").split(","))
-    return [
-        key
-        for key, _label in CONFIDENCE_FILTER_OPTIONS
-        if key in requested
-    ]
+def _confidence_filter(show_risky: bool) -> list[str]:
+    """High confidence by default; medium confidence is an explicit opt-in."""
+    return ["high", "medium"] if show_risky else ["high"]
 
 
 async def _require_admin(request: Request) -> None:
@@ -209,7 +199,7 @@ async def close_crypto_pick(
     request: Request,
     ticker: str = Form(...),
     window_days: int = Form(7),
-    confidence: str = Form(""),
+    show_risky: bool = Form(False),
 ):
     await _require_admin(request)
     normalized_ticker = str(ticker or "").strip().upper()
@@ -256,12 +246,15 @@ async def close_crypto_pick(
         request,
         refresh=False,
         window_days=_normalize_result_window(window_days),
-        confidence=confidence,
+        show_risky=show_risky,
     )
 
 
 @router.get("/export.csv")
-async def export_crypto_picks_csv(request: Request):
+async def export_crypto_picks_csv(
+    request: Request,
+    show_risky: bool = Query(False),
+):
     await _require_admin(request)
     async with get_connection() as conn:
         await ensure_scanner_history_schema(conn)
@@ -275,7 +268,10 @@ async def export_crypto_picks_csv(request: Request):
 
     data_date = str(max(wide.index))[:10]
 
-    periods = apply_crypto_confidence_admission(periods)
+    periods = filter_crypto_rows_by_confidence(
+        apply_crypto_confidence_admission(periods),
+        _confidence_filter(show_risky),
+    )
     prices_by_ticker = {
         ticker: list(series.dropna().items())
         for ticker, series in wide.items()
@@ -364,7 +360,11 @@ async def export_crypto_picks_csv(request: Request):
             item["symbol"],
             item["ticker"],
             item["scanner_labels"],
-            item["confidence"],
+            (
+                "Рискованный"
+                if item["confidence"] == "Средняя"
+                else item["confidence"]
+            ),
             item["status_label"],
             item["start_date"],
             item["result_date"],
@@ -392,18 +392,22 @@ async def crypto_picks_tab(
     request: Request,
     refresh: bool = Query(False),
     window_days: int = Query(7),
-    confidence: str = Query(""),
+    show_risky: bool = Query(False),
 ):
     await _require_admin(request)
     window_days = _normalize_result_window(window_days)
-    confidence_filter = _parse_confidence_filter(confidence)
+    confidence_filter = _confidence_filter(show_risky)
+    allowed_signal_confidence = (
+        {"Высокая", "Средняя"}
+        if show_risky
+        else {"Высокая"}
+    )
     context = {
         "request": request,
         "picks": [],
         "total": 0,
         "active_scanner_count": len(ACTIVE_CRYPTO_SCANNERS),
-        "confidence_filter": confidence_filter,
-        "confidence_options": CONFIDENCE_FILTER_OPTIONS,
+        "show_risky": show_risky,
         "scanner_data_date": None,
         "history": [],
         "history_total": 0,
@@ -469,9 +473,7 @@ async def crypto_picks_tab(
                     for record in records
                     if record.get("recommendation_class") == "long"
                     and not record.get("signal_suppressed")
-                    and not is_excluded_crypto_confidence(
-                        record.get("confidence")
-                    )
+                    and record.get("confidence") in allowed_signal_confidence
                     and is_scanner_signal_within_horizon(
                         scanner,
                         record.get("signal_age_days"),

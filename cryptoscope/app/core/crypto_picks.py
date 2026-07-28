@@ -1543,7 +1543,7 @@ def _build_confidence_breakdown(
     result: list[dict[str, Any]] = []
     for confidence in (*CONFIDENCE_LEVELS, UNKNOWN_CONFIDENCE):
         items = grouped[confidence]
-        if confidence in ("Низкая", UNKNOWN_CONFIDENCE) and not items:
+        if not items:
             continue
         completed = [
             item for item in items if item.get("status") != "active"
@@ -1573,7 +1573,11 @@ def _build_confidence_breakdown(
         )
         result.append({
             "key": CONFIDENCE_KEY[confidence],
-            "label": confidence,
+            "label": (
+                "Рискованный"
+                if confidence == "Средняя"
+                else confidence
+            ),
             "positions_total": len(items),
             "positions_active": len(active),
             "positions_completed": len(completed),

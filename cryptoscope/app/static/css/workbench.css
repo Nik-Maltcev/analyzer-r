@@ -689,14 +689,29 @@ body.app-is-loading {
     gap: 6px;
 }
 
-.crypto-confidence-filter button.is-active.level-low {
+.crypto-risk-toggle {
+    align-items: center;
+    border: 1px solid var(--border);
     color: var(--text-muted);
-    box-shadow: inset 0 -1px 0 var(--text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 11px;
+    gap: 7px;
+    min-height: 34px;
+    padding: 0 10px;
 }
 
-.crypto-confidence-filter button.is-active.level-medium {
-    color: var(--blue);
-    box-shadow: inset 0 -1px 0 var(--blue);
+.crypto-risk-toggle:hover {
+    border-color: var(--border-strong);
+    color: var(--text-bright);
+}
+
+.crypto-risk-toggle input {
+    accent-color: var(--blue);
+    cursor: pointer;
+    height: 14px;
+    margin: 0;
+    width: 14px;
 }
 
 .crypto-weekly-metrics {

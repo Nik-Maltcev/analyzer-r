@@ -11,7 +11,7 @@
             </div>
             <button class="btn btn-secondary crypto-refresh-button"
                     type="button"
-                    hx-get="/tab/crypto?refresh=true&amp;window_days={{ result_window_days }}{% if confidence_filter %}&amp;confidence={{ confidence_filter|join(',') }}{% endif %}"
+                    hx-get="/tab/crypto?refresh=true&amp;window_days={{ result_window_days }}{% if show_risky %}&amp;show_risky=true{% endif %}"
                     hx-target="#main-content"
                     hx-swap="innerHTML"
                     hx-indicator="this"
@@ -19,7 +19,9 @@
                 <i data-lucide="refresh-cw"></i>
                 <span>Обновить</span>
             </button>
-            <a class="btn btn-secondary crypto-export-button" href="/tab/crypto/export.csv" download>
+            <a class="btn btn-secondary crypto-export-button"
+               href="/tab/crypto/export.csv{% if show_risky %}?show_risky=true{% endif %}"
+               download>
                 <i data-lucide="download"></i>
                 Скачать CSV
             </a>
@@ -104,7 +106,7 @@
                         <button type="button"
                                 class="{% if days == result_window_days %}is-active{% endif %}"
                                 aria-pressed="{% if days == result_window_days %}true{% else %}false{% endif %}"
-                                hx-get="/tab/crypto?window_days={{ days }}{% if confidence_filter %}&amp;confidence={{ confidence_filter|join(',') }}{% endif %}"
+                                hx-get="/tab/crypto?window_days={{ days }}{% if show_risky %}&amp;show_risky=true{% endif %}"
                                 hx-target="#main-content"
                                 hx-swap="innerHTML"
                                 hx-disabled-elt="this">
@@ -112,25 +114,16 @@
                         </button>
                         {% endfor %}
                     </div>
-                    <div class="crypto-window-filter crypto-confidence-filter" role="group" aria-label="Фильтр по уверенности">
-                        {% for key, label in confidence_options %}
-                        {% if key in confidence_filter %}
-                        {% set next_keys = confidence_filter|reject('equalto', key)|list %}
-                        {% else %}
-                        {% set next_keys = confidence_filter + [key] %}
-                        {% endif %}
-                        <button type="button"
-                                class="level-{{ key }}{% if key in confidence_filter %} is-active{% endif %}"
-                                aria-pressed="{% if key in confidence_filter %}true{% else %}false{% endif %}"
-                                title="Показывать только выбранные уровни"
-                                hx-get="/tab/crypto?window_days={{ result_window_days }}{% if next_keys %}&amp;confidence={{ next_keys|sort|join(',') }}{% endif %}"
-                                hx-target="#main-content"
-                                hx-swap="innerHTML"
-                                hx-disabled-elt="this">
-                            {{ label }}
-                        </button>
-                        {% endfor %}
-                    </div>
+                    <label class="crypto-risk-toggle">
+                        <input type="checkbox"
+                               {% if show_risky %}checked{% endif %}
+                               hx-get="/tab/crypto?window_days={{ result_window_days }}{% if not show_risky %}&amp;show_risky=true{% endif %}"
+                               hx-trigger="change"
+                               hx-target="#main-content"
+                               hx-swap="innerHTML"
+                               hx-disabled-elt="this">
+                        <span>Показывать рискованные</span>
+                    </label>
                 </div>
                 <span>{{ weekly_summary.start_date_display }}–{{ weekly_summary.end_date_display }}</span>
                 {% if weekly_summary.is_partial_window %}
@@ -251,44 +244,6 @@
                 {% endfor %}
             </div>
         </section>
-        <section class="crypto-confidence-summary crypto-scanner-summary" aria-label="Результаты по сканерам">
-            <header>
-                <div>
-                    <span class="section-kicker">По сканерам</span>
-                    <h4>Зависимость от сканера</h4>
-                </div>
-                <span>Только завершённые позиции</span>
-            </header>
-            <div class="crypto-confidence-grid">
-                {% for group in weekly_summary.scanner_breakdown %}
-                <article class="crypto-confidence-row scanner-{{ group.key }}">
-                    <div class="crypto-confidence-name">
-                        <span>Сканер</span>
-                        <strong>{{ group.label }}</strong>
-                    </div>
-                    <div class="crypto-confidence-outcome">
-                        {% if group.positions_completed %}
-                        <strong>{{ group.positions_profitable }} из {{ group.positions_completed }} выросли</strong>
-                        <span>{{ group.win_rate_display }}% в плюсе</span>
-                        {% else %}
-                        <strong>Нет завершённых</strong>
-                        <span>точность ещё не рассчитана</span>
-                        {% endif %}
-                    </div>
-                    <div class="crypto-confidence-volume">
-                        <span>Закрыто {{ group.positions_completed }}</span>
-                        <small>$100 на сделку</small>
-                    </div>
-                    <div class="crypto-confidence-result">
-                        <strong class="{% if group.realized_result > 0 %}positive{% elif group.realized_result < 0 %}negative{% endif %}">
-                            {{ group.result_display }}
-                        </strong>
-                        <span>при $100 на монету</span>
-                    </div>
-                </article>
-                {% endfor %}
-            </div>
-        </section>
         <footer>
             В статистику входят позиции, фактически закрытые в выбранный период. Отбор выполняется по дате закрытия; активные позиции не влияют на результат. Комиссии и проскальзывание не учитываются.
         </footer>
@@ -307,7 +262,7 @@
                     <span class="text-dim">{{ pick.ticker }}</span>
                 </div>
                 <span class="badge {% if pick.confidence == 'Высокая' %}badge-green{% elif pick.confidence == 'Средняя' %}badge-blue{% else %}badge-gray{% endif %}">
-                    {{ pick.confidence }} уверенность
+                    {% if pick.confidence == 'Средняя' %}Рискованный{% else %}{{ pick.confidence }} уверенность{% endif %}
                 </span>
             </header>
 
@@ -387,7 +342,7 @@
                 <button class="btn btn-sm btn-danger"
                         type="button"
                         hx-post="/tab/crypto/close"
-                        hx-vals='{"ticker":"{{ pick.ticker }}","window_days":"{{ result_window_days }}","confidence":"{{ confidence_filter|join(',') }}"}'
+                        hx-vals='{"ticker":"{{ pick.ticker }}","window_days":"{{ result_window_days }}","show_risky":"{{ 'true' if show_risky else 'false' }}"}'
                         hx-target="#main-content"
                         hx-swap="innerHTML"
                         hx-confirm="Закрыть позицию {{ pick.symbol }} по текущей расчётной цене?"
