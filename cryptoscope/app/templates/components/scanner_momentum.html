@@ -11,7 +11,7 @@
             <span class="text-dim">Рынок: {{ market }}</span>
             <span class="scanner-data-date">Данные на {{ scanner_data_date or "—" }}</span>
             {% if live_refresh %}
-            <span class="scanner-live-badge">по ценам Binance · {{ live_updated_at }} МСК</span>
+            <span class="scanner-live-badge">по ценам MEXC · {{ live_updated_at }} МСК</span>
             {% endif %}
             {% if live_error %}
             <span class="scanner-live-error">{{ live_error }}</span>
@@ -25,7 +25,7 @@
                     hx-swap="innerHTML"
                     hx-indicator="this"
                     hx-disabled-elt="this"
-                    title="Пересчитать сканер по текущим ценам Binance">
+                    title="Пересчитать сканер по текущим ценам MEXC">
                 <i data-lucide="refresh-cw"></i>
                 <span>Обновить</span>
             </button>

@@ -67,7 +67,27 @@ async def test_readiness_checks_analysis_and_feed(app, temp_db, monkeypatch):
             """
         )
         await conn.execute(
+            """
+            UPDATE prices
+            SET provider = 'mexc'
+            WHERE market = 'crypto'
+            """
+        )
+        await conn.execute(
             "UPDATE pairs SET computed_at = datetime('now')"
+        )
+        await conn.execute(
+            """
+            INSERT OR REPLACE INTO market_data_state (
+                market, active_provider, previous_provider,
+                latest_data_date, ticker_count, row_count
+            )
+            SELECT
+                'crypto', 'mexc', 'twelvedata_legacy',
+                MAX(date), COUNT(DISTINCT ticker), COUNT(*)
+            FROM prices
+            WHERE market = 'crypto'
+            """
         )
         await conn.commit()
     await refresh_extension_feed_snapshots(["crypto"], db_path=temp_db)

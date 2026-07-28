@@ -15,6 +15,7 @@ from app.db.schema import (
     FAVORITE_COLUMN_MIGRATIONS,
     PAIR_COLUMN_MIGRATIONS,
     PAYMENT_ORDER_COLUMN_MIGRATIONS,
+    PRICE_COLUMN_MIGRATIONS,
 )
 
 DB_PATH = "/data/market.db"
@@ -51,6 +52,13 @@ async def init_db(db_path: str | None = None):
     async with get_connection(db_path) as conn:
         for sql in ALL_TABLES_SQL:
             await conn.execute(sql)
+        cursor = await conn.execute("PRAGMA table_info(prices)")
+        price_columns = {row["name"] for row in await cursor.fetchall()}
+        for column, definition in PRICE_COLUMN_MIGRATIONS.items():
+            if column not in price_columns:
+                await conn.execute(
+                    f"ALTER TABLE prices ADD COLUMN {column} {definition}"
+                )
         cursor = await conn.execute("PRAGMA table_info(pairs)")
         pair_columns = {row["name"] for row in await cursor.fetchall()}
         if "signal_started_at" not in pair_columns:

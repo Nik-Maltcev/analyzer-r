@@ -181,6 +181,7 @@ function appLoadingMessage(source, target) {
     if (targetId === 'main-content') {
         const tab = source?.dataset?.tab;
         if (tab === 'crypto') return 'Открываем раздел «Крипта»';
+        if (tab === 'crypto-v2') return 'Считаем независимую стратегию Crypto V2';
         if (tab === 'momentum-portfolio') return 'Открываем Momentum 3';
         if (tab === 'favorites') return 'Открываем портфель';
         if (tab === 'data') return 'Открываем данные';
@@ -873,12 +874,12 @@ async function refreshCryptoFavorites(button) {
         const data = await response.json().catch(() => ({}));
         if (response.status === 401) openAuthModal();
         if (!response.ok) {
-            throw new Error(data.detail || 'Не удалось обновить котировки Binance');
+            throw new Error(data.detail || 'Не удалось обновить котировки MEXC');
         }
 
         showToast(
             data.cached
-                ? 'Котировки Binance уже актуальны'
+                ? 'Котировки MEXC уже актуальны'
                 : `Обновлено crypto-инструментов: ${data.updated}`,
             'success'
         );
@@ -887,7 +888,7 @@ async function refreshCryptoFavorites(button) {
             swap: 'innerHTML'
         });
     } catch (error) {
-        showToast(error.message || 'Ошибка обновления Binance', 'error');
+        showToast(error.message || 'Ошибка обновления MEXC', 'error');
     } finally {
         if (button.isConnected) {
             button.disabled = false;

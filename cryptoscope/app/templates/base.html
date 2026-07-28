@@ -70,6 +70,9 @@
             <a href="#" class="nav-tab" data-tab="crypto" hx-get="/tab/crypto" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-sync="#main-content:replace">
                 <i class="tab-icon" data-lucide="coins"></i><span>Крипта</span>
             </a>
+            <a href="#" class="nav-tab" data-tab="crypto-v2" hx-get="/tab/crypto-v2" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-sync="#main-content:replace">
+                <i class="tab-icon" data-lucide="flask-conical"></i><span>Crypto V2</span>
+            </a>
             <a href="#" class="nav-tab" data-tab="momentum-portfolio" hx-get="/tab/momentum-portfolio" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-sync="#main-content:replace">
                 <i class="tab-icon" data-lucide="chart-no-axes-combined"></i><span>Momentum 3</span>
                 <span class="momentum-nav-signal"
@@ -152,7 +155,7 @@
             } catch(e) {}
         }
 
-// Check Binance WS status
+// Check the MEXC live-price status.
 async function updateLiveStatus() {
     try {
         const r = await fetch('/api/favorites/live-status');

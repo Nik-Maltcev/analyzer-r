@@ -21,6 +21,7 @@ from app.core.crypto_picks import (
     build_crypto_active_summary,
     build_crypto_window_summary,
     build_price_progress,
+    build_price_upper_range,
     build_crypto_signal_export,
     filter_crypto_rows_by_confidence,
     is_excluded_crypto_confidence,
@@ -36,7 +37,7 @@ from app.core.scanner_history import (
     snapshot_crypto_strategy_positions,
     sync_scanner_periods,
 )
-from app.data.binance_ws import refresh_crypto_live_prices
+from app.data.mexc_market import refresh_crypto_live_prices
 from app.db.database import fetch_prices, get_connection
 from app.ui.templates import templates
 
@@ -164,7 +165,7 @@ async def _refresh_crypto_prices_for_today(tickers: Iterable[str]) -> dict:
     result = await refresh_crypto_live_prices(tickers, ttl_seconds=0)
     live_prices = result.get("prices") or {}
     if not live_prices:
-        raise RuntimeError("Binance не вернул актуальные котировки")
+        raise RuntimeError("MEXC не вернул актуальные котировки")
 
     current_date = datetime.now(
         ZoneInfo("Europe/Moscow")
@@ -231,7 +232,7 @@ async def close_crypto_pick(
         if close_price is None or float(close_price) <= 0:
             raise HTTPException(
                 status_code=503,
-                detail="Current Binance price is unavailable",
+                detail="Current MEXC price is unavailable",
             )
         close_date = datetime.now(
             ZoneInfo("Europe/Moscow")
@@ -322,7 +323,7 @@ async def export_crypto_picks_csv(request: Request):
     writer.writerow([
         "Методика",
         "$100 на каждую монету; цена начала и сигналы: дневные данные "
-        "Twelve Data; активная цена: Binance, а при недоступности пары "
+        "MEXC; активная цена: MEXC, а при недоступности пары "
         "последний дневной снимок; пересекающиеся сигналы сканеров объединены; "
         "без комиссий, проскальзывания и налогов",
     ])
@@ -538,7 +539,7 @@ async def crypto_picks_tab(
             except Exception as exc:
                 print(f"Crypto picks refresh failed: {exc}")
                 context["refresh_error"] = (
-                    "Не удалось обновить котировки Binance. "
+                    "Не удалось обновить котировки MEXC. "
                     "Показан последний сохранённый расчёт."
                 )
         if live_result:
@@ -596,6 +597,11 @@ async def crypto_picks_tab(
             )
             pick["progress_change_display"] = (
                 progress[0]["change_display"] if progress else "—"
+            )
+            pick["upper_range"] = build_price_upper_range(
+                daily_prices_by_ticker.get(pick["ticker"], []),
+                latest_prices.get(pick["ticker"]),
+                pick["signal_remaining_days"],
             )
         filtered_rows = filter_crypto_rows_by_confidence(
             report["rows"],

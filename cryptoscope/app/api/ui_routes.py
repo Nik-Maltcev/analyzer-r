@@ -28,7 +28,7 @@ from app.core.scanner_history import (
     sync_scanner_periods,
 )
 from app.core.signals import estimate_signal_timing, is_actionable_signal
-from app.data.binance_ws import (
+from app.data.mexc_market import (
     get_crypto_live_snapshot,
     refresh_crypto_live_prices,
 )
@@ -804,7 +804,7 @@ async def tab_scanner_content(
         wide = prices_df.pivot(index="date", columns="ticker", values="close")
         data_date = str(max(wide.index))[:10]
 
-        # Live re-marking: replace today's closes with current Binance quotes
+        # Live re-marking: replace today's closes with current MEXC quotes.
         # (read-only — scanner history keeps the daily-data snapshot).
         live_mode = (
             refresh
@@ -819,7 +819,7 @@ async def tab_scanner_content(
                 )
                 live_prices = live_result.get("prices") or {}
                 if not live_prices:
-                    raise RuntimeError("Binance returned no quotes")
+                    raise RuntimeError("MEXC returned no quotes")
                 data_date = datetime.now(
                     ZoneInfo("Europe/Moscow")
                 ).date().isoformat()
@@ -841,7 +841,7 @@ async def tab_scanner_content(
             except Exception as exc:
                 print(f"Scanner momentum live refresh failed: {exc}")
                 ctx["live_error"] = (
-                    "Не удалось обновить котировки Binance. "
+                    "Не удалось обновить котировки MEXC. "
                     "Показаны дневные данные."
                 )
 
@@ -1097,10 +1097,10 @@ async def tab_favorites(
                         float(prices[-1]) if len(prices) > 0 else 0
                     )
 
-                # Binance live prices
+                # MEXC live prices
                 if market == "crypto":
                     try:
-                        from app.data.binance_ws import get_live_price
+                        from app.data.mexc_market import get_live_price
                         live = get_live_price(ticker)
                         if live is not None and live > 0:
                             latest_prices[(market, ticker)] = float(live)

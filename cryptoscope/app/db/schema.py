@@ -16,6 +16,47 @@ CREATE_PRICES_INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_prices_date ON prices(date)",
 ]
 
+PRICE_COLUMN_MIGRATIONS = {
+    "provider": "TEXT NOT NULL DEFAULT 'legacy'",
+}
+
+CREATE_CRYPTO_PRICE_VERSIONS = """
+CREATE TABLE IF NOT EXISTS crypto_price_versions (
+    provider    TEXT NOT NULL,
+    ticker      TEXT NOT NULL,
+    date        TEXT NOT NULL,
+    close       REAL NOT NULL,
+    volume      REAL,
+    market      TEXT NOT NULL DEFAULT 'crypto',
+    imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (provider, ticker, date)
+)
+"""
+
+CREATE_MARKET_DATA_STATE = """
+CREATE TABLE IF NOT EXISTS market_data_state (
+    market          TEXT PRIMARY KEY,
+    active_provider TEXT NOT NULL,
+    previous_provider TEXT,
+    latest_data_date TEXT,
+    ticker_count    INTEGER NOT NULL DEFAULT 0,
+    row_count       INTEGER NOT NULL DEFAULT 0,
+    switched_at     TEXT,
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
+CREATE_CRYPTO_PRICE_VERSION_INDICES = [
+    """
+    CREATE INDEX IF NOT EXISTS idx_crypto_price_versions_lookup
+    ON crypto_price_versions(provider, ticker, date)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_crypto_price_versions_date
+    ON crypto_price_versions(provider, date)
+    """,
+]
+
 CREATE_PAIRS = """
 CREATE TABLE IF NOT EXISTS pairs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -430,6 +471,81 @@ CREATE TABLE IF NOT EXISTS momentum_portfolio_allocations (
 )
 """
 
+CREATE_CRYPTO_V2_META = """
+CREATE TABLE IF NOT EXISTS crypto_v2_meta (
+    strategy_version TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (strategy_version, key)
+)
+"""
+
+CREATE_CRYPTO_V2_DAILY = """
+CREATE TABLE IF NOT EXISTS crypto_v2_daily (
+    strategy_version TEXT NOT NULL,
+    data_date TEXT NOT NULL,
+    btc_above_sma50 INTEGER,
+    btc_distance_pct REAL,
+    breadth_positive INTEGER NOT NULL,
+    breadth_total INTEGER NOT NULL,
+    breadth_pct REAL,
+    regime TEXT NOT NULL,
+    exposure_factor REAL NOT NULL,
+    candidate_count INTEGER NOT NULL,
+    confirmed_count INTEGER NOT NULL,
+    selected_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (strategy_version, data_date)
+)
+"""
+
+CREATE_CRYPTO_V2_CANDIDATES = """
+CREATE TABLE IF NOT EXISTS crypto_v2_candidates (
+    strategy_version TEXT NOT NULL,
+    data_date TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    momentum_score REAL NOT NULL,
+    volatility_pct REAL NOT NULL,
+    confirmed INTEGER NOT NULL,
+    selected INTEGER NOT NULL,
+    rank INTEGER,
+    regime TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (strategy_version, data_date, ticker)
+)
+"""
+
+CREATE_CRYPTO_V2_TRADES = """
+CREATE TABLE IF NOT EXISTS crypto_v2_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_version TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    entry_date TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    entry_score REAL NOT NULL,
+    entry_regime TEXT NOT NULL,
+    exposure_factor REAL NOT NULL,
+    allocation REAL NOT NULL,
+    weight REAL NOT NULL,
+    volatility_pct REAL NOT NULL,
+    exit_date TEXT,
+    exit_price REAL,
+    exit_reason TEXT,
+    return_pct REAL,
+    cash_result REAL,
+    status TEXT NOT NULL DEFAULT 'active',
+    last_evaluated_date TEXT NOT NULL,
+    missing_days INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (strategy_version, ticker, entry_date)
+)
+"""
+
 CREATE_MOMENTUM_PORTFOLIO_INDICES = [
     """
     CREATE INDEX IF NOT EXISTS idx_momentum_portfolio_finalized
@@ -438,6 +554,21 @@ CREATE_MOMENTUM_PORTFOLIO_INDICES = [
     """
     CREATE INDEX IF NOT EXISTS idx_momentum_portfolio_allocations_ticker
     ON momentum_portfolio_allocations(ticker, run_date)
+    """,
+]
+
+CREATE_CRYPTO_V2_INDICES = [
+    """
+    CREATE INDEX IF NOT EXISTS idx_crypto_v2_daily_version_date
+    ON crypto_v2_daily(strategy_version, data_date)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_crypto_v2_candidates_latest
+    ON crypto_v2_candidates(strategy_version, data_date, confirmed, rank)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_crypto_v2_trades_status
+    ON crypto_v2_trades(strategy_version, mode, status, entry_date)
     """,
 ]
 
@@ -458,6 +589,8 @@ CREATE_AUTH_INDICES = [
 
 ALL_TABLES_SQL = [
     CREATE_PRICES,
+    CREATE_CRYPTO_PRICE_VERSIONS,
+    CREATE_MARKET_DATA_STATE,
     CREATE_PAIRS,
     CREATE_SIGNALS,
     CREATE_UPDATE_LOG,
@@ -475,14 +608,20 @@ ALL_TABLES_SQL = [
     CREATE_CRYPTO_STRATEGY_TRADES,
     CREATE_MOMENTUM_PORTFOLIO_RUNS,
     CREATE_MOMENTUM_PORTFOLIO_ALLOCATIONS,
+    CREATE_CRYPTO_V2_META,
+    CREATE_CRYPTO_V2_DAILY,
+    CREATE_CRYPTO_V2_CANDIDATES,
+    CREATE_CRYPTO_V2_TRADES,
 ]
 
 ALL_INDICES_SQL = (
     CREATE_PRICES_INDICES
+    + CREATE_CRYPTO_PRICE_VERSION_INDICES
     + CREATE_PAIRS_INDICES
     + CREATE_SCANNER_SIGNAL_INDICES
     + CREATE_HOURLY_INDICES
     + CREATE_AUTH_INDICES
     + CREATE_CONTENT_PUBLICATION_INDICES
     + CREATE_MOMENTUM_PORTFOLIO_INDICES
+    + CREATE_CRYPTO_V2_INDICES
 )

@@ -27,6 +27,25 @@ SCANNER_HORIZONS = {
 CRYPTO_AUTO_CLOSE_DAILY_GAIN_PCT = 30.0
 CRYPTO_STRATEGY_STAKE = 100.0
 CRYPTO_STRATEGY_VERSION = "momentum-long-v1"
+MEXC_CRYPTO_STRATEGY_VERSION = "momentum-long-v2-mexc"
+
+
+async def _crypto_strategy_source(conn) -> tuple[str, str]:
+    """Return immutable entry metadata for the active crypto price provider."""
+    try:
+        cursor = await conn.execute(
+            """
+            SELECT active_provider
+            FROM market_data_state
+            WHERE market = 'crypto'
+            """
+        )
+        row = await cursor.fetchone()
+    except Exception:
+        row = None
+    if row and str(row["active_provider"]).lower() == "mexc":
+        return "mexc_daily_close", MEXC_CRYPTO_STRATEGY_VERSION
+    return "daily_close", CRYPTO_STRATEGY_VERSION
 
 
 def is_scanner_signal_within_horizon(scanner: str, age_days: Any) -> bool:
@@ -188,9 +207,33 @@ async def ensure_scanner_history_schema(conn) -> None:
                 LIMIT 1
             ),
             strategy_entry_recorded_at = datetime('now'),
-            strategy_entry_source = 'daily_close',
+            strategy_entry_source = COALESCE((
+                SELECT CASE
+                    WHEN p.provider = 'mexc' THEN 'mexc_daily_close'
+                    ELSE 'daily_close'
+                END
+                FROM prices AS p
+                WHERE p.market = 'crypto'
+                  AND p.ticker = scanner_signal_periods.ticker_a
+                  AND p.date >= scanner_signal_periods.strategy_admitted_date
+                  AND p.close > 0
+                ORDER BY p.date
+                LIMIT 1
+            ), 'daily_close'),
             strategy_stake = ?,
-            strategy_version = ?
+            strategy_version = CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM prices AS p
+                    WHERE p.market = 'crypto'
+                      AND p.ticker = scanner_signal_periods.ticker_a
+                      AND p.date >= scanner_signal_periods.strategy_admitted_date
+                      AND p.close > 0
+                      AND p.provider = 'mexc'
+                )
+                THEN ?
+                ELSE ?
+            END
         WHERE market = 'crypto'
           AND scanner = 'momentum'
           AND direction = 'long'
@@ -205,7 +248,11 @@ async def ensure_scanner_history_schema(conn) -> None:
                 AND p.close > 0
           )
         """,
-        (CRYPTO_STRATEGY_STAKE, CRYPTO_STRATEGY_VERSION),
+        (
+            CRYPTO_STRATEGY_STAKE,
+            MEXC_CRYPTO_STRATEGY_VERSION,
+            CRYPTO_STRATEGY_VERSION,
+        ),
     )
     # Repair false +30% exits created before same-day admission protection was
     # introduced. These rows have no holding period and must remain active
@@ -458,6 +505,7 @@ async def snapshot_crypto_strategy_positions(
 ) -> int:
     """Freeze crypto strategy entry and exit values exactly once."""
     await ensure_scanner_history_schema(conn)
+    entry_source, strategy_version = await _crypto_strategy_source(conn)
     cursor = await conn.execute(
         """
         SELECT *
@@ -553,7 +601,7 @@ async def snapshot_crypto_strategy_positions(
                 ),
                 strategy_entry_source = COALESCE(
                     strategy_entry_source,
-                    'daily_close'
+                    ?
                 ),
                 strategy_exit_date = COALESCE(strategy_exit_date, ?),
                 strategy_exit_price = COALESCE(strategy_exit_price, ?),
@@ -577,6 +625,7 @@ async def snapshot_crypto_strategy_positions(
             """,
             (
                 entry_price,
+                entry_source,
                 exit_date or None,
                 exit_price,
                 exit_price,
@@ -584,7 +633,7 @@ async def snapshot_crypto_strategy_positions(
                 return_pct,
                 cash_result,
                 CRYPTO_STRATEGY_STAKE,
-                CRYPTO_STRATEGY_VERSION,
+                strategy_version,
                 exit_price,
                 int(period["id"]),
             ),
@@ -606,6 +655,11 @@ async def sync_scanner_periods(
 ) -> dict[str, dict[str, Any]]:
     """Advance scanner periods once per unique market data date."""
     await ensure_scanner_history_schema(conn)
+    entry_source, strategy_version = (
+        await _crypto_strategy_source(conn)
+        if market == "crypto"
+        else ("daily_close", CRYPTO_STRATEGY_VERSION)
+    )
     data_date = _iso_date(data_date)
     cursor = await conn.execute(
         """
@@ -717,7 +771,7 @@ async def sync_scanner_periods(
                         END,
                         strategy_entry_source = COALESCE(
                             strategy_entry_source,
-                            CASE WHEN ? IS NOT NULL THEN 'daily_close' END
+                            CASE WHEN ? IS NOT NULL THEN ? END
                         ),
                         strategy_stake = COALESCE(strategy_stake, ?),
                         strategy_version = COALESCE(strategy_version, ?),
@@ -730,8 +784,9 @@ async def sync_scanner_periods(
                         entry_price,
                         entry_price,
                         entry_price,
+                        entry_source,
                         CRYPTO_STRATEGY_STAKE,
-                        CRYPTO_STRATEGY_VERSION,
+                        strategy_version,
                         int(previous["id"]),
                     ),
                 )
@@ -784,7 +839,7 @@ async def sync_scanner_periods(
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 CASE WHEN ? IS NOT NULL THEN datetime('now') END,
-                CASE WHEN ? IS NOT NULL THEN 'daily_close' END,
+                CASE WHEN ? IS NOT NULL THEN ? END,
                 ?, ?, ?, ?, 1, 'active'
             )
             """,
@@ -801,13 +856,14 @@ async def sync_scanner_periods(
                 strategy_entry_price,
                 strategy_entry_price,
                 strategy_entry_price,
+                entry_source,
                 (
                     CRYPTO_STRATEGY_STAKE
                     if strategy_admitted_date
                     else None
                 ),
                 (
-                    CRYPTO_STRATEGY_VERSION
+                    strategy_version
                     if strategy_admitted_date
                     else None
                 ),

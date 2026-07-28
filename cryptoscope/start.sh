@@ -137,6 +137,22 @@ else
     fi
 fi
 
+# Switch crypto history to MEXC once. A rejected migration leaves the archived
+# provider active and does not block the web service from starting.
+if market_enabled "crypto"; then
+    CRYPTO_PROVIDER=$(sqlite3 "$DB_PATH" \
+        "SELECT active_provider FROM market_data_state WHERE market='crypto';" \
+        2>/dev/null || true)
+    if [ "$CRYPTO_PROVIDER" != "mexc" ]; then
+        echo "[MEXC] Running validated crypto data migration..."
+        if python /scripts/migrate_crypto_to_mexc.py; then
+            echo "[MEXC] Crypto data migration complete"
+        else
+            echo "[MEXC] Migration rejected; keeping the previous crypto dataset"
+        fi
+    fi
+fi
+
 # 2. Auto-compute pairs if empty
 PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs;" 2>/dev/null || echo "0")
 if [ "$PAIR_COUNT" -lt 1 ]; then

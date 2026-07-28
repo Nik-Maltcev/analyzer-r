@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.auth import AuthUser, require_current_or_legacy_user
 from app.core.calculator import calc_pair_performance, calc_single_performance
 from app.core.signals import estimate_signal_timing
-from app.data.binance_ws import refresh_crypto_live_prices
+from app.data.mexc_market import refresh_crypto_live_prices
 from app.data.moex import get_ru_live_snapshot, refresh_ru_live_prices
 from app.db.database import (
     close_favorite,
@@ -41,7 +41,7 @@ def _get_current_price(ticker: str, db_prices: dict, market: str) -> float:
     """Get a live market price when available, then fall back to the database."""
     if market == "crypto":
         try:
-            from app.data.binance_ws import get_live_price
+            from app.data.mexc_market import get_live_price
             live = get_live_price(ticker)
             if live is not None and live > 0:
                 return float(live)
@@ -82,9 +82,9 @@ def _single_pnl(signal_type, entry_price, price_now) -> float:
 
 @router.get("/live-status")
 async def live_prices_status():
-    """Check Binance WS connection status."""
+    """Check the MEXC public-price poller status."""
     try:
-        from app.data.binance_ws import get_all_live_tickers, get_uptime, is_connected, live_prices
+        from app.data.mexc_market import get_all_live_tickers, get_uptime, is_connected, live_prices
         return {
             "connected": is_connected(),
             "uptime_seconds": round(get_uptime(), 1),
@@ -391,7 +391,7 @@ async def refresh_ru_favorites(
 async def refresh_crypto_favorites(
     user: AuthUser = Depends(require_current_or_legacy_user),
 ):
-    """Refresh Binance quotes only for the user's active crypto favorites."""
+    """Refresh MEXC quotes only for the user's active crypto favorites."""
     if "crypto" not in get_product_profile().enabled_markets:
         raise HTTPException(status_code=404, detail="Market is not available")
 
@@ -416,13 +416,13 @@ async def refresh_crypto_favorites(
     except Exception as exc:
         raise HTTPException(
             status_code=502,
-            detail="Binance временно не отвечает. Попробуйте немного позже",
+            detail="MEXC временно не отвечает. Попробуйте немного позже",
         ) from exc
 
     if not result["prices"]:
         raise HTTPException(
             status_code=502,
-            detail="Binance не вернул котировки для избранных инструментов",
+            detail="MEXC не вернул котировки для избранных инструментов",
         )
 
     updated_at = result["updated_at"]

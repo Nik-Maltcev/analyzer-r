@@ -58,10 +58,10 @@
     <div class="crypto-calculation-note">
         <i data-lucide="info"></i>
         <span>
-            Сигнал и цена начала фиксируются по дневным данным Twelve Data.
-            «Обновить» использует текущую цену Binance, а если пары там нет,
+            Сигнал и цена начала фиксируются по завершённым UTC-свечам MEXC.
+            «Обновить» использует текущую спотовую цену MEXC, а если пары там нет,
             оставляет последний дневной снимок. Ручное закрытие доступно только
-            при получении свежей цены Binance.
+            при получении свежей цены MEXC.
             Результат рассчитан как изменение цены при условных $100 на позицию;
             комиссии, проскальзывание и налоги не учтены.
         </span>
@@ -330,6 +330,22 @@
                     <dd>{{ pick.scanner_count }} из {{ active_scanner_count }}</dd>
                 </div>
             </dl>
+
+            {% if pick.upper_range %}
+            <div class="crypto-pick-upper-range">
+                <div>
+                    <span>Расчётный пик на срок сигнала</span>
+                    <strong>до ≈ {{ pick.upper_range.price_display }}</strong>
+                </div>
+                <div>
+                    <strong>{{ pick.upper_range.upside_display }}</strong>
+                    <span>от текущей цены · {{ pick.upper_range.horizon_days }} дн.</span>
+                </div>
+                <small>
+                    90% модельная граница по волатильности, не гарантированный потолок
+                </small>
+            </div>
+            {% endif %}
 
             {% if pick.price_progress %}
             <section class="crypto-pick-progress">

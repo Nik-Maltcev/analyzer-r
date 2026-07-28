@@ -8,6 +8,7 @@ from app.core.crypto_picks import (
     build_crypto_signal_export,
     build_crypto_window_summary,
     build_price_progress,
+    build_price_upper_range,
     filter_crypto_rows_by_confidence,
     is_excluded_crypto_confidence,
     select_crypto_sell_actions,
@@ -714,6 +715,34 @@ def test_price_progress_live_price_replaces_current_daily_mark_after_start():
     assert progress[0]["is_live"] is True
     assert progress[1]["price_display"] == "$100"
     assert progress[1]["is_start"] is True
+
+
+def test_price_upper_range_grows_with_horizon_and_volatility():
+    calm_history = _model_price_history([0.01, 0.009, 0.011, 0.01])
+    volatile_history = _model_price_history([0.08, -0.05, 0.07, -0.04])
+
+    calm_two_days = build_price_upper_range(calm_history, 100, 2)
+    calm_four_days = build_price_upper_range(calm_history, 100, 4)
+    volatile_two_days = build_price_upper_range(
+        volatile_history,
+        100,
+        2,
+    )
+
+    assert calm_two_days is not None
+    assert calm_four_days is not None
+    assert volatile_two_days is not None
+    assert calm_two_days["price"] > 100
+    assert calm_four_days["price"] > calm_two_days["price"]
+    assert volatile_two_days["price"] > calm_two_days["price"]
+    assert calm_two_days["confidence_pct"] == 90
+
+
+def test_price_upper_range_requires_history_and_remaining_horizon():
+    short_history = [("2026-07-27", 100), ("2026-07-28", 101)]
+
+    assert build_price_upper_range(short_history, 101, 4) is None
+    assert build_price_upper_range(_model_price_history([0.01]), 100, 0) is None
 
 
 def test_completed_crypto_history_uses_fixed_scanner_horizon():

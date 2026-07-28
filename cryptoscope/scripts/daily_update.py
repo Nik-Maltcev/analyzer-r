@@ -6,7 +6,6 @@ import os
 import sqlite3
 import subprocess
 import sys
-import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -15,16 +14,17 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.api.public_extension import refresh_extension_feed_snapshots
+from app.core.crypto_v2 import sync_crypto_v2_journal
 from app.core.momentum_portfolio import sync_momentum_portfolio_journal
 from app.core.scanner_history import sync_all_scanner_states
 from app.data.brazil import fetch_brazil_prices, upsert_brazil_prices
-from app.data.fetcher import fetch_batch
 from app.data.indonesia import fetch_indonesia_prices, upsert_indonesia_prices
 from app.data.international import (
     INTERNATIONAL_MARKETS,
     fetch_international_prices,
     upsert_international_prices,
 )
+from app.data.mexc import refresh_mexc_crypto_market
 from app.data.moex import (
     fetch_ru_prices,
     latest_ru_start_dates,
@@ -43,7 +43,6 @@ from app.data.tickers import (
 from app.data.us_stocks import fetch_us_stock_prices, upsert_us_stock_prices
 
 DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
-API_KEY = os.environ.get("TWELVEDATA_API_KEY", "")
 ENABLED_MARKETS = {
     market.strip()
     for market in os.environ.get(
@@ -58,65 +57,53 @@ US_HISTORY_YEARS = int(os.environ.get("US_HISTORY_YEARS", "3"))
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
-def update_market(tickers: list, market_name: str, conn: sqlite3.Connection, api_key: str) -> int:
-    """Update one market's prices from Twelve Data."""
-    if not api_key:
-        print(f"  No API key, skipping {market_name}")
-        return 0
+def update_crypto_market(conn: sqlite3.Connection) -> int:
+    """Refresh completed MEXC daily candles and atomically activate them."""
+    try:
+        result = asyncio.run(
+            refresh_mexc_crypto_market(conn, CRYPTO_TICKERS)
+        )
+        rows_written = int(result["staged_rows_written"])
+        tickers_ok = int(result["tickers"])
+        unavailable = list(result["unavailable_tickers"])
+        status = "ok"
+        message = (
+            f"MEXC active: {result['tickers']} tickers, "
+            f"{result['rows']} rows through {result['latest_date']}; "
+            f"unavailable={','.join(unavailable) or 'none'}"
+        )
+        print(
+            f"  [crypto/MEXC] ACTIVE={result['tickers']} "
+            f"ROWS={result['rows']} LATEST={result['latest_date']}"
+        )
+        if unavailable:
+            print(f"  [crypto/MEXC] unavailable: {', '.join(unavailable)}")
+    except Exception as exc:
+        rows_written = 0
+        tickers_ok = 0
+        unavailable = list(CRYPTO_TICKERS)
+        status = "error"
+        message = f"MEXC update/cutover failed; legacy data retained: {exc}"
+        print(f"  [crypto/MEXC] {message}")
 
-    rows_added = 0
-    tickers_ok = 0
-    tickers_fail = 0
-
-    batches = [tickers[i:i + 8] for i in range(0, len(tickers), 8)]
-    for idx, batch in enumerate(batches):
-        try:
-            df = asyncio.run(fetch_batch(batch, api_key, outputsize=5))
-
-            if df.empty:
-                tickers_fail += len(batch)
-                continue
-
-            for ticker in df["ticker"].unique():
-                sub = df[df["ticker"] == ticker]
-
-                # Check existing dates
-                existing = pd.read_sql_query(
-                    "SELECT date FROM prices WHERE ticker = ? ORDER BY date DESC LIMIT 10",
-                    conn, params=(ticker,)
-                )
-                existing_dates = set(existing["date"].values) if not existing.empty else set()
-
-                # Insert new rows
-                new_rows = sub[~sub["date"].isin(existing_dates) & sub["close"].notna() & (sub["close"] > 0)]
-                if not new_rows.empty:
-                    new_rows = new_rows.copy()
-                    new_rows["market"] = market_name
-                    new_rows["volume"] = new_rows.get("volume", 0)
-                    new_rows[["ticker", "date", "close", "volume", "market"]].to_sql(
-                        "prices", conn, if_exists="append", index=False
-                    )
-                    rows_added += len(new_rows)
-
-                tickers_ok += 1
-
-            if idx < len(batches) - 1:
-                time.sleep(75)
-
-        except Exception as e:
-            print(f"  Error batch {batch}: {e}")
-            tickers_fail += len(batch)
-            time.sleep(10)
-
-    # Log to update_log
-    conn.execute("""
-        INSERT INTO update_log (market, tickers_ok, tickers_fail, rows_added, status, message)
-        VALUES (?, ?, ?, ?, 'ok', 'Daily update complete')
-    """, (market_name, tickers_ok, tickers_fail, rows_added))
+    conn.execute(
+        """
+        INSERT INTO update_log (
+            market, tickers_ok, tickers_fail, rows_added, status, message
+        ) VALUES ('crypto', ?, ?, ?, ?, ?)
+        """,
+        (
+            tickers_ok,
+            max(0, len(CRYPTO_TICKERS) - tickers_ok),
+            rows_written,
+            status,
+            message,
+        ),
+    )
     conn.commit()
-
-    print(f"  [{market_name}] OK={tickers_ok} FAIL={tickers_fail} ROWS={rows_added}")
-    return rows_added
+    if status != "ok":
+        raise RuntimeError(message)
+    return rows_written
 
 
 def update_adjusted_market(
@@ -279,10 +266,8 @@ def main() -> int:
     conn = sqlite3.connect(DB_PATH)
 
     total = 0
-    if "crypto" in ENABLED_MARKETS and API_KEY:
-        total += update_market(CRYPTO_TICKERS, "crypto", conn, API_KEY)
-    elif "crypto" in ENABLED_MARKETS:
-        print("TWELVEDATA_API_KEY not set, skipping crypto")
+    if "crypto" in ENABLED_MARKETS:
+        total += update_crypto_market(conn)
     if "stocks" in ENABLED_MARKETS:
         total += update_us_market(conn)
     if "ru" in ENABLED_MARKETS:
@@ -314,6 +299,12 @@ def main() -> int:
             print(f"Momentum portfolio journal: {portfolio_result}")
         except Exception as exc:
             print(f"Momentum portfolio journal update failed: {exc}")
+            return 1
+        try:
+            crypto_v2_result = asyncio.run(sync_crypto_v2_journal(DB_PATH))
+            print(f"Crypto V2 journal: {crypto_v2_result}")
+        except Exception as exc:
+            print(f"Crypto V2 journal update failed: {exc}")
             return 1
 
     # Recompute even when providers returned no new rows. This verifies the

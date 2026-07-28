@@ -60,12 +60,14 @@ Copy the required API secrets to every service:
 ```text
 RESEND_API_KEY=...
 RESEND_FROM_EMAIL=...
-TWELVEDATA_API_KEY=...
 ```
 
 Use a verified sender such as `MEANX <login@your-domain.example>`. Legacy
 `APP_NAME=CryptoScope...` values are migrated to `MEANX` automatically, but
 removing them from Railway keeps the configuration clear.
+
+Crypto history and live spot prices use the public MEXC API and do not require
+an API key.
 
 `ENABLED_MARKETS`, locale, timezone, and currency are derived automatically
 from `APP_VARIANT`. Set them only when a service needs custom behavior. Do not

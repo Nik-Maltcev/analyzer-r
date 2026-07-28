@@ -5,7 +5,7 @@ from app.core.crypto_picks import (
     build_crypto_signal_export,
     build_crypto_window_summary,
 )
-from app.data import binance_ws
+from app.data import mexc_market
 
 
 def _reference_return(start_price, result_price):
@@ -245,26 +245,26 @@ def test_live_marks_change_only_active_positions():
     assert by_ticker["LIVE/USD"]["return_pct"] == -5
 
 
-def test_binance_snapshot_rejects_stale_quotes():
-    original_map = binance_ws.TICKER_MAP
-    original_prices = binance_ws.live_prices
-    original_updates = binance_ws._last_update
+def test_mexc_snapshot_rejects_stale_quotes():
+    original_map = mexc_market.TICKER_MAP
+    original_prices = mexc_market.live_prices
+    original_updates = mexc_market._last_update
     now = time.time()
     try:
-        binance_ws.TICKER_MAP = {
+        mexc_market.TICKER_MAP = {
             "FRESH/USD": ["FRESHUSDT"],
             "STALE/USD": ["STALEUSDT"],
         }
-        binance_ws.live_prices = {
+        mexc_market.live_prices = {
             "FRESHUSDT": 105.0,
             "STALEUSDT": 90.0,
         }
-        binance_ws._last_update = {
+        mexc_market._last_update = {
             "FRESHUSDT": now,
             "STALEUSDT": now - 120,
         }
 
-        prices, updated_at = binance_ws.get_crypto_live_snapshot(
+        prices, updated_at = mexc_market.get_crypto_live_snapshot(
             ["FRESH/USD", "STALE/USD"],
             updated_since=now - 5,
         )
@@ -272,6 +272,6 @@ def test_binance_snapshot_rejects_stale_quotes():
         assert prices == {"FRESH/USD": 105.0}
         assert updated_at is not None
     finally:
-        binance_ws.TICKER_MAP = original_map
-        binance_ws.live_prices = original_prices
-        binance_ws._last_update = original_updates
+        mexc_market.TICKER_MAP = original_map
+        mexc_market.live_prices = original_prices
+        mexc_market._last_update = original_updates

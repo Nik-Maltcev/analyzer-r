@@ -104,6 +104,8 @@ async def readiness():
         "scanner_signal_periods",
         "extension_feed_snapshots",
         "crypto_strategy_trades",
+        "crypto_price_versions",
+        "market_data_state",
     }
     problems: list[str] = []
     now = datetime.now(UTC)
@@ -166,6 +168,57 @@ async def readiness():
                     row = await cursor.fetchone()
                     if int(row["prices"] or 0) < 1:
                         problems.append(f"{market}: no prices")
+                    if market == "crypto":
+                        state_cursor = await conn.execute(
+                            """
+                            SELECT
+                                active_provider,
+                                latest_data_date,
+                                ticker_count,
+                                row_count
+                            FROM market_data_state
+                            WHERE market = 'crypto'
+                            """
+                        )
+                        state = await state_cursor.fetchone()
+                        if not state:
+                            problems.append(
+                                "crypto: provider state is missing"
+                            )
+                        elif str(state["active_provider"]).lower() != "mexc":
+                            problems.append(
+                                "crypto: active provider is not MEXC"
+                            )
+                        else:
+                            provider_cursor = await conn.execute(
+                                """
+                                SELECT
+                                    COUNT(*) AS rows,
+                                    COUNT(DISTINCT ticker) AS tickers,
+                                    COUNT(DISTINCT provider) AS providers,
+                                    MIN(provider) AS provider
+                                FROM prices
+                                WHERE market = 'crypto'
+                                """
+                            )
+                            provider_row = await provider_cursor.fetchone()
+                            if (
+                                int(provider_row["rows"] or 0)
+                                != int(state["row_count"] or 0)
+                                or int(provider_row["tickers"] or 0)
+                                != int(state["ticker_count"] or 0)
+                            ):
+                                problems.append(
+                                    "crypto: provider state does not match prices"
+                                )
+                            if (
+                                int(provider_row["providers"] or 0) != 1
+                                or str(provider_row["provider"]).lower()
+                                != "mexc"
+                            ):
+                                problems.append(
+                                    "crypto: mixed or unexpected price providers"
+                                )
                     price_age = _timestamp_age_hours(
                         row["price_date"],
                         now,

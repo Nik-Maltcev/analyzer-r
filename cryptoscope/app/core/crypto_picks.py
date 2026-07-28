@@ -198,6 +198,51 @@ def _realized_volatility_pct(
     return max(statistics.pstdev(returns) * 100, 0.25)
 
 
+def build_price_upper_range(
+    dated_prices: Iterable[tuple[Any, Any]],
+    current_price: Any,
+    remaining_days: Any,
+    lookback_days: int = 20,
+) -> dict[str, Any] | None:
+    """Estimate a 90% model upper bound for the path maximum.
+
+    The estimate uses completed daily closes only. Under a zero-drift
+    lognormal model, 1.64485 sigma is the 90th percentile of the maximum
+    excursion over the remaining signal horizon.
+    """
+    price = _safe_float(current_price)
+    horizon_days = _safe_int(remaining_days)
+    daily_volatility_pct = _realized_volatility_pct(
+        dated_prices,
+        lookback_days=lookback_days,
+    )
+    if (
+        price is None
+        or price <= 0
+        or horizon_days <= 0
+        or daily_volatility_pct is None
+    ):
+        return None
+
+    daily_volatility = daily_volatility_pct / 100
+    upper_return = math.exp(
+        1.6448536269514722
+        * daily_volatility
+        * math.sqrt(horizon_days)
+    ) - 1
+    upper_price = price * (1 + upper_return)
+    upside_pct = upper_return * 100
+    return {
+        "price": round(upper_price, 12),
+        "price_display": _format_price(upper_price),
+        "upside_pct": round(upside_pct, 2),
+        "upside_display": f"+{upside_pct:.2f}%",
+        "horizon_days": horizon_days,
+        "daily_volatility_pct": round(daily_volatility_pct, 2),
+        "confidence_pct": 90,
+    }
+
+
 def _capped_inverse_volatility_weights(
     volatilities: list[float],
     max_weight: float,

@@ -144,7 +144,7 @@ async def test_indonesia_edition_switches_between_id_and_english(
     assert default_page.status_code == 200
     assert '<html lang="id">' in default_page.text
     assert "Buka aplikasi" in default_page.text
-    assert "Harga Binance live" in default_page.text
+    assert "Harga MEXC live" in default_page.text
     assert "paypal.com/sdk/js" not in default_page.text
     assert 'href="/app?checkout=month"' in default_page.text
     assert 'href="/app?checkout=year"' in default_page.text

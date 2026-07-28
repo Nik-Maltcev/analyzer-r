@@ -14,6 +14,7 @@ from app.access import get_access_state, is_admin_user
 from app.api.auth import router as auth_router
 from app.api.charts import router as charts_router
 from app.api.crypto_picks import router as crypto_picks_router
+from app.api.crypto_v2 import router as crypto_v2_router
 from app.api.data_view import router as data_router
 from app.api.favorites import router as favorites_router
 from app.api.health import router as health_router
@@ -53,14 +54,14 @@ async def lifespan(app: FastAPI):
     print(f"{get_product_profile(settings).name} starting on {settings.host}:{settings.port}")
     print(f"DB path: {settings.db_path}")
 
-    # Start Binance WebSocket for live prices
+    # Keep MEXC public spot prices warm for user-triggered refreshes.
     ws_task = None
     try:
-        from app.data.binance_ws import connect_binance_ws
-        ws_task = asyncio.create_task(connect_binance_ws())
-        print("[Binance] Price stream started in background")
+        from app.data.mexc_market import connect_mexc_market
+        ws_task = asyncio.create_task(connect_mexc_market())
+        print("[MEXC] Public spot price poller started in background")
     except ImportError:
-        print("[Binance] websockets not available, live prices disabled")
+        print("[MEXC] Live prices unavailable")
 
     yield
     # Shutdown
@@ -172,6 +173,7 @@ app.include_router(public_content_router, prefix="/api")
 app.include_router(payments_router)
 app.include_router(ui_router)
 app.include_router(crypto_picks_router)
+app.include_router(crypto_v2_router)
 app.include_router(momentum_portfolio_router)
 
 

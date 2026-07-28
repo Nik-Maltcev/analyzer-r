@@ -697,45 +697,45 @@ MESSAGES = {
         "Perbarui harga kripto",
     ),
     "Обновить котировки RU": ("Refresh RU quotes", "Atualizar cotações RU", "Perbarui harga RU"),
-    "Данные Binance обновляются вручную": (
-        "Binance data refreshes manually",
-        "Dados da Binance atualizados manualmente",
-        "Data Binance diperbarui manual",
+    "Данные MEXC обновляются вручную": (
+        "MEXC data refreshes manually",
+        "Dados da MEXC atualizados manualmente",
+        "Data MEXC diperbarui manual",
     ),
-    "Котировки Binance уже актуальны": (
-        "Binance quotes are already up to date",
-        "As cotações da Binance já estão atualizadas",
-        "Harga Binance sudah terbaru",
+    "Котировки MEXC уже актуальны": (
+        "MEXC quotes are already up to date",
+        "As cotações da MEXC já estão atualizadas",
+        "Harga MEXC sudah terbaru",
     ),
     "Обновлено crypto-инструментов:": (
         "Crypto instruments refreshed:",
         "Instrumentos cripto atualizados:",
         "Instrumen kripto diperbarui:",
     ),
-    "Не удалось обновить котировки Binance": (
-        "Could not refresh Binance quotes",
-        "Não foi possível atualizar as cotações da Binance",
-        "Tidak dapat memperbarui harga Binance",
+    "Не удалось обновить котировки MEXC": (
+        "Could not refresh MEXC quotes",
+        "Não foi possível atualizar as cotações da MEXC",
+        "Tidak dapat memperbarui harga MEXC",
     ),
     "В избранном нет активных crypto-позиций": (
         "There are no active crypto positions in the watchlist",
         "Não há posições cripto ativas nos favoritos",
         "Tidak ada posisi kripto aktif di favorit",
     ),
-    "Binance временно не отвечает. Попробуйте немного позже": (
-        "Binance is temporarily unavailable. Please try again shortly",
-        "A Binance está temporariamente indisponível. Tente novamente em instantes",
-        "Binance sementara tidak tersedia. Coba lagi sebentar",
+    "MEXC временно не отвечает. Попробуйте немного позже": (
+        "MEXC is temporarily unavailable. Please try again shortly",
+        "A MEXC está temporariamente indisponível. Tente novamente em instantes",
+        "MEXC sementara tidak tersedia. Coba lagi sebentar",
     ),
-    "Binance не вернул котировки для избранных инструментов": (
-        "Binance did not return quotes for the selected instruments",
-        "A Binance não retornou cotações para os instrumentos selecionados",
-        "Binance tidak mengembalikan harga untuk instrumen favorit",
+    "MEXC не вернул котировки для избранных инструментов": (
+        "MEXC did not return quotes for the selected instruments",
+        "A MEXC não retornou cotações para os instrumentos selecionados",
+        "MEXC tidak mengembalikan harga untuk instrumen favorit",
     ),
-    "Ошибка обновления Binance": (
-        "Binance refresh error",
-        "Erro ao atualizar Binance",
-        "Kesalahan pembaruan Binance",
+    "Ошибка обновления MEXC": (
+        "MEXC refresh error",
+        "Erro ao atualizar MEXC",
+        "Kesalahan pembaruan MEXC",
     ),
     "Войдите, чтобы сохранять сигналы": ("Sign in to save signals", "Entre para salvar sinais", "Masuk untuk menyimpan sinyal"),
     "Получить ссылку для входа": ("Get sign-in link", "Receber link de acesso", "Dapatkan tautan masuk"),
@@ -761,7 +761,7 @@ MESSAGES = {
     "Обновление данных": ("Data updates", "Atualização de dados", "Pembaruan data"),
     "Последнее обновление цен:": ("Last price update:", "Última atualização de preços:", "Pembaruan harga terakhir:"),
     "Следующее обновление:": ("Next update:", "Próxima atualização:", "Pembaruan berikutnya:"),
-    "Статус Binance WS": ("Binance WS status", "Status do Binance WS", "Status Binance WS"),
+    "Статус цен MEXC": ("MEXC price status", "Status dos preços MEXC", "Status harga MEXC"),
     "подключен": ("connected", "conectado", "terhubung"),
     "отключен": ("disconnected", "desconectado", "terputus"),
     "Записей": ("Rows", "Registros", "Baris"),
@@ -942,10 +942,10 @@ MESSAGES = {
     "США": ("United States", "Estados Unidos", "Amerika Serikat"),
     "Бразилия": ("Brazil", "Brasil", "Brasil"),
     "Индонезия": ("Indonesia", "Indonésia", "Indonesia"),
-    "Live-цены Binance": (
-        "Live Binance prices",
-        "Preços Binance ao vivo",
-        "Harga Binance live",
+    "Live-цены MEXC": (
+        "Live MEXC prices",
+        "Preços MEXC ao vivo",
+        "Harga MEXC live",
     ),
     "Откройте рынок с другой стороны": (
         "See the market from another angle",

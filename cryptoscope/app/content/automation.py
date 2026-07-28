@@ -28,7 +28,7 @@ from app.core.scanner_history import (
     is_scanner_signal_within_horizon,
 )
 from app.core.scanners import drawdown_scan, momentum_scan
-from app.data.binance_ws import refresh_crypto_live_prices
+from app.data.mexc_market import refresh_crypto_live_prices
 from app.db.schema import (
     CREATE_CONTENT_PUBLICATION_INDICES,
     CREATE_CONTENT_PUBLICATIONS,
@@ -925,7 +925,7 @@ def _active_period_exists(conn: sqlite3.Connection, row: sqlite3.Row) -> bool:
 
 
 def _fetch_live_crypto_prices(tickers: list[str]) -> dict[str, float]:
-    """Fetch current Binance quotes for content updates, with caller fallback."""
+    """Fetch current MEXC quotes for content updates, with caller fallback."""
     if not tickers:
         return {}
     try:
@@ -939,7 +939,7 @@ def _fetch_live_crypto_prices(tickers: list[str]) -> dict[str, float]:
             if price is not None and float(price) > 0
         }
         print(
-            "Content live prices loaded from Binance: "
+            "Content live prices loaded from MEXC: "
             f"{len(prices)}/{len(set(tickers))}"
         )
         return prices
@@ -996,7 +996,7 @@ def _refresh_draft_entry_price(
         "SELECT * FROM content_publications WHERE id = ?",
         (int(row["id"]),),
     ).fetchone()
-    return refreshed or row, "binance_live"
+    return refreshed or row, "mexc_live"
 
 
 def _refresh_active_current_price(
@@ -1006,7 +1006,7 @@ def _refresh_active_current_price(
     """Refresh the current quote before intentionally republishing an active signal."""
     ticker = str(row["ticker"])
     live_price = _fetch_live_crypto_prices([ticker]).get(ticker)
-    source = "binance_live"
+    source = "mexc_live"
     current = live_price
     if not current:
         latest = conn.execute(
@@ -1154,7 +1154,7 @@ def _update_active_publications(
         daily_close = float(values.iloc[-1])
         current = live_prices.get(ticker, daily_close)
         price_source = (
-            "binance_live" if ticker in live_prices else "daily_close"
+            "mexc_live" if ticker in live_prices else "daily_close"
         )
         return_pct = directional_return_pct(
             str(row["direction"]),

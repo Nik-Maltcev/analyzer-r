@@ -140,7 +140,7 @@ def test_deploy_preview_republishes_latest_active_signal(tmp_path, monkeypatch):
     ).fetchone()
     assert result["status"] == "deploy_preview_published"
     assert result["current_price"] == 536.81
-    assert result["price_source"] == "binance_live"
+    assert result["price_source"] == "mexc_live"
     assert row["telegram_message_id"] == 77
     assert row["telegram_chat_id"] == "@meanx_trade"
 
@@ -169,7 +169,7 @@ def test_draft_entry_is_anchored_to_live_publication_price(monkeypatch):
 
     refreshed, source = _refresh_draft_entry_price(conn, row)
 
-    assert source == "binance_live"
+    assert source == "mexc_live"
     assert refreshed["entry_price"] == 337.194
     assert refreshed["current_price"] == 337.194
     assert refreshed["return_pct"] == 0
@@ -459,7 +459,7 @@ def test_evening_update_keeps_telegram_text_and_threads_image(tmp_path, monkeypa
 
     assert updates[0]["published"] is True
     assert updates[0]["current_price"] == 105.0
-    assert updates[0]["price_source"] == "binance_live"
+    assert updates[0]["price_source"] == "mexc_live"
     assert Telegram.sent[0][1] == 77
     assert "105" in Telegram.sent[0][0]
     assert Threads.sent[0][4] == "threads-original-77"
