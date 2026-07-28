@@ -16,8 +16,8 @@ from app.db.schema import (
     CREATE_CRYPTO_V2_TRADES,
 )
 
-STRATEGY_VERSION = "crypto-v2-regime-hysteresis-5pos-v2"
-MODEL_CAPITAL = 300.0
+STRATEGY_VERSION = "crypto-v2-regime-hysteresis-5pos-500-v3"
+MODEL_CAPITAL = 500.0
 MAX_POSITIONS = 5
 MAX_POSITION_WEIGHT = 0.50
 MAX_HOLDING_SESSIONS = 5
@@ -840,6 +840,8 @@ async def fetch_crypto_v2_report(conn) -> dict[str, Any]:
     return {
         "strategy_version": STRATEGY_VERSION,
         "max_positions": MAX_POSITIONS,
+        "model_capital": MODEL_CAPITAL,
+        "model_capital_display": f"${MODEL_CAPITAL:.0f}",
         "latest": latest,
         "candidates": candidates,
         "active": active,

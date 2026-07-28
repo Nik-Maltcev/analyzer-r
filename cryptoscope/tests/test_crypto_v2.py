@@ -4,6 +4,8 @@ import pandas as pd
 from app.core.crypto_v2 import (
     MAX_HOLDING_SESSIONS,
     MAX_POSITIONS,
+    MAX_POSITION_WEIGHT,
+    MODEL_CAPITAL,
     build_crypto_v2_features,
     simulate_crypto_v2,
 )
@@ -33,13 +35,27 @@ def test_crypto_v2_limits_positions_and_position_size():
     result = simulate_crypto_v2(_rising_market(), "2025-03-20")
 
     assert result["trades"]
-    assert all(trade["allocation"] <= 150.0001 for trade in result["trades"])
+    assert all(
+        trade["allocation"]
+        <= MODEL_CAPITAL * MAX_POSITION_WEIGHT + 0.0001
+        for trade in result["trades"]
+    )
     entry_counts = {}
+    entry_allocations = {}
     for trade in result["trades"]:
         entry_counts[trade["entry_date"]] = (
             entry_counts.get(trade["entry_date"], 0) + 1
         )
+        entry_allocations[trade["entry_date"]] = (
+            entry_allocations.get(trade["entry_date"], 0.0)
+            + trade["allocation"]
+        )
     assert max(entry_counts.values()) == MAX_POSITIONS
+    assert max(entry_allocations.values()) <= MODEL_CAPITAL + 0.0001
+    assert any(
+        abs(total - MODEL_CAPITAL) < 0.0001
+        for total in entry_allocations.values()
+    )
 
 
 def test_crypto_v2_closes_at_fixed_horizon():
