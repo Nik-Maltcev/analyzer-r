@@ -3,6 +3,7 @@ import pandas as pd
 
 from app.core.crypto_v2 import (
     MAX_HOLDING_SESSIONS,
+    MAX_POSITIONS,
     build_crypto_v2_features,
     simulate_crypto_v2,
 )
@@ -38,7 +39,7 @@ def test_crypto_v2_limits_positions_and_position_size():
         entry_counts[trade["entry_date"]] = (
             entry_counts.get(trade["entry_date"], 0) + 1
         )
-    assert max(entry_counts.values()) <= 3
+    assert max(entry_counts.values()) == MAX_POSITIONS
 
 
 def test_crypto_v2_closes_at_fixed_horizon():

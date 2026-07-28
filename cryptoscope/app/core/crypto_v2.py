@@ -16,9 +16,9 @@ from app.db.schema import (
     CREATE_CRYPTO_V2_TRADES,
 )
 
-STRATEGY_VERSION = "crypto-v2-regime-hysteresis-v1"
+STRATEGY_VERSION = "crypto-v2-regime-hysteresis-5pos-v2"
 MODEL_CAPITAL = 300.0
-MAX_POSITIONS = 3
+MAX_POSITIONS = 5
 MAX_POSITION_WEIGHT = 0.50
 MAX_HOLDING_SESSIONS = 5
 MISSING_CONFIRMATIONS_TO_EXIT = 2
@@ -839,6 +839,7 @@ async def fetch_crypto_v2_report(conn) -> dict[str, Any]:
     forward_summary = _summary(forward_rows)
     return {
         "strategy_version": STRATEGY_VERSION,
+        "max_positions": MAX_POSITIONS,
         "latest": latest,
         "candidates": candidates,
         "active": active,

@@ -156,7 +156,7 @@
                 <span class="section-kicker">ТЕКУЩИЙ FORWARD TEST</span>
                 <h3>Активные позиции</h3>
             </div>
-            <span>{{ report.active|length }} из 3</span>
+            <span>{{ report.active|length }} из {{ report.max_positions }}</span>
         </header>
         {% if report.active %}
         <div class="crypto-v2-position-grid">
