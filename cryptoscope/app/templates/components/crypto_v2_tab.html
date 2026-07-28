@@ -3,10 +3,9 @@
         <div>
             <span class="section-kicker">АДМИНСКАЯ ГИПОТЕЗА</span>
             <h2>Crypto V2</h2>
-            <p>Momentum LONG с подтверждением, фильтром рынка и ограничением риска.</p>
+            <p>Готовый план действий по модели Momentum LONG.</p>
         </div>
         <div class="crypto-v2-header-actions">
-            <span class="crypto-v2-version">{{ report.strategy_version }}</span>
             <button class="crypto-refresh-button"
                     type="button"
                     hx-get="/tab/crypto-v2?refresh=true"
@@ -14,7 +13,7 @@
                     hx-swap="innerHTML"
                     hx-sync="#main-content:replace">
                 <i data-lucide="refresh-cw"></i>
-                Обновить
+                Обновить цены
             </button>
         </div>
     </header>
@@ -32,242 +31,292 @@
     {% endif %}
 
     {% if latest %}
-    <section class="crypto-v2-regime is-{{ latest.regime }}">
-        <div class="crypto-v2-regime-name">
-            <span>РЕЖИМ НА {{ latest.data_date }}</span>
-            <strong>{{ latest.regime_label }}</strong>
-            <small>
-                {% if latest.regime == "green" %}
-                Новые входы разрешены на полный модельный капитал.
-                {% elif latest.regime == "yellow" %}
-                Новые входы ограничены 30% модельного капитала.
-                {% elif latest.regime == "red" %}
-                Новые входы отключены, кандидаты остаются под наблюдением.
-                {% else %}
-                Недостаточно истории для надёжной проверки рынка.
-                {% endif %}
-            </small>
-        </div>
-        <dl class="crypto-v2-regime-metrics">
-            <div>
-                <dt>BTC / SMA50</dt>
-                <dd class="{% if latest.btc_above_sma50 %}positive{% else %}negative{% endif %}">
-                    {{ latest.btc_distance_display }}
-                </dd>
-                <small>{% if latest.btc_above_sma50 %}выше средней{% else %}ниже средней{% endif %}</small>
-            </div>
-            <div>
-                <dt>Ширина рынка</dt>
-                <dd class="{% if latest.breadth_pct and latest.breadth_pct >= 50 %}positive{% else %}negative{% endif %}">
-                    {{ latest.breadth_display }}
-                </dd>
-                <small>{{ latest.breadth_positive }} из {{ latest.breadth_total }} выше SMA20</small>
-            </div>
-            <div>
-                <dt>Лимит капитала</dt>
-                <dd>{{ latest.exposure_display }}</dd>
-                <small>от модельных {{ report.model_capital_display }}</small>
-            </div>
-            <div>
-                <dt>Подтверждено</dt>
-                <dd>{{ latest.confirmed_count }} / {{ latest.candidate_count }}</dd>
-                <small>LONG-кандидатов</small>
-            </div>
-        </dl>
-    </section>
-    {% endif %}
-
-    <section class="crypto-v2-results">
-        <article>
-            <header>
-                <div>
-                    <span class="section-kicker">FORWARD TEST</span>
-                    <h3>После запуска V2</h3>
-                </div>
-                <span>с {{ report.forward_started_on or "первого расчёта" }}</span>
-            </header>
-            <div class="crypto-v2-result-grid">
-                <div>
-                    <span>Закрыто</span>
-                    <strong>{{ report.forward.closed }}</strong>
-                    <small>{{ report.forward.wins }} в плюс · {{ report.forward.losses }} в минус</small>
-                </div>
-                <div>
-                    <span>Зафиксировано</span>
-                    <strong class="{% if report.forward.cash_result >= 0 %}positive{% else %}negative{% endif %}">
-                        {{ report.forward.cash_result_display }}
-                    </strong>
-                    <small>{{ report.forward.return_display }} на вложенный капитал</small>
-                </div>
-                <div>
-                    <span>Активные позиции</span>
-                    <strong class="{% if report.active_cash >= 0 %}positive{% else %}negative{% endif %}">
-                        {{ report.active_cash_display }}
-                    </strong>
-                    <small>{{ report.active|length }} поз. · {{ report.active_return_display }}</small>
-                </div>
-                <div>
-                    <span>Итого forward</span>
-                    <strong class="{% if report.forward_total_cash >= 0 %}positive{% else %}negative{% endif %}">
-                        {{ report.forward_total_cash_display }}
-                    </strong>
-                    <small>закрытые + текущая оценка активных</small>
-                </div>
-            </div>
-        </article>
-        <article>
-            <header>
-                <div>
-                    <span class="section-kicker">POINT-IN-TIME BACKTEST</span>
-                    <h3>Исторический пересчёт</h3>
-                </div>
-                <span>не реальные сделки</span>
-            </header>
-            <div class="crypto-v2-result-grid">
-                <div>
-                    <span>Закрыто</span>
-                    <strong>{{ report.backtest.closed }}</strong>
-                    <small>{{ report.backtest.wins }} в плюс · {{ report.backtest.losses }} в минус</small>
-                </div>
-                <div>
-                    <span>Доля плюсовых</span>
-                    <strong>{{ report.backtest.win_rate_display }}</strong>
-                    <small>по завершённым периодам</small>
-                </div>
-                <div>
-                    <span>Результат</span>
-                    <strong class="{% if report.backtest.cash_result >= 0 %}positive{% else %}negative{% endif %}">
-                        {{ report.backtest.cash_result_display }}
-                    </strong>
-                    <small>{{ report.backtest.return_display }} на вложенный капитал</small>
-                </div>
-                <div>
-                    <span>Открыто в истории</span>
-                    <strong>{{ report.backtest.active }}</strong>
-                    <small>состояние на последнюю дату данных</small>
-                </div>
-            </div>
-        </article>
-    </section>
-
-    <section class="crypto-v2-section">
+    <section class="crypto-v2-action-board is-{{ latest.regime }}">
         <header>
             <div>
-                <span class="section-kicker">ТЕКУЩИЙ FORWARD TEST</span>
-                <h3>Активные позиции</h3>
+                <span class="section-kicker">ПЛАН ПО РАСЧЁТУ ОТ {{ latest.data_date }}</span>
+                {% if report.today_buys %}
+                <h3>Новых покупок: {{ report.today_buys|length }}</h3>
+                <p>Покупать только указанные монеты и только на указанную сумму.</p>
+                {% elif report.active %}
+                <h3>Новых покупок нет</h3>
+                <p>Текущие позиции нужно держать. Просроченные входы не догонять.</p>
+                {% else %}
+                <h3>Сегодня ничего не покупать</h3>
+                <p>Модель не открыла позиции. Капитал остаётся в USDT.</p>
+                {% endif %}
             </div>
-            <span>{{ report.active|length }} из {{ report.max_positions }}</span>
+            <span class="crypto-v2-market-pill is-{{ latest.regime }}">
+                {% if latest.regime == "green" %}
+                Покупки разрешены
+                {% elif latest.regime == "yellow" %}
+                Сниженный объём
+                {% elif latest.regime == "red" %}
+                Новые покупки запрещены
+                {% else %}
+                Ждём данные
+                {% endif %}
+            </span>
         </header>
+
+        <div class="crypto-v2-capital-strip">
+            <div>
+                <span>Капитал модели</span>
+                <strong>{{ report.model_capital_display }}</strong>
+            </div>
+            <div>
+                <span>Уже в позициях</span>
+                <strong>{{ report.active_invested_display }}</strong>
+            </div>
+            <div>
+                <span>Оставить в USDT</span>
+                <strong>{{ report.reserve_capital_display }}</strong>
+            </div>
+        </div>
+
         {% if report.active %}
-        <div class="crypto-v2-position-grid">
+        <div class="crypto-v2-action-list">
             {% for item in report.active %}
-            <article class="crypto-v2-position">
+            <article class="crypto-v2-action-card is-{{ item.action_type }}">
                 <header>
-                    <div>
-                        <strong>{{ item.symbol }}</strong>
-                        <span>{{ item.ticker }}</span>
+                    <div class="crypto-v2-action-name">
+                        <span class="crypto-v2-action-icon">
+                            {% if item.action_type == "buy" %}
+                            <i data-lucide="shopping-cart"></i>
+                            {% else %}
+                            <i data-lucide="clock-3"></i>
+                            {% endif %}
+                        </span>
+                        <div>
+                            <span>{% if item.action_type == "buy" %}НОВЫЙ ВХОД ПО РАСЧЁТУ{% else %}УЖЕ В ПОРТФЕЛЕ{% endif %}</span>
+                            <h4>{{ item.action_label }}</h4>
+                            <small>{{ item.ticker }}</small>
+                        </div>
                     </div>
                     <span class="crypto-v2-confidence is-{{ item.confidence }}">
-                        {{ item.confidence_label }}
+                        {{ item.confidence_label }} уверенность
                     </span>
                 </header>
-                <div class="crypto-v2-position-result">
-                    <strong class="{% if item.current_return_pct >= 0 %}positive{% else %}negative{% endif %}">
-                        {{ item.current_return_display }}
-                    </strong>
-                    <span class="{% if item.current_cash_result >= 0 %}positive{% else %}negative{% endif %}">
-                        {{ item.current_cash_result_display }}
-                    </span>
+
+                <div class="crypto-v2-order-line">
+                    <div>
+                        <span>{% if item.action_type == "buy" %}Сколько вложить{% else %}Сумма позиции{% endif %}</span>
+                        <strong>{{ item.allocation_display }}</strong>
+                        {% if item.action_type == "buy" %}
+                        <small>{{ item.order_quantity_display }} {{ item.symbol }} по текущей цене</small>
+                        {% else %}
+                        <small>{{ item.entry_quantity_display }} {{ item.symbol }} куплено моделью</small>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <span>Цена сейчас</span>
+                        <strong>{{ item.current_price_display }}</strong>
+                        <small>MEXC Spot</small>
+                    </div>
+                    <div>
+                        <span>Когда продать</span>
+                        <strong>не позднее {{ item.planned_exit_display }}</strong>
+                        <small>раньше, если модель закроет сигнал</small>
+                    </div>
+                    <div>
+                        <span>Текущий результат</span>
+                        <strong class="{% if item.current_return_pct >= 0 %}positive{% else %}negative{% endif %}">
+                            {{ item.current_return_display }}
+                        </strong>
+                        <small class="{% if item.current_cash_result >= 0 %}positive{% else %}negative{% endif %}">
+                            {{ item.current_cash_result_display }}
+                        </small>
+                    </div>
                 </div>
-                <dl>
-                    <div>
-                        <dt>Вход</dt>
-                        <dd>{{ item.entry_price_display }}</dd>
-                        <small>{{ item.entry_date }}</small>
-                    </div>
-                    <div>
-                        <dt>Сейчас</dt>
-                        <dd>{{ item.current_price_display }}</dd>
-                        <small>live MEXC</small>
-                    </div>
-                    <div>
-                        <dt>Выделено</dt>
-                        <dd>{{ item.allocation_display }}</dd>
-                        <small>{{ item.entry_regime }}-режим</small>
-                    </div>
-                </dl>
+
                 <footer>
-                    Выход: разворот, отсутствие LONG два дня или пятая сессия.
+                    {% if item.action_type == "buy" %}
+                    Купить на споте по расчёту от {{ latest.data_date }}. Продать в указанную дату или раньше, когда позиция появится в истории завершённых.
+                    {% else %}
+                    Вход модели был {{ item.entry_date_display }} по {{ item.entry_price_display }}.
+                    Если тогда не покупали, сейчас входить поздно.
+                    {% endif %}
                 </footer>
             </article>
             {% endfor %}
         </div>
         {% else %}
-        <div class="crypto-v2-empty">
-            <i data-lucide="shield-check"></i>
-            <strong>Сейчас капитал остаётся в USDT</strong>
-            <span>Кандидаты ниже сохранены, но условия входа ещё не выполнены.</span>
+        <div class="crypto-v2-no-action">
+            <i data-lucide="wallet-cards"></i>
+            <div>
+                <strong>{{ report.model_capital_display }} оставить в USDT</strong>
+                <span>Следующая проверка появится после обновления дневных данных.</span>
+            </div>
         </div>
         {% endif %}
     </section>
-
-    <section class="crypto-v2-section">
-        <header>
+    {% else %}
+    <section class="crypto-v2-action-board">
+        <div class="crypto-v2-no-action">
+            <i data-lucide="database-zap"></i>
             <div>
-                <span class="section-kicker">НАБЛЮДЕНИЕ</span>
-                <h3>Momentum LONG-кандидаты</h3>
+                <strong>Плана пока нет</strong>
+                <span>Нажмите «Обновить цены» после загрузки дневных данных.</span>
             </div>
-            <span>{{ report.candidates|length }} на последнем расчёте</span>
-        </header>
-        {% if report.candidates %}
+        </div>
+    </section>
+    {% endif %}
+
+    <section class="crypto-v2-quick-result">
+        <div>
+            <span>Активных позиций</span>
+            <strong>{{ report.active|length }} из {{ report.max_positions }}</strong>
+        </div>
+        <div>
+            <span>Результат активных</span>
+            <strong class="{% if report.active_cash >= 0 %}positive{% else %}negative{% endif %}">
+                {{ report.active_cash_display }}
+            </strong>
+        </div>
+        <div>
+            <span>Зафиксировано V2</span>
+            <strong class="{% if report.forward.cash_result >= 0 %}positive{% else %}negative{% endif %}">
+                {{ report.forward.cash_result_display }}
+            </strong>
+        </div>
+        <div>
+            <span>Итого с запуска</span>
+            <strong class="{% if report.forward_total_cash >= 0 %}positive{% else %}negative{% endif %}">
+                {{ report.forward_total_cash_display }}
+            </strong>
+        </div>
+    </section>
+
+    <details class="crypto-v2-details">
+        <summary>
+            <span><i data-lucide="info"></i> Почему модель разрешает или запрещает покупки</span>
+            <i data-lucide="chevron-down"></i>
+        </summary>
+        {% if latest %}
+        <section class="crypto-v2-regime is-{{ latest.regime }}">
+            <div class="crypto-v2-regime-name">
+                <span>РЕЖИМ НА {{ latest.data_date }}</span>
+                <strong>{{ latest.regime_label }}</strong>
+                <small>
+                    {% if latest.regime == "green" %}
+                    Можно использовать полный модельный капитал.
+                    {% elif latest.regime == "yellow" %}
+                    Новые входы ограничены 30% модельного капитала.
+                    {% elif latest.regime == "red" %}
+                    Новые входы отключены.
+                    {% else %}
+                    Недостаточно истории для проверки рынка.
+                    {% endif %}
+                </small>
+            </div>
+            <dl class="crypto-v2-regime-metrics">
+                <div>
+                    <dt>BTC / SMA50</dt>
+                    <dd class="{% if latest.btc_above_sma50 %}positive{% else %}negative{% endif %}">
+                        {{ latest.btc_distance_display }}
+                    </dd>
+                    <small>{% if latest.btc_above_sma50 %}выше средней{% else %}ниже средней{% endif %}</small>
+                </div>
+                <div>
+                    <dt>Ширина рынка</dt>
+                    <dd class="{% if latest.breadth_pct and latest.breadth_pct >= 50 %}positive{% else %}negative{% endif %}">
+                        {{ latest.breadth_display }}
+                    </dd>
+                    <small>{{ latest.breadth_positive }} из {{ latest.breadth_total }} выше SMA20</small>
+                </div>
+                <div>
+                    <dt>Лимит капитала</dt>
+                    <dd>{{ latest.exposure_display }}</dd>
+                    <small>от {{ report.model_capital_display }}</small>
+                </div>
+                <div>
+                    <dt>Подтверждено</dt>
+                    <dd>{{ latest.confirmed_count }} / {{ latest.candidate_count }}</dd>
+                    <small>LONG-кандидатов</small>
+                </div>
+            </dl>
+        </section>
+        {% endif %}
+    </details>
+
+    <details class="crypto-v2-details">
+        <summary>
+            <span><i data-lucide="bar-chart-3"></i> Статистика стратегии</span>
+            <i data-lucide="chevron-down"></i>
+        </summary>
+        <section class="crypto-v2-results">
+            <article>
+                <header>
+                    <div>
+                        <span class="section-kicker">РЕАЛЬНОЕ НАБЛЮДЕНИЕ</span>
+                        <h3>После запуска V2</h3>
+                    </div>
+                    <span>с {{ report.forward_started_on or "первого расчёта" }}</span>
+                </header>
+                <div class="crypto-v2-result-grid">
+                    <div><span>Закрыто</span><strong>{{ report.forward.closed }}</strong><small>{{ report.forward.wins }} плюс · {{ report.forward.losses }} минус</small></div>
+                    <div><span>Зафиксировано</span><strong class="{% if report.forward.cash_result >= 0 %}positive{% else %}negative{% endif %}">{{ report.forward.cash_result_display }}</strong><small>{{ report.forward.return_display }}</small></div>
+                    <div><span>Активные</span><strong class="{% if report.active_cash >= 0 %}positive{% else %}negative{% endif %}">{{ report.active_cash_display }}</strong><small>{{ report.active_return_display }}</small></div>
+                    <div><span>Итого</span><strong class="{% if report.forward_total_cash >= 0 %}positive{% else %}negative{% endif %}">{{ report.forward_total_cash_display }}</strong><small>закрытые + активные</small></div>
+                </div>
+            </article>
+            <article>
+                <header>
+                    <div>
+                        <span class="section-kicker">ИСТОРИЧЕСКИЙ ТЕСТ</span>
+                        <h3>Backtest</h3>
+                    </div>
+                    <span>не реальные сделки</span>
+                </header>
+                <div class="crypto-v2-result-grid">
+                    <div><span>Закрыто</span><strong>{{ report.backtest.closed }}</strong><small>{{ report.backtest.wins }} плюс · {{ report.backtest.losses }} минус</small></div>
+                    <div><span>Доля плюсовых</span><strong>{{ report.backtest.win_rate_display }}</strong><small>завершённые периоды</small></div>
+                    <div><span>Результат</span><strong class="{% if report.backtest.cash_result >= 0 %}positive{% else %}negative{% endif %}">{{ report.backtest.cash_result_display }}</strong><small>{{ report.backtest.return_display }}</small></div>
+                    <div><span>Открыто</span><strong>{{ report.backtest.active }}</strong><small>на последнюю дату</small></div>
+                </div>
+            </article>
+        </section>
+    </details>
+
+    <details class="crypto-v2-details">
+        <summary>
+            <span><i data-lucide="scan-search"></i> Кандидаты, которые пока не покупать</span>
+            <i data-lucide="chevron-down"></i>
+        </summary>
+        {% if report.watchlist %}
         <div class="crypto-v2-table">
             <div class="crypto-v2-table-row is-head">
-                <span>Монета</span>
-                <span>Momentum</span>
-                <span>Волатильность</span>
-                <span>Уверенность</span>
-                <span>Состояние</span>
+                <span>Монета</span><span>Momentum</span><span>Волатильность</span><span>Уверенность</span><span>Почему ждём</span>
             </div>
-            {% for item in report.candidates %}
+            {% for item in report.watchlist %}
             <div class="crypto-v2-table-row">
                 <span><strong>{{ item.symbol }}</strong><small>{{ item.ticker }}</small></span>
-                <span><strong class="positive">{{ item.score_display }}</strong><small>взвешенный score</small></span>
-                <span><strong>{{ item.volatility_display }}</strong><small>7 сессий</small></span>
-                <span><strong>{{ item.confidence_label }}</strong><small>{% if item.confirmed %}2 дня подряд{% else %}первый день{% endif %}</small></span>
+                <span><strong class="positive">{{ item.score_display }}</strong></span>
+                <span><strong>{{ item.volatility_display }}</strong></span>
+                <span><strong>{{ item.confidence_label }}</strong></span>
                 <span><strong class="crypto-v2-state is-{{ item.status_class }}">{{ item.status_label }}</strong></span>
             </div>
             {% endfor %}
         </div>
         {% else %}
-        <div class="crypto-v2-empty">
-            <i data-lucide="scan-search"></i>
-            <strong>Подходящих LONG-кандидатов нет</strong>
-            <span>Это нормальное состояние стратегии, а не ошибка расчёта.</span>
-        </div>
+        <div class="crypto-v2-empty"><strong>Кандидатов нет</strong></div>
         {% endif %}
-    </section>
+    </details>
 
-    <section class="crypto-v2-section">
-        <header>
-            <div>
-                <span class="section-kicker">НЕИЗМЕНЯЕМЫЙ ЖУРНАЛ V2</span>
-                <h3>Последние завершённые периоды</h3>
-            </div>
-            <span>backtest и forward помечены отдельно</span>
-        </header>
+    <details class="crypto-v2-details">
+        <summary>
+            <span><i data-lucide="history"></i> История завершённых позиций</span>
+            <i data-lucide="chevron-down"></i>
+        </summary>
         {% if report.history %}
         <div class="crypto-v2-table crypto-v2-history">
             <div class="crypto-v2-table-row is-head">
-                <span>Монета</span>
-                <span>Режим</span>
-                <span>Период</span>
-                <span>Причина выхода</span>
-                <span>Результат</span>
+                <span>Монета</span><span>Режим</span><span>Период</span><span>Причина продажи</span><span>Результат</span>
             </div>
             {% for item in report.history %}
             <div class="crypto-v2-table-row">
                 <span><strong>{{ item.symbol }}</strong><small>{{ item.ticker }}</small></span>
-                <span><strong>{{ item.mode|upper }}</strong><small>{{ item.entry_regime }} · {{ item.confidence_label }}</small></span>
+                <span><strong>{{ item.mode|upper }}</strong><small>{{ item.confidence_label }}</small></span>
                 <span><strong>{{ item.entry_date }} → {{ item.exit_date }}</strong><small>{{ item.entry_price_display }} → {{ item.exit_price_display }}</small></span>
                 <span><strong>{{ item.exit_reason_label }}</strong></span>
                 <span><strong class="{% if item.return_pct >= 0 %}positive{% else %}negative{% endif %}">{{ item.return_display }}</strong><small>{{ item.cash_result_display }}</small></span>
@@ -275,14 +324,12 @@
             {% endfor %}
         </div>
         {% else %}
-        <div class="crypto-v2-empty">
-            <strong>Завершённых периодов пока нет</strong>
-        </div>
+        <div class="crypto-v2-empty"><strong>Завершённых позиций пока нет</strong></div>
         {% endif %}
-    </section>
+    </details>
 
     <footer class="crypto-v2-disclaimer">
-        V2 использует те же исторические цены, но отдельные правила и отдельный журнал.
-        Backtest рассчитан по дневным закрытиям без комиссий, проскальзывания и влияния ликвидности.
+        План относится к модельному портфелю {{ report.model_capital_display }} и MEXC Spot.
+        Комиссии, проскальзывание и ликвидность в расчёте не учтены.
     </footer>
 </section>

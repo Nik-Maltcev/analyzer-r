@@ -3946,6 +3946,273 @@ html[data-view-mode='beginner'] .signals-page {
     padding: 9px 10px;
 }
 
+.crypto-v2-action-board {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--text-muted);
+}
+
+.crypto-v2-action-board.is-green {
+    border-left-color: var(--green);
+}
+
+.crypto-v2-action-board.is-yellow {
+    border-left-color: var(--orange);
+}
+
+.crypto-v2-action-board.is-red {
+    border-left-color: var(--red);
+}
+
+.crypto-v2-action-board > header {
+    align-items: flex-start;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+    padding: 18px;
+}
+
+.crypto-v2-action-board h3 {
+    color: var(--text-bright);
+    font-size: 22px;
+    margin: 4px 0;
+}
+
+.crypto-v2-action-board > header p {
+    color: var(--text-muted);
+    margin: 0;
+}
+
+.crypto-v2-market-pill {
+    border: 1px solid var(--border-strong);
+    color: var(--text-muted);
+    flex: 0 0 auto;
+    font: 11px var(--font-mono);
+    padding: 7px 9px;
+}
+
+.crypto-v2-market-pill.is-green {
+    border-color: rgba(80, 207, 164, 0.42);
+    color: var(--green);
+}
+
+.crypto-v2-market-pill.is-yellow {
+    border-color: rgba(232, 177, 87, 0.44);
+    color: var(--orange);
+}
+
+.crypto-v2-market-pill.is-red {
+    border-color: rgba(255, 107, 122, 0.42);
+    color: var(--red);
+}
+
+.crypto-v2-capital-strip,
+.crypto-v2-quick-result {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.crypto-v2-capital-strip {
+    border-bottom: 1px solid var(--border);
+}
+
+.crypto-v2-capital-strip > div,
+.crypto-v2-quick-result > div {
+    border-right: 1px solid var(--border);
+    display: grid;
+    gap: 5px;
+    padding: 14px 18px;
+}
+
+.crypto-v2-capital-strip > div:last-child,
+.crypto-v2-quick-result > div:last-child {
+    border-right: 0;
+}
+
+.crypto-v2-capital-strip span,
+.crypto-v2-quick-result span,
+.crypto-v2-order-line span,
+.crypto-v2-action-name > div > span {
+    color: var(--text-muted);
+    font: 10px var(--font-mono);
+    text-transform: uppercase;
+}
+
+.crypto-v2-capital-strip strong,
+.crypto-v2-quick-result strong {
+    color: var(--text-bright);
+    font: 19px var(--font-mono);
+}
+
+.crypto-v2-action-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.crypto-v2-action-card {
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    padding: 18px;
+}
+
+.crypto-v2-action-card:nth-child(2n) {
+    border-right: 0;
+}
+
+.crypto-v2-action-card > header,
+.crypto-v2-action-name {
+    align-items: center;
+    display: flex;
+}
+
+.crypto-v2-action-card > header {
+    gap: 12px;
+    justify-content: space-between;
+}
+
+.crypto-v2-action-name {
+    gap: 11px;
+}
+
+.crypto-v2-action-icon {
+    align-items: center;
+    border: 1px solid rgba(80, 207, 164, 0.36);
+    color: var(--green);
+    display: flex;
+    height: 34px;
+    justify-content: center;
+    width: 34px;
+}
+
+.crypto-v2-action-icon svg {
+    height: 16px;
+    width: 16px;
+}
+
+.crypto-v2-action-name h4 {
+    color: var(--text-bright);
+    font-size: 18px;
+    margin: 3px 0;
+}
+
+.crypto-v2-action-name small,
+.crypto-v2-order-line small,
+.crypto-v2-action-card footer {
+    color: var(--text-muted);
+}
+
+.crypto-v2-order-line {
+    border: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    margin-top: 16px;
+}
+
+.crypto-v2-order-line > div {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+    padding: 13px;
+}
+
+.crypto-v2-order-line > div:nth-child(odd) {
+    border-right: 1px solid var(--border);
+}
+
+.crypto-v2-order-line > div:nth-child(-n+2) {
+    border-bottom: 1px solid var(--border);
+}
+
+.crypto-v2-order-line strong {
+    color: var(--text-bright);
+    font: 17px var(--font-mono);
+    overflow-wrap: anywhere;
+}
+
+.crypto-v2-action-card footer {
+    line-height: 1.5;
+    padding-top: 13px;
+}
+
+.crypto-v2-no-action {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    min-height: 100px;
+    padding: 20px;
+}
+
+.crypto-v2-no-action svg {
+    color: var(--text-muted);
+    height: 24px;
+    width: 24px;
+}
+
+.crypto-v2-no-action div {
+    display: grid;
+    gap: 4px;
+}
+
+.crypto-v2-no-action strong {
+    color: var(--text-bright);
+}
+
+.crypto-v2-no-action span {
+    color: var(--text-muted);
+}
+
+.crypto-v2-quick-result {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    grid-template-columns: repeat(4, 1fr);
+}
+
+.crypto-v2-details {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+}
+
+.crypto-v2-details > summary {
+    align-items: center;
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    font-weight: 700;
+    justify-content: space-between;
+    list-style: none;
+    min-height: 48px;
+    padding: 0 16px;
+}
+
+.crypto-v2-details > summary::-webkit-details-marker {
+    display: none;
+}
+
+.crypto-v2-details > summary span {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+}
+
+.crypto-v2-details > summary svg {
+    height: 15px;
+    width: 15px;
+}
+
+.crypto-v2-details > summary > svg {
+    color: var(--text-muted);
+    transition: transform 160ms ease;
+}
+
+.crypto-v2-details[open] > summary {
+    border-bottom: 1px solid var(--border);
+}
+
+.crypto-v2-details[open] > summary > svg {
+    transform: rotate(180deg);
+}
+
 .crypto-v2-regime,
 .crypto-v2-section,
 .crypto-v2-results article {
@@ -4207,6 +4474,14 @@ html[data-view-mode='beginner'] .signals-page {
 }
 
 @media (max-width: 1080px) {
+    .crypto-v2-action-list {
+        grid-template-columns: 1fr;
+    }
+
+    .crypto-v2-action-card {
+        border-right: 0;
+    }
+
     .crypto-v2-regime {
         grid-template-columns: 1fr;
     }
@@ -4244,6 +4519,47 @@ html[data-view-mode='beginner'] .signals-page {
 
     .crypto-v2-header-actions {
         justify-content: space-between;
+    }
+
+    .crypto-v2-action-board > header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .crypto-v2-market-pill {
+        align-self: flex-start;
+    }
+
+    .crypto-v2-capital-strip,
+    .crypto-v2-quick-result {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .crypto-v2-capital-strip > div:nth-child(2),
+    .crypto-v2-quick-result > div:nth-child(2) {
+        border-right: 0;
+    }
+
+    .crypto-v2-capital-strip > div:nth-child(-n+2),
+    .crypto-v2-quick-result > div:nth-child(-n+2) {
+        border-bottom: 1px solid var(--border);
+    }
+
+    .crypto-v2-action-card > header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .crypto-v2-order-line {
+        grid-template-columns: 1fr;
+    }
+
+    .crypto-v2-order-line > div:nth-child(odd) {
+        border-right: 0;
+    }
+
+    .crypto-v2-order-line > div:nth-child(-n+3) {
+        border-bottom: 1px solid var(--border);
     }
 
     .crypto-v2-regime-metrics,

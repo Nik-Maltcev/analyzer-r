@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from datetime import date, timedelta
 from typing import Any
 
 import numpy as np
@@ -768,6 +769,33 @@ async def fetch_crypto_v2_report(conn) -> dict[str, Any]:
         item["current_return_display"] = _pct_display(return_pct)
         item["current_cash_result"] = cash_result
         item["current_cash_result_display"] = _money_display(cash_result)
+        try:
+            entry_day = date.fromisoformat(str(item["entry_date"])[:10])
+            planned_exit = entry_day + timedelta(
+                days=MAX_HOLDING_SESSIONS - 1
+            )
+            item["entry_date_display"] = entry_day.strftime("%d.%m.%Y")
+            item["planned_exit_date"] = planned_exit.isoformat()
+            item["planned_exit_display"] = planned_exit.strftime("%d.%m.%Y")
+        except ValueError:
+            item["entry_date_display"] = str(item["entry_date"])
+            item["planned_exit_date"] = None
+            item["planned_exit_display"] = "по сигналу"
+        item["order_quantity"] = (
+            float(item["allocation"]) / mark if mark > 0 else 0.0
+        )
+        item["order_quantity_display"] = (
+            f"≈ {item['order_quantity']:,.6f}".rstrip("0").rstrip(".")
+        )
+        entry_price = float(item["entry_price"])
+        item["entry_quantity"] = (
+            float(item["allocation"]) / entry_price
+            if entry_price > 0
+            else 0.0
+        )
+        item["entry_quantity_display"] = (
+            f"≈ {item['entry_quantity']:,.6f}".rstrip("0").rstrip(".")
+        )
 
     candidates: list[dict[str, Any]] = []
     if latest:
@@ -836,7 +864,21 @@ async def fetch_crypto_v2_report(conn) -> dict[str, Any]:
         _safe_float(item.get("current_cash_result")) for item in active
     )
     active_invested = sum(_safe_float(item.get("allocation")) for item in active)
+    latest_date = str(latest.get("data_date") or "") if latest else ""
+    today_buys = []
+    holds = []
+    for item in active:
+        if str(item.get("entry_date") or "") == latest_date:
+            item["action_type"] = "buy"
+            item["action_label"] = f"Купить {item['symbol']}"
+            today_buys.append(item)
+        else:
+            item["action_type"] = "hold"
+            item["action_label"] = f"Держать {item['symbol']}"
+            holds.append(item)
+    reserve_capital = max(0.0, MODEL_CAPITAL - active_invested)
     forward_summary = _summary(forward_rows)
+    watchlist = [item for item in candidates if not item["is_active"]]
     return {
         "strategy_version": STRATEGY_VERSION,
         "max_positions": MAX_POSITIONS,
@@ -844,7 +886,14 @@ async def fetch_crypto_v2_report(conn) -> dict[str, Any]:
         "model_capital_display": f"${MODEL_CAPITAL:.0f}",
         "latest": latest,
         "candidates": candidates,
+        "watchlist": watchlist,
         "active": active,
+        "today_buys": today_buys,
+        "holds": holds,
+        "active_invested": active_invested,
+        "active_invested_display": f"${active_invested:.2f}",
+        "reserve_capital": reserve_capital,
+        "reserve_capital_display": f"${reserve_capital:.2f}",
         "history": [item for item in trades if item["status"] == "closed"][:50],
         "backtest": _summary(backtest_rows),
         "forward": forward_summary,
@@ -886,6 +935,10 @@ def apply_crypto_v2_live_prices(
         item["current_return_display"] = _pct_display(return_pct)
         item["current_cash_result"] = cash_result
         item["current_cash_result_display"] = _money_display(cash_result)
+        item["order_quantity"] = allocation / mark if mark > 0 else 0.0
+        item["order_quantity_display"] = (
+            f"≈ {item['order_quantity']:,.6f}".rstrip("0").rstrip(".")
+        )
         active_cash += cash_result
         active_invested += allocation
     report["active_cash"] = active_cash
