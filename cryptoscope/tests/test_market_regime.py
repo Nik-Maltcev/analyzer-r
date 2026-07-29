@@ -152,6 +152,18 @@ def test_range_trade_plan_returns_specific_long_and_short_candidates():
     assert report["rejected_count"] == 1
 
 
+def test_trade_plan_does_not_hide_valid_candidates_after_fifth_item():
+    report = build_regime_trade_plan(
+        _latest_for_plan("range"),
+        [
+            _period(f"ASSET{index}/USD", direction="short")
+            for index in range(7)
+        ],
+    )
+
+    assert report["count"] == 7
+
+
 def test_trend_trade_plan_rejects_signals_against_btc_direction():
     report = build_regime_trade_plan(
         _latest_for_plan("trend", trend_direction="up"),

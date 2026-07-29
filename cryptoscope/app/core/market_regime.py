@@ -16,7 +16,6 @@ CALCULATION_VERSION = "crypto-regime-v1"
 REGIME_ORDER = ("trend", "range", "panic", "recovery")
 MIN_HISTORY = 60
 HISTORY_SESSIONS = 90
-TRADE_PLAN_LIMIT = 5
 TRADE_PLAN_HORIZONS = {
     "momentum": 5,
     "drawdown": 10,
@@ -314,7 +313,7 @@ def _trade_plan_permission(
 def build_regime_trade_plan(
     latest: dict[str, Any],
     periods: list[dict[str, Any]],
-    limit: int = TRADE_PLAN_LIMIT,
+    limit: int | None = None,
 ) -> dict[str, Any]:
     """Turn fresh scanner periods into regime-compatible trade candidates."""
     prepared: list[dict[str, Any]] = []
@@ -427,7 +426,8 @@ def build_regime_trade_plan(
         ),
         reverse=True,
     )
-    candidates = candidates[:max(1, int(limit))]
+    if limit is not None:
+        candidates = candidates[:max(1, int(limit))]
 
     if candidates:
         empty_reason = ""
