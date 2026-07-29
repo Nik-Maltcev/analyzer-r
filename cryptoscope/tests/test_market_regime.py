@@ -182,6 +182,22 @@ def test_trade_plan_does_not_hide_valid_candidates_after_fifth_item():
     assert report["count"] == 7
 
 
+def test_trade_plan_closes_signal_when_horizon_is_reached():
+    active = build_regime_trade_plan(
+        _latest_for_plan("range"),
+        [_period("ETH/USD", age=4)],
+    )
+    expired = build_regime_trade_plan(
+        _latest_for_plan("range"),
+        [_period("ETH/USD", age=5)],
+    )
+
+    assert active["count"] == 1
+    assert active["candidates"][0]["planned_close_date"] == "2026-07-29"
+    assert expired["count"] == 0
+    assert expired["rejected_count"] == 1
+
+
 def test_trend_trade_plan_rejects_signals_against_btc_direction():
     report = build_regime_trade_plan(
         _latest_for_plan("trend", trend_direction="up"),

@@ -340,7 +340,7 @@ def build_regime_trade_plan(
             not horizon
             or direction not in {"long", "short"}
             or confidence_rank < TRADE_PLAN_MIN_CONFIDENCE_RANK
-            or age_days > horizon
+            or age_days >= horizon
             or _finite(period.get("current_price"), 0.0) <= 0
         ):
             rejected += 1
