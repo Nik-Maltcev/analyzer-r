@@ -118,6 +118,63 @@
         </div>
     </section>
 
+    <section class="alpha-trade-plan">
+        <header>
+            <div>
+                <span class="section-kicker">КОНКРЕТНЫЕ ДЕЙСТВИЯ</span>
+                <h3>Торговый план</h3>
+            </div>
+            <span>
+                {{ report.trade_plan.count }} идей ·
+                размер позиции: {{ report.trade_plan.position_size_label }}
+            </span>
+        </header>
+        {% if report.trade_plan.candidates %}
+        <div class="alpha-trade-list">
+            {% for item in report.trade_plan.candidates %}
+            <article class="alpha-trade-row is-{{ item.direction }}">
+                <div class="alpha-trade-symbol">
+                    <span>{{ item.direction_label }}</span>
+                    <strong>{{ item.action_label }} {{ item.symbol }}</strong>
+                    <small>{{ item.ticker }}</small>
+                </div>
+                <div class="alpha-trade-fact">
+                    <span>Источник</span>
+                    <strong>{{ item.scanner_label }}</strong>
+                    <small>сигнал активен {{ item.age_days }} дн.</small>
+                </div>
+                <div class="alpha-trade-fact">
+                    <span>Уверенность</span>
+                    <strong>{{ item.confidence }}</strong>
+                    <small>{{ item.review_label }}</small>
+                </div>
+                <div class="alpha-trade-fact">
+                    <span>Цена расчёта</span>
+                    <strong>{{ item.current_price_label }}</strong>
+                    <small>данные на {{ latest.data_date }}</small>
+                </div>
+                <div class="alpha-trade-reason">
+                    <span>Почему разрешено</span>
+                    <strong>{{ item.fit_reason }}</strong>
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="alpha-trade-empty">
+            <i data-lucide="shield-pause"></i>
+            <div>
+                <strong>Новых сделок нет</strong>
+                <p>{{ report.trade_plan.empty_reason }}</p>
+            </div>
+        </div>
+        {% endif %}
+        <footer>
+            Это кандидаты из свежего расчёта, отфильтрованные текущим режимом рынка.
+            Они не являются гарантией движения цены.
+        </footer>
+    </section>
+
     <section class="alpha-analysis-grid">
         <div class="alpha-metrics-panel">
             <header>

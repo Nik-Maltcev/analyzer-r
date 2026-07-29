@@ -16,6 +16,21 @@ CALCULATION_VERSION = "crypto-regime-v1"
 REGIME_ORDER = ("trend", "range", "panic", "recovery")
 MIN_HISTORY = 60
 HISTORY_SESSIONS = 90
+TRADE_PLAN_LIMIT = 5
+TRADE_PLAN_HORIZONS = {
+    "momentum": 5,
+    "drawdown": 10,
+}
+TRADE_PLAN_SCANNER_LABELS = {
+    "momentum": "Momentum",
+    "drawdown": "Просадка",
+}
+TRADE_PLAN_CONFIDENCE = {
+    "Высокая": ("Высокая", 2),
+    "high": ("Высокая", 2),
+    "Средняя": ("Средняя", 1),
+    "medium": ("Средняя", 1),
+}
 
 REGIME_LABELS = {
     "trend": "Тренд",
@@ -224,6 +239,263 @@ def _strategy_mix(
             }[status],
         })
     return result
+
+
+def _format_trade_plan_price(value: Any) -> str:
+    price = _finite(value, float("nan"))
+    if not math.isfinite(price) or price <= 0:
+        return "—"
+    if price >= 1000:
+        return f"${price:,.2f}".replace(",", " ")
+    if price >= 1:
+        return f"${price:.4f}".rstrip("0").rstrip(".")
+    if price >= 0.01:
+        return f"${price:.6f}".rstrip("0").rstrip(".")
+    return f"${price:.10f}".rstrip("0").rstrip(".")
+
+
+def _trade_plan_permission(
+    latest: dict[str, Any],
+    scanner: str,
+    direction: str,
+    confidence_rank: int,
+) -> tuple[bool, str]:
+    regime = str(latest.get("dominant_regime") or "")
+    trend_direction = str(latest.get("trend_direction") or "mixed")
+    strategy = next(
+        (
+            item
+            for item in latest.get("strategies", [])
+            if item.get("key") == scanner
+        ),
+        {},
+    )
+
+    if regime == "panic":
+        if scanner == "momentum" and direction == "short" and confidence_rank >= 2:
+            return True, "Защитный режим допускает только подтверждённый SHORT"
+        return False, "В защитном режиме новые направленные входы ограничены"
+
+    if regime == "trend":
+        if scanner == "momentum":
+            if trend_direction == "up" and direction == "long":
+                return True, "LONG совпадает с направлением BTC"
+            if trend_direction == "down" and direction == "short":
+                return True, "SHORT совпадает с направлением BTC"
+            if trend_direction == "mixed" and confidence_rank >= 2:
+                return True, "Смешанный тренд требует высокой уверенности"
+            return False, "Сигнал направлен против текущего тренда BTC"
+        if strategy.get("status") == "off":
+            return False, "Текущий режим отключил этот тип сигнала"
+        if scanner == "drawdown" and direction == "long" and confidence_rank >= 2:
+            return True, "Отскок подтверждён, но уступает трендовым входам"
+        return False, "Просадка без сильного подтверждения не допускается"
+
+    if strategy.get("status") == "off":
+        return False, "Текущий режим отключил этот тип сигнала"
+
+    if regime == "recovery":
+        if direction != "long":
+            return False, "В восстановлении приоритет у подтверждённых LONG"
+        if scanner == "drawdown":
+            return True, "Отскок соответствует фазе восстановления"
+        if scanner == "momentum" and confidence_rank >= 1:
+            return True, "Импульс подтверждает восстановление"
+
+    if regime == "range":
+        if scanner == "drawdown" and direction == "long":
+            return True, "Отскок соответствует возврату к среднему"
+        if scanner == "momentum" and confidence_rank >= 1:
+            return True, "Короткий импульс допустим с ограниченным риском"
+
+    return False, "Сигнал не соответствует текущему режиму"
+
+
+def build_regime_trade_plan(
+    latest: dict[str, Any],
+    periods: list[dict[str, Any]],
+    limit: int = TRADE_PLAN_LIMIT,
+) -> dict[str, Any]:
+    """Turn fresh scanner periods into regime-compatible trade candidates."""
+    prepared: list[dict[str, Any]] = []
+    rejected = 0
+    for period in periods:
+        scanner = str(period.get("scanner") or "").lower()
+        direction = str(period.get("direction") or "").lower()
+        confidence_label, confidence_rank = TRADE_PLAN_CONFIDENCE.get(
+            str(period.get("confidence") or "").strip(),
+            ("Без уровня", 0),
+        )
+        horizon = TRADE_PLAN_HORIZONS.get(scanner)
+        try:
+            age_days = max(1, int(period.get("observation_count") or 1))
+        except (TypeError, ValueError):
+            age_days = 1
+        if (
+            not horizon
+            or direction not in {"long", "short"}
+            or confidence_rank == 0
+            or age_days > horizon
+            or _finite(period.get("current_price"), 0.0) <= 0
+        ):
+            rejected += 1
+            continue
+
+        allowed, fit_reason = _trade_plan_permission(
+            latest,
+            scanner,
+            direction,
+            confidence_rank,
+        )
+        if not allowed:
+            rejected += 1
+            continue
+
+        remaining_days = max(0, horizon - age_days)
+        strategy = next(
+            (
+                item
+                for item in latest.get("strategies", [])
+                if item.get("key") == scanner
+            ),
+            {},
+        )
+        prepared.append({
+            "ticker": str(period.get("ticker_a") or "").upper(),
+            "symbol": str(period.get("ticker_a") or "").split("/", 1)[0].upper(),
+            "direction": direction,
+            "direction_label": "LONG" if direction == "long" else "SHORT",
+            "action_label": "Купить" if direction == "long" else "Шорт",
+            "scanner": scanner,
+            "scanner_label": TRADE_PLAN_SCANNER_LABELS[scanner],
+            "scanner_labels": [TRADE_PLAN_SCANNER_LABELS[scanner]],
+            "confidence": confidence_label,
+            "confidence_rank": confidence_rank,
+            "age_days": age_days,
+            "remaining_days": remaining_days,
+            "review_label": (
+                "пересмотреть сегодня"
+                if remaining_days == 0
+                else f"пересмотреть через ≈{remaining_days} дн."
+            ),
+            "first_seen_date": str(period.get("first_seen_date") or ""),
+            "current_price": _finite(period.get("current_price"), 0.0),
+            "current_price_label": _format_trade_plan_price(
+                period.get("current_price")
+            ),
+            "fit_reason": fit_reason,
+            "strategy_status": str(strategy.get("status") or "limited"),
+            "strategy_weight": _finite(strategy.get("weight"), 0.0),
+        })
+
+    by_ticker: dict[str, list[dict[str, Any]]] = {}
+    for candidate in prepared:
+        by_ticker.setdefault(candidate["ticker"], []).append(candidate)
+
+    candidates = []
+    conflicts = 0
+    for rows in by_ticker.values():
+        directions = {row["direction"] for row in rows}
+        if len(directions) > 1:
+            conflicts += 1
+            continue
+        best = max(
+            rows,
+            key=lambda row: (
+                row["confidence_rank"],
+                row["strategy_status"] == "active",
+                row["strategy_weight"],
+                -row["age_days"],
+            ),
+        ).copy()
+        best["scanner_labels"] = list(dict.fromkeys(
+            row["scanner_label"] for row in rows
+        ))
+        if len(best["scanner_labels"]) > 1:
+            best["fit_reason"] = (
+                "Сигнал подтверждён Momentum и сканером просадки"
+            )
+        best["scanner_label"] = " + ".join(best["scanner_labels"])
+        candidates.append(best)
+
+    candidates.sort(
+        key=lambda row: (
+            row["confidence_rank"],
+            row["strategy_status"] == "active",
+            row["strategy_weight"],
+            -row["age_days"],
+        ),
+        reverse=True,
+    )
+    candidates = candidates[:max(1, int(limit))]
+
+    if candidates:
+        empty_reason = ""
+    elif str(latest.get("risk_state") or "") == "panic":
+        empty_reason = (
+            "Защитный режим: свежих SHORT-сигналов высокой уверенности нет. "
+            "Новые позиции сейчас не открывать."
+        )
+    elif periods:
+        empty_reason = (
+            "Свежие сигналы есть, но они не прошли фильтр режима, "
+            "направления или уверенности."
+        )
+    else:
+        empty_reason = (
+            "На дату расчёта нет свежих Momentum или Drawdown-сигналов. "
+            "Новых сделок сейчас нет."
+        )
+
+    risk_pct = round(_finite(latest.get("risk_multiplier"), 0.0) * 100)
+    return {
+        "candidates": candidates,
+        "count": len(candidates),
+        "source_count": len(periods),
+        "rejected_count": rejected,
+        "conflict_count": conflicts,
+        "risk_pct": risk_pct,
+        "position_size_label": (
+            "обычный размер"
+            if risk_pct >= 100
+            else f"не более {risk_pct}% обычного размера"
+        ),
+        "empty_reason": empty_reason,
+    }
+
+
+async def _fetch_fresh_trade_plan_periods(
+    conn,
+    data_date: str,
+) -> list[dict[str, Any]]:
+    try:
+        cursor = await conn.execute(
+            """
+            SELECT
+                s.scanner,
+                s.ticker_a,
+                s.direction,
+                s.confidence,
+                s.first_seen_date,
+                s.last_seen_date,
+                s.observation_count,
+                p.close AS current_price
+            FROM scanner_signal_periods AS s
+            LEFT JOIN prices AS p
+              ON p.market = 'crypto'
+             AND p.ticker = s.ticker_a
+             AND p.date = s.last_seen_date
+            WHERE s.market = 'crypto'
+              AND s.scanner IN ('momentum', 'drawdown')
+              AND s.status = 'active'
+              AND s.last_seen_date = ?
+            ORDER BY s.ticker_a, s.scanner
+            """,
+            (data_date,),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+    except Exception:
+        return []
 
 
 def _classify_day(inputs: RegimeInputs, position: int) -> dict[str, Any] | None:
@@ -558,6 +830,22 @@ async def fetch_market_regime_report(conn, history_limit: int = 30) -> dict[str,
         snapshots.append(_display_snapshot(item))
     snapshots.reverse()
     latest = snapshots[-1] if snapshots else None
+    trade_plan = {
+        "candidates": [],
+        "count": 0,
+        "source_count": 0,
+        "rejected_count": 0,
+        "conflict_count": 0,
+        "risk_pct": 0,
+        "position_size_label": "новые позиции не открывать",
+        "empty_reason": "Режим рынка ещё не рассчитан.",
+    }
+    if latest:
+        periods = await _fetch_fresh_trade_plan_periods(
+            conn,
+            latest["data_date"],
+        )
+        trade_plan = build_regime_trade_plan(latest, periods)
 
     history = [
         {
@@ -572,6 +860,7 @@ async def fetch_market_regime_report(conn, history_limit: int = 30) -> dict[str,
     return {
         "calculation_version": CALCULATION_VERSION,
         "latest": latest,
+        "trade_plan": trade_plan,
         "history": history,
         "history_json": json.dumps(history, ensure_ascii=False),
         "is_ready": latest is not None,

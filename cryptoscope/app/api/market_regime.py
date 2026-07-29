@@ -67,5 +67,6 @@ async def market_regime_api():
     return {
         "calculation_version": report["calculation_version"],
         "latest": report["latest"],
+        "trade_plan": report["trade_plan"],
         "history": report["history"],
     }

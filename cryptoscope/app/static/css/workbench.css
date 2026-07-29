@@ -4498,6 +4498,7 @@ html[data-view-mode='beginner'] .signals-page {
 
 .alpha-probability-band,
 .alpha-strategy-band,
+.alpha-trade-plan,
 .alpha-metrics-panel,
 .alpha-history-panel,
 .alpha-warning-band,
@@ -4507,6 +4508,7 @@ html[data-view-mode='beginner'] .signals-page {
 
 .alpha-probability-band > header,
 .alpha-strategy-band > header,
+.alpha-trade-plan > header,
 .alpha-warning-band > header,
 .alpha-metrics-panel > header,
 .alpha-history-panel > header {
@@ -4516,6 +4518,7 @@ html[data-view-mode='beginner'] .signals-page {
 
 .alpha-probability-band h3,
 .alpha-strategy-band h3,
+.alpha-trade-plan h3,
 .alpha-warning-band h3,
 .alpha-metrics-panel h3,
 .alpha-history-panel h3 {
@@ -4525,6 +4528,7 @@ html[data-view-mode='beginner'] .signals-page {
 
 .alpha-probability-band header > span,
 .alpha-strategy-band header > span,
+.alpha-trade-plan header > span,
 .alpha-warning-band header > span {
     color: var(--text-muted);
     font-size: 11px;
@@ -4631,6 +4635,110 @@ html[data-view-mode='beginner'] .signals-page {
 .alpha-mini-track {
     margin-top: 6px;
     max-width: 140px;
+}
+
+.alpha-trade-plan > header {
+    align-items: flex-end;
+    display: flex;
+    justify-content: space-between;
+}
+
+.alpha-trade-list {
+    display: grid;
+}
+
+.alpha-trade-row {
+    align-items: stretch;
+    border-bottom: 1px solid var(--border);
+    border-left: 3px solid var(--green);
+    display: grid;
+    grid-template-columns: 1.05fr 0.8fr 0.8fr 0.8fr 1.35fr;
+    min-height: 92px;
+}
+
+.alpha-trade-row:last-child {
+    border-bottom: 0;
+}
+
+.alpha-trade-row.is-short {
+    border-left-color: var(--red);
+}
+
+.alpha-trade-symbol,
+.alpha-trade-fact,
+.alpha-trade-reason {
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 13px 16px;
+}
+
+.alpha-trade-reason {
+    border-right: 0;
+}
+
+.alpha-trade-symbol > span,
+.alpha-trade-fact > span,
+.alpha-trade-reason > span {
+    color: var(--text-muted);
+    font: 9px var(--font-mono);
+    margin-bottom: 7px;
+    text-transform: uppercase;
+}
+
+.alpha-trade-symbol > strong {
+    color: var(--green);
+    font-size: 17px;
+}
+
+.alpha-trade-row.is-short .alpha-trade-symbol > strong {
+    color: var(--red);
+}
+
+.alpha-trade-symbol > small,
+.alpha-trade-fact > small {
+    color: var(--text-muted);
+    font-size: 10px;
+    margin-top: 4px;
+}
+
+.alpha-trade-fact > strong {
+    font: 13px var(--font-mono);
+}
+
+.alpha-trade-reason > strong {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.alpha-trade-empty {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    min-height: 92px;
+    padding: 16px;
+}
+
+.alpha-trade-empty svg {
+    color: var(--yellow);
+    height: 21px;
+    width: 21px;
+}
+
+.alpha-trade-empty p {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+.alpha-trade-plan > footer {
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 10px;
+    line-height: 1.45;
+    padding: 10px 16px;
 }
 
 .alpha-analysis-grid {
@@ -4766,6 +4874,7 @@ html[data-view-mode='beginner'] .signals-page {
     .alpha-header,
     .alpha-probability-band > header,
     .alpha-strategy-band > header,
+    .alpha-trade-plan > header,
     .alpha-warning-band > header {
         align-items: flex-start;
         flex-direction: column;
@@ -4825,6 +4934,28 @@ html[data-view-mode='beginner'] .signals-page {
     .alpha-strategy-row > span:first-child,
     .alpha-strategy-row > span:last-child {
         grid-column: 1 / -1;
+    }
+
+    .alpha-trade-row {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .alpha-trade-symbol,
+    .alpha-trade-reason {
+        grid-column: 1 / -1;
+    }
+
+    .alpha-trade-symbol,
+    .alpha-trade-fact {
+        border-bottom: 1px solid var(--border);
+    }
+
+    .alpha-trade-row > :nth-child(2n) {
+        border-right: 0;
+    }
+
+    .alpha-trade-reason {
+        border-bottom: 0;
     }
 
     .alpha-metrics-grid,
