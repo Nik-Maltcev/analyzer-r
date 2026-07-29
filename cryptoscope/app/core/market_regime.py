@@ -10,9 +10,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from app.db.schema import CREATE_MARKET_REGIME_SNAPSHOTS
+from app.db.schema import (
+    CREATE_ALPHA_TRADE_JOURNAL,
+    CREATE_MARKET_REGIME_SNAPSHOTS,
+)
 
 CALCULATION_VERSION = "crypto-regime-v1"
+ALPHA_TRADE_STAKE = 100.0
 REGIME_ORDER = ("trend", "range", "panic", "recovery")
 MIN_HISTORY = 60
 HISTORY_SESSIONS = 90
@@ -468,34 +472,312 @@ async def _fetch_fresh_trade_plan_periods(
     conn,
     data_date: str,
 ) -> list[dict[str, Any]]:
-    try:
+    cursor = await conn.execute(
+        """
+        SELECT
+            s.scanner,
+            s.ticker_a,
+            s.direction,
+            s.confidence,
+            s.first_seen_date,
+            s.last_seen_date,
+            s.observation_count,
+            p.close AS current_price
+        FROM scanner_signal_periods AS s
+        LEFT JOIN prices AS p
+          ON p.market = 'crypto'
+         AND p.ticker = s.ticker_a
+         AND p.date = s.last_seen_date
+        WHERE s.market = 'crypto'
+          AND s.scanner IN ('momentum', 'drawdown')
+          AND s.status = 'active'
+          AND s.last_seen_date = ?
+        ORDER BY s.ticker_a, s.scanner
+        """,
+        (data_date,),
+    )
+    return [dict(row) for row in await cursor.fetchall()]
+
+
+def _alpha_return_pct(
+    entry_price: Any,
+    current_price: Any,
+    direction: str,
+) -> float:
+    entry = _finite(entry_price, 0.0)
+    current = _finite(current_price, 0.0)
+    if entry <= 0 or current <= 0:
+        return 0.0
+    raw_return = (current / entry - 1.0) * 100.0
+    return round(raw_return if direction == "long" else -raw_return, 6)
+
+
+async def sync_alpha_trade_journal(
+    conn,
+    latest: dict[str, Any],
+    trade_plan: dict[str, Any],
+) -> dict[str, Any]:
+    """Advance the immutable Alpha recommendation journal by one data date."""
+    await ensure_market_regime_schema(conn)
+    data_date = str(latest.get("data_date") or "")
+    if not data_date:
+        raise RuntimeError("Alpha journal requires a regime data date")
+
+    candidates = {
+        str(item.get("ticker") or "").upper(): item
+        for item in trade_plan.get("candidates", [])
+        if str(item.get("ticker") or "").strip()
+    }
+    cursor = await conn.execute(
+        """
+        SELECT *
+        FROM alpha_trade_journal
+        WHERE calculation_version = ?
+          AND status = 'active'
+        ORDER BY id
+        """,
+        (CALCULATION_VERSION,),
+    )
+    active_rows = [dict(row) for row in await cursor.fetchall()]
+    active_by_ticker = {row["ticker"]: row for row in active_rows}
+
+    price_tickers = sorted(set(active_by_ticker) | set(candidates))
+    prices: dict[str, float] = {}
+    if price_tickers:
+        placeholders = ",".join("?" for _ in price_tickers)
         cursor = await conn.execute(
-            """
-            SELECT
-                s.scanner,
-                s.ticker_a,
-                s.direction,
-                s.confidence,
-                s.first_seen_date,
-                s.last_seen_date,
-                s.observation_count,
-                p.close AS current_price
-            FROM scanner_signal_periods AS s
-            LEFT JOIN prices AS p
-              ON p.market = 'crypto'
-             AND p.ticker = s.ticker_a
-             AND p.date = s.last_seen_date
-            WHERE s.market = 'crypto'
-              AND s.scanner IN ('momentum', 'drawdown')
-              AND s.status = 'active'
-              AND s.last_seen_date = ?
-            ORDER BY s.ticker_a, s.scanner
+            f"""
+            SELECT ticker, close
+            FROM prices
+            WHERE market = 'crypto'
+              AND date = ?
+              AND ticker IN ({placeholders})
             """,
-            (data_date,),
+            (data_date, *price_tickers),
         )
-        return [dict(row) for row in await cursor.fetchall()]
-    except Exception:
-        return []
+        prices = {
+            str(row["ticker"]).upper(): _finite(row["close"], 0.0)
+            for row in await cursor.fetchall()
+        }
+
+    opened = 0
+    closed = 0
+    updated = 0
+    for ticker, active in active_by_ticker.items():
+        candidate = candidates.get(ticker)
+        same_direction = (
+            candidate
+            and candidate.get("direction") == active["direction"]
+        )
+        current_price = _finite(
+            candidate.get("current_price") if candidate else prices.get(ticker),
+            0.0,
+        )
+        if same_direction:
+            if current_price <= 0:
+                raise RuntimeError(
+                    f"Missing current Alpha price for active {ticker}"
+                )
+            await conn.execute(
+                """
+                UPDATE alpha_trade_journal
+                SET scanner = ?,
+                    confidence = ?,
+                    regime = ?,
+                    last_seen_on = ?,
+                    last_price = ?,
+                    updated_at = datetime('now')
+                WHERE id = ?
+                """,
+                (
+                    str(candidate.get("scanner_label") or ""),
+                    str(candidate.get("confidence") or ""),
+                    str(latest.get("dominant_regime") or ""),
+                    data_date,
+                    current_price,
+                    active["id"],
+                ),
+            )
+            updated += 1
+            continue
+
+        if current_price <= 0:
+            raise RuntimeError(
+                f"Cannot close Alpha trade without a price for {ticker}"
+            )
+        return_pct = _alpha_return_pct(
+            active["entry_price"],
+            current_price,
+            active["direction"],
+        )
+        cash_result = round(
+            _finite(active["stake"], ALPHA_TRADE_STAKE)
+            * return_pct
+            / 100.0,
+            6,
+        )
+        exit_reason = (
+            "direction_changed"
+            if candidate
+            else "signal_or_regime_filter"
+        )
+        await conn.execute(
+            """
+            UPDATE alpha_trade_journal
+            SET status = 'closed',
+                last_seen_on = ?,
+                last_price = ?,
+                closed_on = ?,
+                exit_price = ?,
+                exit_reason = ?,
+                return_pct = ?,
+                cash_result = ?,
+                updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (
+                data_date,
+                current_price,
+                data_date,
+                current_price,
+                exit_reason,
+                return_pct,
+                cash_result,
+                active["id"],
+            ),
+        )
+        closed += 1
+
+    for ticker, candidate in candidates.items():
+        active = active_by_ticker.get(ticker)
+        if active and candidate.get("direction") == active["direction"]:
+            continue
+        entry_price = _finite(candidate.get("current_price"), 0.0)
+        if entry_price <= 0:
+            raise RuntimeError(f"Cannot open Alpha trade without a price for {ticker}")
+        await conn.execute(
+            """
+            INSERT INTO alpha_trade_journal (
+                calculation_version,
+                ticker,
+                direction,
+                scanner,
+                confidence,
+                regime,
+                opened_on,
+                entry_price,
+                signal_first_seen_date,
+                signal_age_at_entry,
+                last_seen_on,
+                last_price,
+                stake,
+                status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+            """,
+            (
+                CALCULATION_VERSION,
+                ticker,
+                str(candidate.get("direction") or ""),
+                str(candidate.get("scanner_label") or ""),
+                str(candidate.get("confidence") or ""),
+                str(latest.get("dominant_regime") or ""),
+                data_date,
+                entry_price,
+                str(candidate.get("first_seen_date") or ""),
+                max(1, int(candidate.get("age_days") or 1)),
+                data_date,
+                entry_price,
+                ALPHA_TRADE_STAKE,
+            ),
+        )
+        opened += 1
+
+    await conn.commit()
+    return {
+        "opened": opened,
+        "closed": closed,
+        "updated": updated,
+        "active": len(candidates),
+        "data_date": data_date,
+    }
+
+
+def _alpha_stats_row(
+    key: str,
+    label: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    active = [row for row in rows if row["status"] == "active"]
+    closed = [row for row in rows if row["status"] == "closed"]
+    winners = [
+        row for row in closed
+        if _finite(row.get("return_pct"), 0.0) > 0
+    ]
+    realized = sum(_finite(row.get("cash_result"), 0.0) for row in closed)
+    current = sum(
+        _finite(row.get("stake"), ALPHA_TRADE_STAKE)
+        * _alpha_return_pct(
+            row["entry_price"],
+            row["last_price"],
+            row["direction"],
+        )
+        / 100.0
+        for row in active
+    )
+    return {
+        "key": key,
+        "label": label,
+        "active": len(active),
+        "closed": len(closed),
+        "winners": len(winners),
+        "win_rate": round(len(winners) / len(closed) * 100, 1) if closed else 0.0,
+        "realized_cash": round(realized, 2),
+        "active_cash": round(current, 2),
+        "total_cash": round(realized + current, 2),
+    }
+
+
+async def fetch_alpha_statistics(conn) -> dict[str, Any]:
+    await ensure_market_regime_schema(conn)
+    cursor = await conn.execute(
+        """
+        SELECT *
+        FROM alpha_trade_journal
+        WHERE calculation_version = ?
+        ORDER BY opened_on, id
+        """,
+        (CALCULATION_VERSION,),
+    )
+    rows = [dict(row) for row in await cursor.fetchall()]
+    summary = _alpha_stats_row("all", "Все идеи", rows)
+    summary["opened"] = len(rows)
+    summary["started_on"] = rows[0]["opened_on"] if rows else None
+    summary["stake"] = ALPHA_TRADE_STAKE
+
+    direction_rows = [
+        _alpha_stats_row(
+            direction,
+            "LONG" if direction == "long" else "SHORT",
+            [row for row in rows if row["direction"] == direction],
+        )
+        for direction in ("long", "short")
+        if any(row["direction"] == direction for row in rows)
+    ]
+    scanners = sorted({str(row["scanner"]) for row in rows if row["scanner"]})
+    scanner_rows = [
+        _alpha_stats_row(
+            scanner.lower().replace(" ", "-"),
+            scanner,
+            [row for row in rows if row["scanner"] == scanner],
+        )
+        for scanner in scanners
+    ]
+    return {
+        "is_ready": bool(rows),
+        "summary": summary,
+        "directions": direction_rows,
+        "scanners": scanner_rows,
+    }
 
 
 def _classify_day(inputs: RegimeInputs, position: int) -> dict[str, Any] | None:
@@ -659,6 +941,7 @@ def build_market_regime_history(
 
 async def ensure_market_regime_schema(conn) -> None:
     await conn.execute(CREATE_MARKET_REGIME_SNAPSHOTS)
+    await conn.execute(CREATE_ALPHA_TRADE_JOURNAL)
     await conn.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_market_regime_latest
@@ -666,6 +949,24 @@ async def ensure_market_regime_schema(conn) -> None:
             calculation_version,
             market,
             data_date DESC
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_alpha_trade_active
+        ON alpha_trade_journal(calculation_version, ticker)
+        WHERE status = 'active'
+        """
+    )
+    await conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_alpha_trade_history
+        ON alpha_trade_journal(
+            calculation_version,
+            status,
+            closed_on,
+            opened_on
         )
         """
     )
@@ -734,13 +1035,25 @@ async def sync_market_regime_snapshots(
             )
             inserted += max(0, cursor.rowcount)
         await conn.commit()
+        latest = history[-1]
+        periods = await _fetch_fresh_trade_plan_periods(
+            conn,
+            latest["data_date"],
+        )
+        trade_plan = build_regime_trade_plan(latest, periods)
+        journal_result = await sync_alpha_trade_journal(
+            conn,
+            latest,
+            trade_plan,
+        )
         return {
             "status": "ok",
             "version": CALCULATION_VERSION,
             "snapshots": len(history),
             "inserted": inserted,
-            "latest_data_date": history[-1]["data_date"],
-            "dominant_regime": history[-1]["dominant_regime"],
+            "latest_data_date": latest["data_date"],
+            "dominant_regime": latest["dominant_regime"],
+            "journal": journal_result,
         }
 
 
@@ -846,6 +1159,7 @@ async def fetch_market_regime_report(conn, history_limit: int = 30) -> dict[str,
             latest["data_date"],
         )
         trade_plan = build_regime_trade_plan(latest, periods)
+    statistics = await fetch_alpha_statistics(conn)
 
     history = [
         {
@@ -861,6 +1175,7 @@ async def fetch_market_regime_report(conn, history_limit: int = 30) -> dict[str,
         "calculation_version": CALCULATION_VERSION,
         "latest": latest,
         "trade_plan": trade_plan,
+        "statistics": statistics,
         "history": history,
         "history_json": json.dumps(history, ensure_ascii=False),
         "is_ready": latest is not None,

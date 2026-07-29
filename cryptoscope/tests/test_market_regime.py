@@ -10,7 +10,9 @@ from app.core.market_regime import (
     REGIME_ORDER,
     build_market_regime_history,
     build_regime_trade_plan,
+    fetch_alpha_statistics,
     fetch_market_regime_report,
+    sync_alpha_trade_journal,
 )
 from app.db.schema import (
     CREATE_MARKET_REGIME_SNAPSHOTS,
@@ -130,6 +132,22 @@ def _period(
         "last_seen_date": "2026-07-28",
         "observation_count": age,
         "current_price": 123.45,
+    }
+
+
+def _trade_candidate(
+    ticker: str,
+    direction: str,
+    price: float,
+) -> dict:
+    return {
+        "ticker": ticker,
+        "direction": direction,
+        "scanner_label": "Momentum",
+        "confidence": "Высокая",
+        "first_seen_date": "2026-07-28",
+        "age_days": 1,
+        "current_price": price,
     }
 
 
@@ -289,3 +307,97 @@ async def test_report_loads_fresh_trade_plan_from_persisted_scanner_periods():
     assert report["trade_plan"]["count"] == 1
     assert report["trade_plan"]["candidates"][0]["ticker"] == "ETH/USD"
     assert report["trade_plan"]["candidates"][0]["current_price_label"] == "$3 200.00"
+
+
+@pytest.mark.asyncio
+async def test_alpha_journal_freezes_entries_and_closed_results():
+    async with aiosqlite.connect(":memory:") as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute(
+            """
+            CREATE TABLE prices (
+                market TEXT,
+                ticker TEXT,
+                date TEXT,
+                close REAL
+            )
+            """
+        )
+        await conn.executemany(
+            """
+            INSERT INTO prices (market, ticker, date, close)
+            VALUES ('crypto', ?, ?, ?)
+            """,
+            [
+                ("ETH/USD", "2026-07-28", 100.0),
+                ("SOL/USD", "2026-07-28", 200.0),
+                ("ETH/USD", "2026-07-29", 110.0),
+                ("SOL/USD", "2026-07-29", 180.0),
+                ("ETH/USD", "2026-07-30", 105.0),
+                ("SOL/USD", "2026-07-30", 190.0),
+            ],
+        )
+        await conn.commit()
+
+        first_plan = {
+            "candidates": [
+                _trade_candidate("ETH/USD", "long", 100.0),
+                _trade_candidate("SOL/USD", "short", 200.0),
+            ]
+        }
+        await sync_alpha_trade_journal(
+            conn,
+            {"data_date": "2026-07-28", "dominant_regime": "range"},
+            first_plan,
+        )
+        second_plan = {
+            "candidates": [
+                _trade_candidate("ETH/USD", "long", 110.0),
+                _trade_candidate("SOL/USD", "short", 180.0),
+            ]
+        }
+        await sync_alpha_trade_journal(
+            conn,
+            {"data_date": "2026-07-29", "dominant_regime": "trend"},
+            second_plan,
+        )
+
+        cursor = await conn.execute(
+            """
+            SELECT ticker, entry_price, last_price
+            FROM alpha_trade_journal
+            ORDER BY ticker
+            """
+        )
+        active = [dict(row) for row in await cursor.fetchall()]
+        assert active == [
+            {"ticker": "ETH/USD", "entry_price": 100.0, "last_price": 110.0},
+            {"ticker": "SOL/USD", "entry_price": 200.0, "last_price": 180.0},
+        ]
+
+        active_stats = await fetch_alpha_statistics(conn)
+        assert active_stats["summary"]["active"] == 2
+        assert active_stats["summary"]["active_cash"] == 20.0
+
+        await sync_alpha_trade_journal(
+            conn,
+            {"data_date": "2026-07-30", "dominant_regime": "range"},
+            {"candidates": []},
+        )
+        closed_stats = await fetch_alpha_statistics(conn)
+        assert closed_stats["summary"]["closed"] == 2
+        assert closed_stats["summary"]["winners"] == 2
+        assert closed_stats["summary"]["realized_cash"] == 10.0
+        assert closed_stats["summary"]["active_cash"] == 0.0
+        assert closed_stats["summary"]["total_cash"] == 10.0
+
+        await conn.execute(
+            """
+            UPDATE prices
+            SET close = 1.0
+            WHERE date = '2026-07-30'
+            """
+        )
+        await conn.commit()
+        unchanged = await fetch_alpha_statistics(conn)
+        assert unchanged["summary"]["realized_cash"] == 10.0

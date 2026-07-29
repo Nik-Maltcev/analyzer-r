@@ -591,6 +591,33 @@ CREATE TABLE IF NOT EXISTS market_regime_snapshots (
 )
 """
 
+CREATE_ALPHA_TRADE_JOURNAL = """
+CREATE TABLE IF NOT EXISTS alpha_trade_journal (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    calculation_version TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    scanner TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    regime TEXT NOT NULL,
+    opened_on TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    signal_first_seen_date TEXT,
+    signal_age_at_entry INTEGER NOT NULL,
+    last_seen_on TEXT NOT NULL,
+    last_price REAL NOT NULL,
+    closed_on TEXT,
+    exit_price REAL,
+    exit_reason TEXT,
+    return_pct REAL,
+    cash_result REAL,
+    stake REAL NOT NULL DEFAULT 100.0,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
 CREATE_MOMENTUM_PORTFOLIO_INDICES = [
     """
     CREATE INDEX IF NOT EXISTS idx_momentum_portfolio_finalized
@@ -625,6 +652,15 @@ CREATE_MARKET_REGIME_INDICES = [
         market,
         data_date DESC
     )
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_alpha_trade_active
+    ON alpha_trade_journal(calculation_version, ticker)
+    WHERE status = 'active'
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_alpha_trade_history
+    ON alpha_trade_journal(calculation_version, status, closed_on, opened_on)
     """,
 ]
 
@@ -669,6 +705,7 @@ ALL_TABLES_SQL = [
     CREATE_CRYPTO_V2_CANDIDATES,
     CREATE_CRYPTO_V2_TRADES,
     CREATE_MARKET_REGIME_SNAPSHOTS,
+    CREATE_ALPHA_TRADE_JOURNAL,
 ]
 
 ALL_INDICES_SQL = (

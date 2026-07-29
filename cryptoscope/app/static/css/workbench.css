@@ -4499,6 +4499,7 @@ html[data-view-mode='beginner'] .signals-page {
 .alpha-probability-band,
 .alpha-strategy-band,
 .alpha-trade-plan,
+.alpha-statistics,
 .alpha-metrics-panel,
 .alpha-history-panel,
 .alpha-warning-band,
@@ -4509,6 +4510,7 @@ html[data-view-mode='beginner'] .signals-page {
 .alpha-probability-band > header,
 .alpha-strategy-band > header,
 .alpha-trade-plan > header,
+.alpha-statistics > header,
 .alpha-warning-band > header,
 .alpha-metrics-panel > header,
 .alpha-history-panel > header {
@@ -4519,6 +4521,7 @@ html[data-view-mode='beginner'] .signals-page {
 .alpha-probability-band h3,
 .alpha-strategy-band h3,
 .alpha-trade-plan h3,
+.alpha-statistics h3,
 .alpha-warning-band h3,
 .alpha-metrics-panel h3,
 .alpha-history-panel h3 {
@@ -4529,6 +4532,7 @@ html[data-view-mode='beginner'] .signals-page {
 .alpha-probability-band header > span,
 .alpha-strategy-band header > span,
 .alpha-trade-plan header > span,
+.alpha-statistics header > span,
 .alpha-warning-band header > span {
     color: var(--text-muted);
     font-size: 11px;
@@ -4741,6 +4745,142 @@ html[data-view-mode='beginner'] .signals-page {
     padding: 10px 16px;
 }
 
+.alpha-statistics > header {
+    align-items: flex-end;
+    display: flex;
+    justify-content: space-between;
+}
+
+.alpha-stat-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.alpha-stat-summary > div,
+.alpha-stat-results > div {
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-height: 86px;
+    padding: 14px 16px;
+}
+
+.alpha-stat-summary > div:last-child,
+.alpha-stat-results > div:last-child {
+    border-right: 0;
+}
+
+.alpha-stat-summary span,
+.alpha-stat-results span {
+    color: var(--text-muted);
+    font: 9px var(--font-mono);
+    text-transform: uppercase;
+}
+
+.alpha-stat-summary strong,
+.alpha-stat-results strong {
+    font: 21px var(--font-mono);
+}
+
+.alpha-stat-summary small,
+.alpha-stat-results small {
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
+.alpha-stat-results {
+    background: rgba(128, 145, 155, 0.035);
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.alpha-stat-results .positive,
+.alpha-stat-row .positive {
+    color: var(--green);
+}
+
+.alpha-stat-results .negative,
+.alpha-stat-row .negative {
+    color: var(--red);
+}
+
+.alpha-stat-breakdowns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.alpha-stat-breakdowns > div:first-child {
+    border-right: 1px solid var(--border);
+}
+
+.alpha-stat-breakdowns > div > header {
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    min-height: 40px;
+    padding: 9px 16px;
+}
+
+.alpha-stat-breakdowns > div > header span {
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.alpha-stat-breakdowns > div > header small {
+    color: var(--text-muted);
+    font-size: 9px;
+}
+
+.alpha-stat-row {
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    display: grid;
+    font-size: 11px;
+    gap: 12px;
+    grid-template-columns: 1fr 1fr 0.8fr 0.8fr;
+    min-height: 44px;
+    padding: 8px 16px;
+}
+
+.alpha-stat-row > span {
+    color: var(--text-muted);
+}
+
+.alpha-stat-row > :last-child {
+    font-family: var(--font-mono);
+    text-align: right;
+}
+
+.alpha-statistics > footer {
+    color: var(--text-muted);
+    font-size: 10px;
+    line-height: 1.45;
+    padding: 10px 16px;
+}
+
+.alpha-stat-empty {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    min-height: 100px;
+    padding: 16px;
+}
+
+.alpha-stat-empty svg {
+    color: var(--text-muted);
+    height: 21px;
+    width: 21px;
+}
+
+.alpha-stat-empty p {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 4px;
+}
+
 .alpha-analysis-grid {
     display: grid;
     gap: 14px;
@@ -4875,6 +5015,7 @@ html[data-view-mode='beginner'] .signals-page {
     .alpha-probability-band > header,
     .alpha-strategy-band > header,
     .alpha-trade-plan > header,
+    .alpha-statistics > header,
     .alpha-warning-band > header {
         align-items: flex-start;
         flex-direction: column;
@@ -4956,6 +5097,33 @@ html[data-view-mode='beginner'] .signals-page {
 
     .alpha-trade-reason {
         border-bottom: 0;
+    }
+
+    .alpha-stat-summary {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .alpha-stat-summary > div:nth-child(2) {
+        border-right: 0;
+    }
+
+    .alpha-stat-results,
+    .alpha-stat-breakdowns {
+        grid-template-columns: 1fr;
+    }
+
+    .alpha-stat-results > div,
+    .alpha-stat-breakdowns > div:first-child {
+        border-right: 0;
+    }
+
+    .alpha-stat-row {
+        grid-template-columns: 0.8fr 1fr;
+    }
+
+    .alpha-stat-row > :nth-child(3),
+    .alpha-stat-row > :nth-child(4) {
+        text-align: left;
     }
 
     .alpha-metrics-grid,

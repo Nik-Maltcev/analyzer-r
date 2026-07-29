@@ -175,6 +175,113 @@
         </footer>
     </section>
 
+    <section class="alpha-statistics">
+        <header>
+            <div>
+                <span class="section-kicker">FORWARD TEST</span>
+                <h3>Статистика Alpha</h3>
+            </div>
+            <span>
+                {% if report.statistics.summary.started_on %}
+                    с {{ report.statistics.summary.started_on }} · ${{ report.statistics.summary.stake|int }} на идею
+                {% else %}
+                    журнал начнёт собираться с ближайшего расчёта
+                {% endif %}
+            </span>
+        </header>
+        {% if report.statistics.is_ready %}
+        {% set alpha_stats = report.statistics.summary %}
+        <div class="alpha-stat-summary">
+            <div>
+                <span>Открыто идей</span>
+                <strong>{{ alpha_stats.opened }}</strong>
+            </div>
+            <div>
+                <span>Сейчас активно</span>
+                <strong>{{ alpha_stats.active }}</strong>
+            </div>
+            <div>
+                <span>Завершено</span>
+                <strong>{{ alpha_stats.closed }}</strong>
+            </div>
+            <div>
+                <span>В плюсе</span>
+                <strong>{{ alpha_stats.winners }}</strong>
+                <small>{{ alpha_stats.win_rate }}% завершённых</small>
+            </div>
+        </div>
+        <div class="alpha-stat-results">
+            <div>
+                <span>Закрытые позиции</span>
+                <strong class="{{ 'positive' if alpha_stats.realized_cash >= 0 else 'negative' }}">
+                    {{ '%+.2f'|format(alpha_stats.realized_cash) }} $
+                </strong>
+                <small>зафиксированный результат</small>
+            </div>
+            <div>
+                <span>Активные позиции</span>
+                <strong class="{{ 'positive' if alpha_stats.active_cash >= 0 else 'negative' }}">
+                    {{ '%+.2f'|format(alpha_stats.active_cash) }} $
+                </strong>
+                <small>по последней расчётной цене</small>
+            </div>
+            <div>
+                <span>Итого</span>
+                <strong class="{{ 'positive' if alpha_stats.total_cash >= 0 else 'negative' }}">
+                    {{ '%+.2f'|format(alpha_stats.total_cash) }} $
+                </strong>
+                <small>закрытые + активные</small>
+            </div>
+        </div>
+        <div class="alpha-stat-breakdowns">
+            <div>
+                <header>
+                    <span>По направлению</span>
+                    <small>закрытые и активные</small>
+                </header>
+                {% for item in report.statistics.directions %}
+                <div class="alpha-stat-row">
+                    <strong>{{ item.label }}</strong>
+                    <span>{{ item.closed }} закр. · {{ item.active }} акт.</span>
+                    <span>{{ item.win_rate }}% в плюсе</span>
+                    <strong class="{{ 'positive' if item.total_cash >= 0 else 'negative' }}">
+                        {{ '%+.2f'|format(item.total_cash) }} $
+                    </strong>
+                </div>
+                {% endfor %}
+            </div>
+            <div>
+                <header>
+                    <span>По источнику</span>
+                    <small>$100 на каждую идею</small>
+                </header>
+                {% for item in report.statistics.scanners %}
+                <div class="alpha-stat-row">
+                    <strong>{{ item.label }}</strong>
+                    <span>{{ item.closed }} закр. · {{ item.active }} акт.</span>
+                    <span>{{ item.win_rate }}% в плюсе</span>
+                    <strong class="{{ 'positive' if item.total_cash >= 0 else 'negative' }}">
+                        {{ '%+.2f'|format(item.total_cash) }} $
+                    </strong>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <footer>
+            Закрытые результаты неизменяемы. Активные позиции переоцениваются только после нового расчёта данных.
+            Комиссии и проскальзывание не учитываются.
+        </footer>
+        {% else %}
+        <div class="alpha-stat-empty">
+            <i data-lucide="chart-no-axes-combined"></i>
+            <div>
+                <strong>Статистика ещё не началась</strong>
+                <p>Первый свежий торговый план зафиксирует цены входа и запустит честный forward test.</p>
+            </div>
+        </div>
+        {% endif %}
+    </section>
+
     <section class="alpha-analysis-grid">
         <div class="alpha-metrics-panel">
             <header>
