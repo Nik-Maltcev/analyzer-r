@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
+from datetime import date, timedelta
 from typing import Any
 
 import numpy as np
@@ -355,6 +356,15 @@ def build_regime_trade_plan(
             continue
 
         remaining_days = max(0, horizon - age_days)
+        try:
+            planned_close = date.fromisoformat(
+                str(latest.get("data_date") or period.get("last_seen_date"))
+            ) + timedelta(days=remaining_days)
+            planned_close_date = planned_close.isoformat()
+            planned_close_date_label = planned_close.strftime("%d.%m.%Y")
+        except (TypeError, ValueError):
+            planned_close_date = ""
+            planned_close_date_label = "—"
         strategy = next(
             (
                 item
@@ -376,6 +386,8 @@ def build_regime_trade_plan(
             "confidence_rank": confidence_rank,
             "age_days": age_days,
             "remaining_days": remaining_days,
+            "planned_close_date": planned_close_date,
+            "planned_close_date_label": planned_close_date_label,
             "review_label": (
                 "пересмотреть сегодня"
                 if remaining_days == 0

@@ -167,6 +167,8 @@ def test_range_trade_plan_returns_specific_long_and_short_candidates():
     ]
     assert report["candidates"][0]["action_label"] == "Купить"
     assert report["candidates"][1]["action_label"] == "Шорт"
+    assert report["candidates"][0]["planned_close_date"] == "2026-08-06"
+    assert report["candidates"][1]["planned_close_date"] == "2026-08-01"
     assert report["rejected_count"] == 1
 
 

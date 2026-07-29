@@ -4656,7 +4656,7 @@ html[data-view-mode='beginner'] .signals-page {
     border-bottom: 1px solid var(--border);
     border-left: 3px solid var(--green);
     display: grid;
-    grid-template-columns: 1.05fr 0.8fr 0.8fr 0.8fr 1.35fr;
+    grid-template-columns: 1.05fr 0.75fr 0.75fr 0.82fr 0.75fr 1.35fr;
     min-height: 92px;
 }
 
@@ -5091,7 +5091,8 @@ html[data-view-mode='beginner'] .signals-page {
         border-bottom: 1px solid var(--border);
     }
 
-    .alpha-trade-row > :nth-child(2n) {
+    .alpha-trade-row > :nth-child(3),
+    .alpha-trade-row > :nth-child(5) {
         border-right: 0;
     }
 
