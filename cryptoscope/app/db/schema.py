@@ -572,6 +572,25 @@ CREATE TABLE IF NOT EXISTS crypto_v2_trades (
 )
 """
 
+CREATE_MARKET_REGIME_SNAPSHOTS = """
+CREATE TABLE IF NOT EXISTS market_regime_snapshots (
+    calculation_version TEXT NOT NULL,
+    market TEXT NOT NULL,
+    data_date TEXT NOT NULL,
+    dominant_regime TEXT NOT NULL,
+    trend_direction TEXT NOT NULL,
+    risk_state TEXT NOT NULL,
+    risk_multiplier REAL NOT NULL,
+    confidence REAL NOT NULL,
+    probabilities_json TEXT NOT NULL,
+    metrics_json TEXT NOT NULL,
+    strategies_json TEXT NOT NULL,
+    warnings_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (calculation_version, market, data_date)
+)
+"""
+
 CREATE_MOMENTUM_PORTFOLIO_INDICES = [
     """
     CREATE INDEX IF NOT EXISTS idx_momentum_portfolio_finalized
@@ -595,6 +614,17 @@ CREATE_CRYPTO_V2_INDICES = [
     """
     CREATE INDEX IF NOT EXISTS idx_crypto_v2_trades_status
     ON crypto_v2_trades(strategy_version, mode, status, entry_date)
+    """,
+]
+
+CREATE_MARKET_REGIME_INDICES = [
+    """
+    CREATE INDEX IF NOT EXISTS idx_market_regime_latest
+    ON market_regime_snapshots(
+        calculation_version,
+        market,
+        data_date DESC
+    )
     """,
 ]
 
@@ -638,6 +668,7 @@ ALL_TABLES_SQL = [
     CREATE_CRYPTO_V2_DAILY,
     CREATE_CRYPTO_V2_CANDIDATES,
     CREATE_CRYPTO_V2_TRADES,
+    CREATE_MARKET_REGIME_SNAPSHOTS,
 ]
 
 ALL_INDICES_SQL = (
@@ -650,4 +681,5 @@ ALL_INDICES_SQL = (
     + CREATE_CONTENT_PUBLICATION_INDICES
     + CREATE_MOMENTUM_PORTFOLIO_INDICES
     + CREATE_CRYPTO_V2_INDICES
+    + CREATE_MARKET_REGIME_INDICES
 )

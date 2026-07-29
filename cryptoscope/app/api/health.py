@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 
 import app.db.database as database
 from app.config import get_settings
+from app.core.market_regime import CALCULATION_VERSION
 from app.db.database import db_status, get_connection
 from app.product import ALL_MARKETS, get_product_profile
 
@@ -106,6 +107,7 @@ async def readiness():
         "crypto_strategy_trades",
         "crypto_price_versions",
         "market_data_state",
+        "market_regime_snapshots",
     }
     problems: list[str] = []
     now = datetime.now(UTC)
@@ -219,6 +221,30 @@ async def readiness():
                                 problems.append(
                                     "crypto: mixed or unexpected price providers"
                                 )
+                        regime_cursor = await conn.execute(
+                            """
+                            SELECT data_date
+                            FROM market_regime_snapshots
+                            WHERE calculation_version = ?
+                              AND market = 'crypto'
+                            ORDER BY data_date DESC
+                            LIMIT 1
+                            """,
+                            (CALCULATION_VERSION,),
+                        )
+                        regime = await regime_cursor.fetchone()
+                        if not regime:
+                            problems.append(
+                                "crypto: market regime snapshot is missing"
+                            )
+                        elif (
+                            row["price_date"]
+                            and str(regime["data_date"])
+                            != str(row["price_date"])[:10]
+                        ):
+                            problems.append(
+                                "crypto: market regime snapshot is stale"
+                            )
                     price_age = _timestamp_age_hours(
                         row["price_date"],
                         now,

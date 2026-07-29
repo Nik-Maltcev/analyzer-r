@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.api.public_extension import refresh_extension_feed_snapshots
 from app.core.crypto_v2 import sync_crypto_v2_journal
+from app.core.market_regime import sync_market_regime_snapshots
 from app.core.momentum_portfolio import sync_momentum_portfolio_journal
 from app.core.scanner_history import sync_all_scanner_states
 from app.data.brazil import fetch_brazil_prices, upsert_brazil_prices
@@ -305,6 +306,14 @@ def main() -> int:
             print(f"Crypto V2 journal: {crypto_v2_result}")
         except Exception as exc:
             print(f"Crypto V2 journal update failed: {exc}")
+            return 1
+        try:
+            regime_result = asyncio.run(
+                sync_market_regime_snapshots(DB_PATH)
+            )
+            print(f"Market regime snapshots: {regime_result}")
+        except Exception as exc:
+            print(f"Market regime snapshot update failed: {exc}")
             return 1
 
     # Recompute even when providers returned no new rows. This verifies the

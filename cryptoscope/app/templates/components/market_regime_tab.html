@@ -1,0 +1,259 @@
+<section class="alpha-shell" data-alpha-command-center>
+    <header class="alpha-header">
+        <div>
+            <span class="section-kicker">CRYPTO · ALPHA COMMAND CENTER</span>
+            <h2>Режим рынка</h2>
+            <p>Какие стратегии сейчас получают преимущество и какой риск допустим.</p>
+        </div>
+        <div class="alpha-header-actions">
+            <span class="alpha-model-note">Не прогноз цены</span>
+            {% if is_admin %}
+            <button class="crypto-refresh-button"
+                    type="button"
+                    hx-get="/tab/alpha?refresh=true"
+                    hx-target="#main-content"
+                    hx-swap="innerHTML"
+                    hx-sync="#main-content:replace"
+                    data-loading-message="Пересчитываем режим крипторынка">
+                <i data-lucide="refresh-cw"></i>
+                Пересчитать
+            </button>
+            {% endif %}
+        </div>
+    </header>
+
+    {% if refresh_error %}
+    <div class="crypto-refresh-message is-error">{{ refresh_error }}</div>
+    {% endif %}
+    {% if refresh_result %}
+    <div class="crypto-refresh-message is-success">
+        Снимок за {{ refresh_result.latest_data_date }} готов · {{ refresh_result.snapshots }} сессий в истории
+    </div>
+    {% endif %}
+
+    {% if latest %}
+    <section class="alpha-regime-band is-{{ latest.dominant_regime }}">
+        <div class="alpha-regime-primary">
+            <span>РЕЖИМ НА {{ latest.data_date }}</span>
+            <strong>{{ latest.regime_label }}</strong>
+            <p>
+                {% if latest.dominant_regime == "trend" %}
+                    Рынок движется направленно. Приоритет у импульсных стратегий, но направление BTC определяет допустимость LONG-входов.
+                {% elif latest.dominant_regime == "range" %}
+                    Направленного преимущества мало. Быстрый возврат к среднему предпочтительнее долгого удержания импульса.
+                {% elif latest.dominant_regime == "panic" %}
+                    Риск синхронного падения повышен. Новые входы ограничены, главная задача — сохранить капитал.
+                {% else %}
+                    Рынок отскакивает после просадки. Риск возвращается постепенно, вход требует подтверждения шириной рынка.
+                {% endif %}
+            </p>
+        </div>
+        <div class="alpha-risk-gauge">
+            <span>ДОПУСТИМЫЙ РИСК</span>
+            <strong>{{ latest.risk_pct }}%</strong>
+            <small>{{ latest.risk_label }}</small>
+            <div class="alpha-risk-track" aria-label="Допустимый риск {{ latest.risk_pct }}%">
+                <span style="width: {{ latest.risk_pct }}%"></span>
+            </div>
+        </div>
+    </section>
+
+    <section class="alpha-probability-band">
+        <header>
+            <div>
+                <span class="section-kicker">МОДЕЛЬНАЯ ОЦЕНКА</span>
+                <h3>Вероятности режимов</h3>
+            </div>
+            <span>Разница лидера: {{ latest.confidence_pct }} п.п.</span>
+        </header>
+        <div class="alpha-probability-grid">
+            {% for item in latest.probability_rows %}
+            <div class="alpha-probability-item is-{{ item.key }}">
+                <div>
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}%</strong>
+                </div>
+                <div class="alpha-probability-track">
+                    <span style="width: {{ item.value }}%"></span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="alpha-strategy-band">
+        <header>
+            <div>
+                <span class="section-kicker">ЧТО ДЕЛАТЬ СЕЙЧАС</span>
+                <h3>Распределение внимания</h3>
+            </div>
+            <span>Это приоритеты стратегий, а не доли готового портфеля</span>
+        </header>
+        <div class="alpha-strategy-table">
+            <div class="alpha-strategy-row is-head">
+                <span>Стратегия</span>
+                <span>Статус</span>
+                <span>Вес условий</span>
+                <span>Роль</span>
+            </div>
+            {% for item in latest.strategies %}
+            <div class="alpha-strategy-row is-{{ item.status }}">
+                <span><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span>
+                <span><strong class="alpha-strategy-status">{{ item.status_label }}</strong></span>
+                <span>
+                    <strong>{{ item.weight_pct }}%</strong>
+                    <span class="alpha-mini-track"><i style="width: {{ item.weight_pct }}%"></i></span>
+                </span>
+                <span>
+                    {% if item.key == "momentum" and latest.trend_direction == "down" %}
+                        LONG-сигналы дополнительно ограничены нисходящим направлением BTC
+                    {% elif item.key == "reserve" %}
+                        Не открывать сделку только ради занятости капитала
+                    {% else %}
+                        Следовать только подтверждённым сигналам соответствующего сканера
+                    {% endif %}
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="alpha-analysis-grid">
+        <div class="alpha-metrics-panel">
+            <header>
+                <span class="section-kicker">ПОЧЕМУ ТАКОЙ РЕЖИМ</span>
+                <h3>Состояние рынка</h3>
+            </header>
+            <div class="alpha-metrics-grid">
+                {% for item in latest.metric_rows %}
+                <div>
+                    <span>{{ item.label }}</span>
+                    <strong class="{{ item.tone }}">{{ item.value }}</strong>
+                    <small>{{ item.detail }}</small>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="alpha-history-panel">
+            <header>
+                <span class="section-kicker">ПОСЛЕДНИЕ 30 СЕССИЙ</span>
+                <h3>Как менялся режим</h3>
+            </header>
+            <div class="alpha-chart-wrap">
+                <canvas id="alpha-regime-chart" aria-label="История вероятностей режимов"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <section class="alpha-warning-band">
+        <header>
+            <div>
+                <span class="section-kicker">RISK ENGINE</span>
+                <h3>Контроль риска</h3>
+            </div>
+            <span>Вселенная: {{ latest.metrics.universe_size }} монет · расчёт {{ report.calculation_version }}</span>
+        </header>
+        {% if latest.warnings %}
+        <div class="alpha-warning-list">
+            {% for warning in latest.warnings %}
+            <div><i data-lucide="triangle-alert"></i><span>{{ warning }}</span></div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="alpha-warning-list is-clear">
+            <div><i data-lucide="shield-check"></i><span>Критических рыночных предупреждений по текущему снимку нет.</span></div>
+        </div>
+        {% endif %}
+        <p class="alpha-method-note">
+            Модель использует только данные, доступные на указанную дату: направление BTC, реализованную волатильность,
+            ширину, корреляцию, дисперсию и просадку. Режим оценивает условия для стратегий и не гарантирует рост актива.
+        </p>
+    </section>
+
+    <script type="application/json" id="alpha-regime-history">{{ report.history_json|safe }}</script>
+    <script>
+        (() => {
+            const source = document.getElementById('alpha-regime-history');
+            const canvas = document.getElementById('alpha-regime-chart');
+            if (!source || !canvas || !window.Chart) return;
+            if (window.meanxAlphaRegimeChart) {
+                window.meanxAlphaRegimeChart.destroy();
+            }
+            const history = JSON.parse(source.textContent || '[]');
+            const labels = history.map(item => item.data_date.slice(5).split('-').reverse().join('.'));
+            const definitions = [
+                ['trend', 'Тренд', '#48d7ad'],
+                ['range', 'Боковик', '#6aa8ff'],
+                ['panic', 'Паника', '#ff6f7d'],
+                ['recovery', 'Восстановление', '#f3bd61']
+            ];
+            window.meanxAlphaRegimeChart = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: definitions.map(([key, label, color]) => ({
+                        label,
+                        data: history.map(item => Number(item.probabilities[key] || 0) * 100),
+                        borderColor: color,
+                        backgroundColor: color,
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        pointHoverRadius: 3,
+                        tension: 0.24
+                    }))
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {mode: 'index', intersect: false},
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: '#8e9aa4',
+                                boxWidth: 9,
+                                boxHeight: 2,
+                                padding: 16,
+                                font: {family: 'IBM Plex Sans', size: 11}
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: context => `${context.dataset.label}: ${context.parsed.y.toFixed(1)}%`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {display: false},
+                            ticks: {color: '#687681', maxTicksLimit: 8}
+                        },
+                        y: {
+                            min: 0,
+                            max: 100,
+                            grid: {color: 'rgba(128, 145, 155, 0.12)'},
+                            ticks: {color: '#687681', callback: value => `${value}%`}
+                        }
+                    }
+                }
+            });
+        })();
+    </script>
+    {% else %}
+    <section class="alpha-empty">
+        <i data-lucide="database-zap"></i>
+        <h3>Первый снимок ещё не рассчитан</h3>
+        <p>Движок заполнится после ежедневного обновления криптоданных.</p>
+        {% if is_admin %}
+        <button class="crypto-refresh-button"
+                type="button"
+                hx-get="/tab/alpha?refresh=true"
+                hx-target="#main-content"
+                hx-swap="innerHTML">
+            <i data-lucide="play"></i>
+            Рассчитать сейчас
+        </button>
+        {% endif %}
+    </section>
+    {% endif %}
+</section>
