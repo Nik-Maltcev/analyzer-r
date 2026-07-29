@@ -15,6 +15,7 @@ from app.core.market_regime import (
     sync_alpha_trade_journal,
 )
 from app.db.schema import (
+    CREATE_ALPHA_TRADE_JOURNAL,
     CREATE_MARKET_REGIME_SNAPSHOTS,
     CREATE_SCANNER_SIGNAL_PERIODS,
 )
@@ -163,13 +164,10 @@ def test_range_trade_plan_returns_specific_long_and_short_candidates():
 
     assert [item["ticker"] for item in report["candidates"]] == [
         "ETH/USD",
-        "SOL/USD",
     ]
     assert report["candidates"][0]["action_label"] == "Купить"
-    assert report["candidates"][1]["action_label"] == "Шорт"
     assert report["candidates"][0]["planned_close_date"] == "2026-08-06"
-    assert report["candidates"][1]["planned_close_date"] == "2026-08-01"
-    assert report["rejected_count"] == 1
+    assert report["rejected_count"] == 2
 
 
 def test_trade_plan_does_not_hide_valid_candidates_after_fifth_item():
@@ -403,3 +401,31 @@ async def test_alpha_journal_freezes_entries_and_closed_results():
         await conn.commit()
         unchanged = await fetch_alpha_statistics(conn)
         assert unchanged["summary"]["realized_cash"] == 10.0
+
+
+@pytest.mark.asyncio
+async def test_alpha_statistics_include_only_high_confidence_trades():
+    async with aiosqlite.connect(":memory:") as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute(CREATE_ALPHA_TRADE_JOURNAL)
+        await conn.executemany(
+            """
+            INSERT INTO alpha_trade_journal (
+                calculation_version, ticker, direction, scanner, confidence,
+                regime, opened_on, entry_price, signal_age_at_entry,
+                last_seen_on, last_price, stake, status
+            ) VALUES (?, ?, 'long', 'Momentum', ?, 'range', '2026-07-28',
+                      100.0, 1, '2026-07-28', 110.0, 100.0, 'active')
+            """,
+            [
+                (CALCULATION_VERSION, "ETH/USD", "Высокая"),
+                (CALCULATION_VERSION, "SOL/USD", "Средняя"),
+            ],
+        )
+        await conn.commit()
+
+        statistics = await fetch_alpha_statistics(conn)
+
+    assert statistics["summary"]["opened"] == 1
+    assert statistics["summary"]["active"] == 1
+    assert statistics["summary"]["active_cash"] == 10.0

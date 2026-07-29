@@ -175,7 +175,8 @@
         </div>
         {% endif %}
         <footer>
-            Это кандидаты из свежего расчёта, отфильтрованные текущим режимом рынка.
+            Только сигналы высокой уверенности из свежего расчёта,
+            отфильтрованные текущим режимом рынка.
             Они не являются гарантией движения цены.
         </footer>
     </section>
@@ -188,7 +189,8 @@
             </div>
             <span>
                 {% if report.statistics.summary.started_on %}
-                    с {{ report.statistics.summary.started_on }} · ${{ report.statistics.summary.stake|int }} на идею
+                    только высокая уверенность · с {{ report.statistics.summary.started_on }} ·
+                    ${{ report.statistics.summary.stake|int }} на идею
                 {% else %}
                     журнал начнёт собираться с ближайшего расчёта
                 {% endif %}

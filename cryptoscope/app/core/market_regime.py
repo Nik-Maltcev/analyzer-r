@@ -35,6 +35,7 @@ TRADE_PLAN_CONFIDENCE = {
     "Средняя": ("Средняя", 1),
     "medium": ("Средняя", 1),
 }
+TRADE_PLAN_MIN_CONFIDENCE_RANK = 2
 
 REGIME_LABELS = {
     "trend": "Тренд",
@@ -338,7 +339,7 @@ def build_regime_trade_plan(
         if (
             not horizon
             or direction not in {"long", "short"}
-            or confidence_rank == 0
+            or confidence_rank < TRADE_PLAN_MIN_CONFIDENCE_RANK
             or age_days > horizon
             or _finite(period.get("current_price"), 0.0) <= 0
         ):
@@ -756,6 +757,7 @@ async def fetch_alpha_statistics(conn) -> dict[str, Any]:
         SELECT *
         FROM alpha_trade_journal
         WHERE calculation_version = ?
+          AND confidence IN ('Высокая', 'high')
         ORDER BY opened_on, id
         """,
         (CALCULATION_VERSION,),
