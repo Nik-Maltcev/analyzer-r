@@ -181,7 +181,7 @@ async def test_app_page(app):
         assert 'data-market="id"' not in response.text
         assert 'data-market="ru"' in response.text
         assert 'data-tab="ai"' not in response.text
-        assert "/static/js/main.js?v=20260727-loading-overlay1" in response.text
+        assert "/static/js/main.js?v=20260729-ui-cleanup1" in response.text
         assert response.text.index("</nav>") < response.text.index('id="auth-modal"')
 
 
@@ -198,12 +198,11 @@ async def test_index_page_can_open_ru_market(app):
 
 
 @pytest.mark.asyncio
-async def test_onboarding_page(app):
+async def test_onboarding_page_is_removed(app):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/onboarding")
-        assert response.status_code == 200
-        assert "DeepSeek" not in response.text
+        assert response.status_code == 404
 
 
 @pytest.mark.asyncio

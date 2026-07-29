@@ -37,7 +37,7 @@
         <div class="signal-card-header">
             <span class="signal-name {{ t.signal_type }}">{{ t.ticker_a }} / {{ t.ticker_b }}</span>
             <span class="badge {% if t.signal_type == 'short_a' %}badge-orange{% elif t.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
-                {{ t.signal_type }}
+                {% if t.signal_type == 'short_a' %}Шорт A{% elif t.signal_type == 'long_a' %}Лонг A{% else %}Ждать{% endif %}
             </span>
         </div>
         {% if t.risk_reason %}

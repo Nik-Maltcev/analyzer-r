@@ -25,7 +25,7 @@
                 </td>
                 <td>
                     <span class="badge {% if h.signal_type == 'short_a' %}badge-orange{% elif h.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
-                        {{ h.signal_type|default('wait') }}
+                        {% if h.signal_type == 'short_a' %}Шорт{% if h.ticker_b %} A{% endif %}{% elif h.signal_type == 'long_a' %}Лонг{% if h.ticker_b %} A{% endif %}{% else %}Ждать{% endif %}
                     </span>
                 </td>
                 <td>{{ h.entry_time[:16] if h.entry_time else '—' }}</td>

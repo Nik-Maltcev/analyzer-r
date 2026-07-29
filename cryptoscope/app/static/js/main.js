@@ -171,8 +171,6 @@ function appLoadingMessage(source, target) {
 
     const targetId = target?.id || '';
     if (targetId === 'signals-content') return 'Обновляем сигналы';
-    if (targetId === 'scanner-content') return 'Загружаем сканер';
-    if (targetId === 'polymarket-results') return 'Обновляем прогнозы';
     if (source?.matches?.('.crypto-refresh-button')) {
         return 'Обновляем криптоданные';
     }
@@ -196,8 +194,6 @@ function shouldBlockAppRequest(source, target) {
     if (
         targetId === 'main-content'
         || targetId === 'signals-content'
-        || targetId === 'scanner-content'
-        || targetId === 'polymarket-results'
     ) {
         return true;
     }
@@ -310,6 +306,9 @@ document.body.addEventListener('htmx:abort', event => {
 });
 
 document.addEventListener('click', event => {
+    // Ignore modified/middle clicks: the browser opens a new tab and this
+    // page never unloads, which would leave the blocking overlay stuck on.
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     const tab = event.target.closest('.nav-tab');
     if (!tab || tab.hasAttribute('hx-get')) return;
 
@@ -682,8 +681,13 @@ async function authLogout() {
 }
 
 document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !document.getElementById('auth-modal')?.classList.contains('hidden')) {
+    if (event.key !== 'Escape') return;
+    if (!document.getElementById('auth-modal')?.classList.contains('hidden')) {
         closeAuthModal();
+    } else if (!document.getElementById('paypal-checkout-modal')?.classList.contains('hidden')) {
+        closePayPalCheckout();
+    } else if (!document.getElementById('onboarding-modal')?.classList.contains('hidden')) {
+        closeOnboarding();
     }
 });
 
@@ -928,10 +932,12 @@ function closeFavorite(favId) {
 }
 
 // Toast notifications
-function showToast(message, type) {
+function showToast(message, type = '') {
     const container = document.getElementById('toast-container');
+    if (!container) return;
     const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
+    toast.className = `toast ${type}`.trim();
+    toast.setAttribute('role', 'status');
     toast.textContent = translateUi(message);
     container.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
@@ -969,38 +975,28 @@ function updateOnboardButtons() {
 }
 
 function closeOnboarding() {
-    document.getElementById('onboarding-modal').classList.add('hidden');
+    document.getElementById('onboarding-modal')?.classList.add('hidden');
+    document.body.classList.remove('modal-open');
+    try {
+        localStorage.setItem('cryptoscope_onboarded', 'true');
+    } catch (_) {}
 }
 
-// Show onboarding on first visit
+// Show onboarding on first visit — unless the auth modal takes priority
+// (both opening at once would stack two modals on top of each other).
 document.addEventListener('DOMContentLoaded', () => {
+    const modal = document.getElementById('onboarding-modal');
+    if (!modal) return;
     const seen = localStorage.getItem('cryptoscope_onboarded');
-    if (!seen) {
-        document.getElementById('onboarding-modal').classList.remove('hidden');
+    const authPending = window.MEANX_ACCESS_STATE?.status === 'unauthenticated';
+    if (!seen && !authPending) {
+        modal.classList.remove('hidden');
+        document.body.classList.add('modal-open');
     }
-    
-    // Will set this when onboarding is closed
     updateOnboardButtons();
 });
 
-// ... rest of closeOnboarding to save state
-const origClose = closeOnboarding;
-closeOnboarding = function() {
-    localStorage.setItem('cryptoscope_onboarded', 'true');
-    origClose();
-};
-
-// Wake lock
-if ('wakeLock' in navigator) {
-    try {
-        navigator.wakeLock.request('screen');
-    } catch(e) {}
-}
-
-// HTMX extensions
-document.body.addEventListener('htmx:afterSwap', function(evt) {
-    // Re-initialize any dynamic content
-});
+// Wake lock is requested once in base.html — do not duplicate it here.
 
 document.body.addEventListener('htmx:responseError', function(evt) {
     const detail = evt.detail || {};
@@ -1032,16 +1028,6 @@ document.body.addEventListener('htmx:afterRequest', function(evt) {
     }
 });
 
-// Swap tickers for spread chart
-function swapTickers() {
-    const a = document.getElementById('spread-a');
-    const b = document.getElementById('spread-b');
-    const tmp = a.value;
-    a.value = b.value;
-    b.value = tmp;
-    a.dispatchEvent(new Event('change'));
-}
-
 function ensureInitialSignalsLoaded() {
     const content = document.getElementById('signals-content');
     if (!content || content.querySelector('.fav-btn')) return;
@@ -1060,36 +1046,62 @@ function ensureInitialSignalsLoaded() {
     });
 }
 
-// Leverage slider display + calc settings handlers
-document.addEventListener('DOMContentLoaded', () => {
-    const levSlider = document.getElementById('calc-leverage');
-    if (levSlider) {
-        levSlider.addEventListener('input', function() {
-            document.getElementById('leverage-value').textContent = this.value + 'x';
-        });
+// Leverage slider display + signal filter value labels.
+// Delegated to document so it also works inside htmx-swapped content
+// (e.g. the calculator copy on the Data tab).
+document.addEventListener('input', event => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.id === 'calc-leverage') {
+        const label = document.getElementById('leverage-value');
+        if (label) label.textContent = target.value + 'x';
+    } else if (target.id === 'filter-corr') {
+        const label = document.getElementById('corr-value');
+        if (label) label.textContent = target.value;
+    } else if (target.id === 'filter-days') {
+        const label = document.getElementById('days-value');
+        if (label) label.textContent = target.value;
     }
-    
+});
+
+document.addEventListener('DOMContentLoaded', () => {
     setTimeout(ensureInitialSignalsLoaded, 500);
 });
 
-// Ticker logos — load crypto icons from CDN
+// Ticker logos — load crypto icons from CDN.
+// Results are cached per ticker so repeated htmx swaps do not re-fire
+// a HEAD request for every logo every time.
+const tickerLogoCache = new Map();
+
+function applyTickerLogo(el, base, url) {
+    if (url) {
+        el.style.backgroundImage = `url(${url})`;
+        el.classList.add('has-logo');
+    } else {
+        el.textContent = base.slice(0, 2).toUpperCase();
+    }
+}
+
 function loadTickerLogos() {
     document.querySelectorAll('.ticker-logo[data-ticker]').forEach(el => {
+        if (el.dataset.logoResolved === '1') return;
         const ticker = el.dataset.ticker;
         const base = ticker.split('/')[0].split('.')[0].toLowerCase();
-        // Try cryptocurrency-icon CDN
+        el.dataset.logoResolved = '1';
+        if (tickerLogoCache.has(base)) {
+            applyTickerLogo(el, base, tickerLogoCache.get(base));
+            return;
+        }
         const url = `https://cdnjs.cloudflare.com/ajax/libs/cryptocurrency-icons/0.18.1/svg/color/${base}.svg`;
         fetch(url, { method: 'HEAD' })
             .then(r => {
-                if (r.ok) {
-                    el.style.backgroundImage = `url(${url})`;
-                    el.classList.add('has-logo');
-                } else {
-                    el.textContent = base.slice(0, 2).toUpperCase();
-                }
+                const resolved = r.ok ? url : null;
+                tickerLogoCache.set(base, resolved);
+                applyTickerLogo(el, base, resolved);
             })
             .catch(() => {
-                el.textContent = base.slice(0, 2).toUpperCase();
+                tickerLogoCache.set(base, null);
+                applyTickerLogo(el, base, null);
             });
     });
 }

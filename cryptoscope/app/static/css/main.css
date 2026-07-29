@@ -804,7 +804,6 @@ body,
 /* Segmented controls */
 .mode-switcher,
 .market-selector-bar,
-.scanner-mode-bar,
 .view-mode-switcher {
     display: inline-flex;
     gap: 2px;
@@ -816,7 +815,6 @@ body,
 
 .mode-btn,
 .market-btn,
-.scanner-btn,
 .view-mode-btn {
     padding: 7px 16px;
     border-radius: calc(var(--radius) - 4px);
@@ -831,14 +829,12 @@ body,
 
 .mode-btn:hover,
 .market-btn:hover,
-.scanner-btn:hover,
 .view-mode-btn:hover {
     color: var(--text);
 }
 
 .mode-btn.active,
 .market-btn.active,
-.scanner-btn.active,
 .view-mode-btn.active {
     background: var(--surface-3);
     color: var(--blue-bright);
@@ -1303,35 +1299,6 @@ body.modal-open {
     border-radius: var(--radius);
 }
 
-.dashboard-stat {
-    text-align: center;
-    padding: 8px 12px;
-}
-
-.dashboard-stat-label {
-    font-size: 11px;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-weight: 600;
-}
-
-.dashboard-stat-value {
-    font-size: 24px;
-    font-weight: 700;
-    margin-top: 6px;
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em;
-    color: var(--text-bright);
-}
-
-.dashboard-stat-sub {
-    font-size: 12px;
-    color: var(--text-dim);
-    margin-top: 2px;
-}
-
 .signals-mode-bar {
     display: flex;
     align-items: center;
@@ -1424,13 +1391,6 @@ body.modal-open {
     gap: 8px;
 }
 
-.signal-ticker-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-}
-
 .ticker-logo {
     width: 32px;
     height: 32px;
@@ -1466,14 +1426,6 @@ body.modal-open {
 }
 .signal-name.wait {
     color: var(--text-dim);
-}
-
-/* Sparkline top */
-.signal-sparkline {
-    height: 40px;
-    margin: 4px 0 12px;
-    border-radius: var(--radius-xs);
-    overflow: hidden;
 }
 
 .signal-stats {
@@ -1704,30 +1656,6 @@ html[data-view-mode='beginner'] .signal-card {
     padding: 0;
 }
 
-/* ---------- 17. Sparkline Container ---------- */
-.sparkline-container {
-    height: 40px;
-    width: 100%;
-    background: transparent;
-    border: none;
-    padding: 0;
-    display: block;
-    overflow: hidden;
-}
-
-.sparkline-container svg {
-    display: block;
-    width: 100%;
-    height: 100%;
-}
-
-.sparkline-up {
-    color: var(--green-bright);
-}
-.sparkline-down {
-    color: var(--red-bright);
-}
-
 /* ---------- 18. P&L Calculator Block ---------- */
 .calc-block {
     background: var(--surface-1);
@@ -1882,14 +1810,6 @@ html[data-view-mode='beginner'] .signal-card {
     font-weight: 600;
     margin-bottom: 12px;
     color: var(--text-dim);
-}
-
-.pair-selector {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 12px;
-    flex-wrap: wrap;
 }
 
 /* Empty state */
@@ -2116,35 +2036,6 @@ html[data-view-mode='beginner'] .signal-card {
     color: var(--red-bright);
 }
 
-/* ---------- 22. Onboarding ---------- */
-.onboarding-page {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: calc(100vh - var(--navbar-h));
-    padding: 24px;
-}
-
-.onboarding-card {
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 120px),
-        linear-gradient(135deg, var(--card), var(--card-2));
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius);
-    padding: 32px;
-    max-width: 540px;
-    width: 100%;
-    box-shadow: var(--shadow-xl);
-}
-
-.onboarding-steps {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0;
-    margin-bottom: 32px;
-}
-
 .step {
     width: 36px;
     height: 36px;
@@ -2170,115 +2061,6 @@ html[data-view-mode='beginner'] .signal-card {
     background: var(--green);
     border-color: var(--green);
     color: white;
-}
-
-.step-line {
-    width: 60px;
-    height: 2px;
-    background: var(--border);
-}
-
-.step-line.completed {
-    background: var(--green);
-}
-
-.onboarding-step {
-    display: none;
-    text-align: center;
-}
-
-.onboarding-step.active {
-    display: block;
-    animation: fadeInUp 0.3s ease;
-}
-
-.onboarding-step h2 {
-    font-size: 22px;
-    font-weight: 700;
-    margin-bottom: 16px;
-    color: var(--text-bright);
-}
-
-.onboarding-step p {
-    color: var(--text-dim);
-    margin-bottom: 16px;
-    line-height: 1.65;
-}
-
-.onboarding-icon {
-    font-size: 56px;
-    margin-bottom: 16px;
-}
-
-.onboarding-features {
-    list-style: none;
-    text-align: left;
-    max-width: 400px;
-    margin: 0 auto;
-}
-
-.onboarding-features li {
-    padding: 10px 0;
-    font-size: 14px;
-    border-bottom: 1px solid var(--border-subtle);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.onboarding-features li::before {
-    content: '✓';
-    color: var(--green-bright);
-    font-weight: 700;
-}
-
-.onboarding-features li:last-child {
-    border-bottom: none;
-}
-
-.explanation {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    text-align: left;
-}
-
-.explain-card {
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
-    padding: 14px;
-}
-
-.explain-card h4 {
-    font-size: 13px;
-    margin-bottom: 4px;
-    color: var(--text-bright);
-}
-
-.explain-card p {
-    font-size: 12px;
-    color: var(--text-dim);
-    margin-bottom: 0;
-}
-
-.onboarding-tips {
-    list-style: none;
-    text-align: left;
-}
-
-.onboarding-tips li {
-    padding: 6px 0;
-    font-size: 14px;
-    color: var(--text-dim);
-}
-
-.onboarding-actions {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    margin-top: 24px;
 }
 
 /* Onboarding modal slides */
@@ -2705,7 +2487,6 @@ html[data-view-mode='beginner'] .signal-card {
 .calc-value,
 .calc-field input,
 .position-pnl,
-.dashboard-stat-value,
 .signal-stat-value,
 .form-input,
 .text-mono,
@@ -2859,12 +2640,6 @@ html[data-view-mode='beginner'] .signal-card {
     }
     .main-content {
         padding: 12px;
-    }
-    .onboarding-card {
-        padding: 20px;
-    }
-    .explanation {
-        grid-template-columns: 1fr;
     }
     .signals-dashboard {
         grid-template-columns: repeat(2, 1fr);
@@ -3261,54 +3036,6 @@ button:focus-visible,
 
 .position-pnl-breakdown .net-pnl-cell {
     background: rgba(53, 214, 160, 0.04);
-}
-
-/* Spread chart stats */
-.spread-stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 12px;
-    margin-top: 16px;
-    padding: 16px;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-}
-.spread-stats .stat-item {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-.spread-stats .stat-label {
-    font-size: 11px;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-.spread-stats .stat-value {
-    font-size: 16px;
-    font-weight: 600;
-}
-
-/* Scanner button text */
-.scanner-name {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-}
-.scanner-desc {
-    font-size: 11px;
-    color: var(--text-dim);
-}
-.scanner-btn .scanner-icon {
-    font-size: 20px;
-}
-.scanner-btn {
-    display: flex !important;
-    align-items: center;
-    gap: 10px;
-    text-align: left;
-    padding: 10px 16px !important;
 }
 
 /* Position details (favorites) */
@@ -3714,7 +3441,6 @@ html[data-view-mode='beginner'] .signals-page {
 .calc-field label,
 .signal-stat-label,
 .stat-card-label,
-.dashboard-stat-label,
 .detail-label {
     color: var(--text-muted);
     font-size: 11px;
@@ -3751,7 +3477,6 @@ html[data-view-mode='beginner'] .signals-page {
 }
 
 .glass-card,
-.dashboard-stat,
 .stat-card {
     border-radius: 8px;
     border: 1px solid var(--border);
@@ -3760,21 +3485,18 @@ html[data-view-mode='beginner'] .signals-page {
 }
 
 .glass-card:hover,
-.dashboard-stat:hover,
 .stat-card:hover {
     border-color: var(--border-hover);
     transform: none;
     box-shadow: var(--shadow-md);
 }
 
-.stat-card,
-.dashboard-stat {
+.stat-card {
     min-height: 96px;
     padding: 14px;
 }
 
-.stat-card-value,
-.dashboard-stat-value {
+.stat-card-value {
     margin-top: 8px;
     color: var(--text-bright);
     font-family: var(--font-mono);
@@ -3782,8 +3504,7 @@ html[data-view-mode='beginner'] .signals-page {
     font-weight: 700;
 }
 
-.stat-card-sub,
-.dashboard-stat-sub {
+.stat-card-sub {
     color: var(--text-muted);
 }
 
@@ -4157,10 +3878,7 @@ html[data-view-mode='beginner'] .signals-page {
 }
 
 .position-card,
-.portfolio-card,
-.scanner-btn,
-.chart-container,
-.spread-stats {
+.chart-container {
     border-radius: 8px;
     border-color: var(--border);
     background: #101720;
@@ -4269,287 +3987,12 @@ html[data-view-mode='beginner'] .signals-page {
     }
 }
 
-/* ---------- Polymarket direction terminal ---------- */
-.polymarket-page {
-    width: 100%;
-}
-
-.polymarket-header {
-    align-items: flex-end;
-}
-
-.page-kicker {
-    display: block;
-    margin-bottom: 5px;
-    color: var(--green);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0;
-}
-
-.polymarket-window {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 2px;
-    padding-left: 18px;
-    border-left: 2px solid rgba(16, 185, 129, 0.5);
-}
-
-.window-label,
-.summary-label {
+.window-label {
     color: var(--text-muted);
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0;
     text-transform: uppercase;
-}
-
-.polymarket-window strong {
-    color: var(--text);
-    font-family: var(--font-mono);
-    font-size: 12px;
-}
-
-.polymarket-loading {
-    min-height: 220px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    border: 1px solid var(--border);
-    background: #0d131b;
-}
-
-.polymarket-loading > div:last-child {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-}
-
-.polymarket-loading strong {
-    color: var(--text-bright);
-}
-
-.polymarket-loading span {
-    color: var(--text-muted);
-    font-size: 12px;
-}
-
-.polymarket-summary {
-    display: grid;
-    grid-template-columns: minmax(260px, 1.6fr) minmax(110px, 0.55fr) minmax(190px, 0.8fr) auto;
-    align-items: stretch;
-    margin-bottom: 14px;
-    border: 1px solid var(--border);
-    background: #0d131b;
-}
-
-.poly-leader,
-.summary-stat {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 7px;
-    padding: 13px 16px;
-    border-right: 1px solid var(--border);
-}
-
-.summary-stat strong {
-    color: var(--text-bright);
-    font-family: var(--font-mono);
-    font-size: 13px;
-    letter-spacing: 0;
-}
-
-.leader-line {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.leader-line > strong {
-    color: var(--text-bright);
-    font-family: var(--font-mono);
-    font-size: 18px;
-}
-
-.leader-probability {
-    color: var(--text-bright);
-    font-family: var(--font-mono);
-    font-size: 18px;
-    font-weight: 700;
-}
-
-.poly-refresh-btn {
-    align-self: center;
-    margin: 0 14px;
-    gap: 7px;
-    white-space: nowrap;
-}
-
-.polymarket-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 10px;
-}
-
-.poly-filter {
-    display: inline-flex;
-    align-items: center;
-    padding: 3px;
-    border: 1px solid var(--border);
-    background: #0b1017;
-}
-
-.poly-filter-btn {
-    min-height: 30px;
-    padding: 5px 11px;
-    border: 0;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    font: inherit;
-    font-size: 11px;
-    font-weight: 600;
-    white-space: nowrap;
-}
-
-.poly-filter-btn:hover {
-    color: var(--text);
-}
-
-.poly-filter-btn.active {
-    background: #1a2531;
-    color: var(--text-bright);
-    box-shadow: inset 0 -2px 0 var(--green);
-}
-
-.poly-model-note {
-    color: var(--text-muted);
-    font-size: 11px;
-}
-
-.poly-table-wrap {
-    width: 100%;
-    overflow-x: auto;
-    border: 1px solid var(--border);
-    background: #0b1017;
-}
-
-.poly-table {
-    width: 100%;
-    min-width: 1180px;
-    border-collapse: collapse;
-    font-size: 12px;
-}
-
-.poly-table th {
-    height: 38px;
-    padding: 8px 11px;
-    border-bottom: 1px solid var(--border);
-    background: #0d141c;
-    color: var(--text-muted);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0;
-    text-align: left;
-    text-transform: uppercase;
-    white-space: nowrap;
-}
-
-.poly-table td {
-    height: 66px;
-    padding: 9px 11px;
-    border-bottom: 1px solid var(--border-subtle);
-    color: var(--text);
-    vertical-align: middle;
-    white-space: nowrap;
-}
-
-.poly-table tbody tr:last-child td {
-    border-bottom: 0;
-}
-
-.poly-table tbody tr:hover {
-    background: rgba(255, 255, 255, 0.025);
-}
-
-.poly-table tr[hidden] {
-    display: none;
-}
-
-.poly-asset,
-.poly-direction,
-.poly-price,
-.poly-accuracy {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-}
-
-.poly-asset {
-    min-width: 145px;
-    display: grid;
-    grid-template-columns: auto 1fr;
-    column-gap: 8px;
-}
-
-.poly-symbol {
-    grid-row: 1 / span 2;
-    align-self: center;
-    min-width: 48px;
-    color: var(--text-bright);
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 700;
-}
-
-.poly-asset > span:not(.poly-symbol) {
-    color: var(--text);
-    font-weight: 600;
-}
-
-.poly-asset small,
-.poly-direction small,
-.poly-price small,
-.poly-accuracy small {
-    color: var(--text-muted);
-    font-size: 10px;
-}
-
-.poly-accuracy {
-    min-width: 164px;
-    white-space: normal;
-}
-
-.poly-accuracy-unvalidated > strong {
-    color: var(--text-muted);
-}
-
-.poly-edge-warning {
-    color: var(--orange);
-    font-size: 9px;
-    font-weight: 600;
-    line-height: 1.25;
-}
-
-.poly-direction {
-    min-width: 82px;
-}
-
-.poly-direction strong,
-.poly-price strong,
-.poly-accuracy strong {
-    color: var(--text-bright);
-    font-family: var(--font-mono);
 }
 
 .direction-pill {
@@ -4573,52 +4016,6 @@ html[data-view-mode='beginner'] .signals-page {
     border-color: rgba(239, 68, 68, 0.45);
     background: rgba(239, 68, 68, 0.1);
     color: var(--red);
-}
-
-.probability-pair {
-    width: 154px;
-}
-
-.probability-labels {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 6px;
-    color: var(--text-dim);
-    font-family: var(--font-mono);
-    font-size: 10px;
-}
-
-.probability-labels span:first-child {
-    color: var(--green);
-}
-
-.probability-labels span:last-child {
-    color: var(--red);
-}
-
-.probability-track {
-    position: relative;
-    width: 100%;
-    height: 5px;
-    overflow: hidden;
-    background: rgba(239, 68, 68, 0.45);
-}
-
-.probability-track::after {
-    content: "";
-    position: absolute;
-    top: -2px;
-    bottom: -2px;
-    left: 50%;
-    width: 1px;
-    background: var(--text-bright);
-    opacity: 0.6;
-}
-
-.probability-up {
-    display: block;
-    height: 100%;
-    background: var(--green);
 }
 
 .source-badge {
@@ -4645,69 +4042,10 @@ html[data-view-mode='beginner'] .signals-page {
     color: var(--orange);
 }
 
-.poly-row-unavailable {
-    opacity: 0.65;
-}
-
-.poly-unavailable {
-    color: var(--text-muted);
-    white-space: normal;
-}
-
-.polymarket-error {
-    min-height: 220px;
-}
-
 .tab-icon-text {
     min-width: 18px;
     font-family: var(--font-mono);
     font-size: 9px;
     font-weight: 700;
     text-align: center;
-}
-
-@media (max-width: 980px) {
-    .polymarket-summary {
-        grid-template-columns: 1fr 1fr;
-    }
-
-    .poly-leader,
-    .summary-stat {
-        border-bottom: 1px solid var(--border);
-    }
-
-    .poly-refresh-btn {
-        justify-self: start;
-        margin: 12px 14px;
-    }
-}
-
-@media (max-width: 780px) {
-    .polymarket-header {
-        align-items: flex-start;
-    }
-
-    .polymarket-window {
-        align-items: flex-start;
-        padding-left: 12px;
-    }
-
-    .polymarket-summary {
-        grid-template-columns: 1fr;
-    }
-
-    .poly-leader,
-    .summary-stat {
-        border-right: 0;
-    }
-
-    .polymarket-toolbar {
-        align-items: flex-start;
-        flex-direction: column;
-    }
-
-    .poly-filter {
-        max-width: 100%;
-        overflow-x: auto;
-    }
 }

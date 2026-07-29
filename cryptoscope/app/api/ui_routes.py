@@ -442,44 +442,6 @@ def _single_scanner_plan(source, days_held, recommendation) -> dict:
     return plan
 
 
-async def _dash_data(conn, market):
-    """Get dashboard summary."""
-    pairs = await fetch_pairs(conn, market, 0.5)
-    if pairs.empty:
-        return {"n_active": 0, "n_total": 0, "best_signal": None, "volatility": "Низкая"}
-
-    coint_column = (
-        "is_coint_stable" if "is_coint_stable" in pairs.columns else "is_coint"
-    )
-    active = pairs[
-        (pairs["signal_type"] != "wait")
-        & (pairs[coint_column].fillna(0) == 1)
-    ]
-    n_active = len(active)
-    regime = pairs.iloc[0].get("market_regime") or "normal"
-    volatility = {
-        "stress": "Стрессовая",
-        "elevated": "Повышенная",
-        "normal": "Обычная",
-    }.get(regime, "Обычная")
-
-    best = None
-    if not active.empty:
-        br = active.iloc[0]
-        best = {
-            "pair": f"{br['ticker_a']}/{br['ticker_b']}",
-            "z_now": round(float(br.get("z_now", 0) or 0), 2),
-            "strength": br.get("strength", "Нет"),
-        }
-
-    return {
-        "n_active": n_active,
-        "n_total": len(pairs),
-        "best_signal": best,
-        "volatility": volatility,
-    }
-
-
 @router.get("/signals", response_class=HTMLResponse)
 async def tab_signals(
     request: Request,
@@ -595,45 +557,6 @@ async def tab_signals(
         return templates.TemplateResponse(request, "components/signals_all.html", {
             **ctx, "signals": [], "total": 0, "active": [], "error": str(e),
         })
-
-
-@router.get("/dashboard", response_class=HTMLResponse)
-async def tab_dashboard(
-    request: Request,
-    market: str = Query("crypto"),
-):
-    try:
-        async with get_connection() as conn:
-            dash = await _dash_data(conn, market)
-    except Exception:
-        dash = {"n_active": 0, "n_total": 0, "best_signal": None, "volatility": "Низкая"}
-
-    return templates.TemplateResponse(request, "components/dashboard_partial.html", {
-        "request": request, "market": market, **dash,
-    })
-
-
-@router.get("/portfolio", response_class=HTMLResponse)
-async def tab_portfolio(request: Request, market: str = Query("crypto")):
-    try:
-        async with get_connection() as conn:
-            pairs = await fetch_pairs(conn, market, 0.0)
-            prices_df = await fetch_prices(conn, market)
-    except Exception:
-        return templates.TemplateResponse(request, "components/portfolio_tab.html", {
-            "request": request, "pairs": [], "tickers": [], "n_coint": 0, "total": 0,
-        })
-
-    tickers = sorted(prices_df["ticker"].unique().tolist()) if not prices_df.empty else []
-    top_pairs = pairs.head(6).to_dict(orient="records")
-    all_pairs = pairs.to_dict(orient="records")
-    n_coint = int(pairs["is_coint"].sum()) if not pairs.empty else 0
-
-    return templates.TemplateResponse(request, "components/portfolio_tab.html", {
-        "request": request, "market": market,
-        "top_pairs": top_pairs, "all_pairs": all_pairs,
-        "tickers": tickers, "n_coint": n_coint, "total": len(all_pairs),
-    })
 
 
 @router.get("/scanner/corrbreak/check", response_class=HTMLResponse)
@@ -757,15 +680,6 @@ async def check_corrbreak_pair(
                 "check_reason": "Не удалось загрузить проверку пары",
             },
         )
-
-
-@router.get("/scanners", response_class=HTMLResponse)
-async def tab_scanners(request: Request):
-    return templates.TemplateResponse(
-        request,
-        "components/scanners_tab.html",
-        {"request": request},
-    )
 
 
 @router.get("/scanner/{scanner_type}", response_class=HTMLResponse)

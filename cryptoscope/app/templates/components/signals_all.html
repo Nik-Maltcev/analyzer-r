@@ -328,7 +328,7 @@
                 </td>
                 <td>
                     <span class="badge {% if s.signal_type == 'short_a' %}badge-orange{% elif s.signal_type == 'long_a' %}badge-green{% else %}badge-gray{% endif %}">
-                        {% if s.signal_type == "wait" and s.risk_reason %}наблюдение{% else %}{{ s.signal_type }}{% endif %}
+                        {% if s.signal_type == 'short_a' %}Шорт A{% elif s.signal_type == 'long_a' %}Лонг A{% elif s.signal_type == "wait" and s.risk_reason %}наблюдение{% else %}Ждать{% endif %}
                     </span>
                 </td>
                 <td>
@@ -522,14 +522,18 @@
             .catch(() => setPlaceholder('—'));
     }
 
-    const calcBlocks = document.querySelectorAll('.calc-block');
-    calcBlocks.forEach(loadCalc);
+    document.querySelectorAll('.calc-block').forEach(loadCalc);
 
-    // Recalc all cards when global calc settings change
+    // Recalc all cards when global calc settings change.
+    // This script re-runs on every #signals-content swap while the calc
+    // inputs live outside of it — bind only once and re-query live blocks.
     ['calc-capital', 'calc-leverage', 'calc-taker', 'calc-funding'].forEach(id => {
         const el = document.getElementById(id);
-        if (!el) return;
-        el.addEventListener('change', () => calcBlocks.forEach(loadCalc));
+        if (!el || el.dataset.calcRecalcBound === '1') return;
+        el.dataset.calcRecalcBound = '1';
+        el.addEventListener('change', () => {
+            document.querySelectorAll('.calc-block').forEach(loadCalc);
+        });
     });
 
     /* ---------- Dashboard banner: best signal + WS status ---------- */
@@ -557,11 +561,12 @@
             }
         }
 
-        // Live WS status dot
+        // Live status dot: one-shot check on load. Continuous polling already
+        // happens globally in base.html (navbar indicator), so no setInterval
+        // here — it would leak on every #signals-content swap.
         const dot = document.getElementById('live-dot');
         const wsStatusEl = document.getElementById('ws-status');
-        function updateWsStatus() {
-            if (!dot || !wsStatusEl) return;
+        if (dot && wsStatusEl) {
             fetch('/api/favorites/live-status').then(r => r.json()).then(d => {
                 const ok = d && (d.connected === true || d.status === 'ok' || d.status === 'connected');
                 dot.classList.toggle('live', ok);
@@ -571,8 +576,6 @@
                 wsStatusEl.textContent = 'Статус цен MEXC недоступен';
             });
         }
-        updateWsStatus();
-        setInterval(updateWsStatus, 10000);
     })();
 })();
 </script>

@@ -270,17 +270,6 @@ async def app_page(
     })
 
 
-@app.get("/onboarding", response_class=HTMLResponse)
-async def onboarding(request: Request):
-    """Onboarding wizard page."""
-    user = await get_current_user(request)
-    return templates.TemplateResponse(request, "onboarding.html", {
-        "request": request,
-        "settings": settings,
-        "access": (await get_access_state(user)).as_dict(),
-    })
-
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host=settings.host, port=settings.port)
