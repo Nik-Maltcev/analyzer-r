@@ -16,7 +16,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.api.public_extension import refresh_extension_feed_snapshots
 from app.core.crypto_v2 import sync_crypto_v2_journal
 from app.core.market_regime import sync_market_regime_snapshots
-from app.core.momentum_portfolio import sync_momentum_portfolio_journal
 from app.core.scanner_history import sync_all_scanner_states
 from app.data.brazil import fetch_brazil_prices, upsert_brazil_prices
 from app.data.indonesia import fetch_indonesia_prices, upsert_indonesia_prices
@@ -293,14 +292,6 @@ def main() -> int:
         return 1
 
     if "crypto" in ENABLED_MARKETS:
-        try:
-            portfolio_result = asyncio.run(
-                sync_momentum_portfolio_journal(DB_PATH)
-            )
-            print(f"Momentum portfolio journal: {portfolio_result}")
-        except Exception as exc:
-            print(f"Momentum portfolio journal update failed: {exc}")
-            return 1
         try:
             crypto_v2_result = asyncio.run(sync_crypto_v2_journal(DB_PATH))
             print(f"Crypto V2 journal: {crypto_v2_result}")

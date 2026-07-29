@@ -1971,41 +1971,6 @@ h3,
     background: var(--green);
 }
 
-.nav-tab:has(.momentum-nav-signal.is-active) {
-    color: var(--text-bright);
-    background: rgba(67, 211, 164, 0.07);
-}
-
-.momentum-nav-signal {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 3px 6px;
-    color: var(--green);
-    background: rgba(67, 211, 164, 0.09);
-    border: 1px solid rgba(67, 211, 164, 0.38);
-    border-radius: 3px;
-    font-family: var(--font-mono);
-    font-size: 9px;
-    font-weight: 600;
-    line-height: 1;
-    pointer-events: none;
-    white-space: nowrap;
-}
-
-.momentum-nav-signal[hidden] {
-    display: none;
-}
-
-.momentum-nav-signal-dot {
-    width: 6px;
-    height: 6px;
-    flex: 0 0 6px;
-    background: var(--green);
-    border-radius: 50%;
-    box-shadow: 0 0 0 3px rgba(67, 211, 164, 0.12);
-}
-
 .tab-icon,
 .mode-btn svg,
 .page-title-icon,
@@ -3466,24 +3431,6 @@ html[data-view-mode='beginner'] .signals-page {
 
     .navbar-tabs.has-admin-tab {
         grid-template-columns: repeat(6, 1fr);
-    }
-
-    .momentum-nav-signal {
-        position: absolute;
-        top: 8px;
-        right: calc(50% - 15px);
-        width: 7px;
-        height: 7px;
-        padding: 0;
-        background: var(--green);
-        border: 0;
-        border-radius: 50%;
-        box-shadow: 0 0 0 3px rgba(67, 211, 164, 0.14);
-    }
-
-    .momentum-nav-signal-dot,
-    .momentum-nav-signal-text {
-        display: none;
     }
 
     .navbar-end {
