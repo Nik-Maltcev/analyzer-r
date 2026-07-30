@@ -1,5 +1,7 @@
 """Crypto Alpha Command Center routes."""
 
+import asyncio
+import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -7,11 +9,13 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
 from app.access import is_admin_user
+from app.core.scanner_history import sync_all_scanner_states
 from app.core.market_regime import (
     expire_alpha_trade_journal,
     fetch_market_regime_report,
     sync_market_regime_snapshots,
 )
+from app.data.mexc import refresh_mexc_crypto_market
 from app.data.mexc_market import (
     get_crypto_live_snapshot,
     refresh_crypto_live_prices,
@@ -23,6 +27,33 @@ from app.ui.templates import templates
 
 router = APIRouter(tags=["market-regime"])
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+_ALPHA_REFRESH_LOCK = asyncio.Lock()
+
+
+async def _refresh_alpha_inputs() -> dict:
+    """Refresh completed crypto candles and scanner state before Alpha."""
+    async with _ALPHA_REFRESH_LOCK:
+        conn = sqlite3.connect(database.DB_PATH, timeout=60)
+        try:
+            market_result = await refresh_mexc_crypto_market(
+                conn,
+                CRYPTO_TICKERS,
+            )
+        finally:
+            conn.close()
+
+        await sync_all_scanner_states(
+            database.DB_PATH,
+            ("crypto",),
+        )
+        regime_result = await sync_market_regime_snapshots(
+            database.DB_PATH,
+        )
+        regime_result["market_latest_data_date"] = market_result.get(
+            "latest_date"
+        )
+        regime_result["market_tickers"] = market_result.get("tickers")
+        return regime_result
 
 
 async def _alpha_live_context(
@@ -65,9 +96,7 @@ async def market_regime_tab(
         raise HTTPException(status_code=404, detail="Not found")
     if refresh:
         try:
-            refresh_result = await sync_market_regime_snapshots(
-                database.DB_PATH,
-            )
+            refresh_result = await _refresh_alpha_inputs()
         except Exception as exc:
             refresh_error = (
                 "Не удалось пересчитать режим рынка. "

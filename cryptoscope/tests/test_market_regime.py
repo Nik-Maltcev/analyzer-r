@@ -320,6 +320,10 @@ async def test_report_loads_fresh_trade_plan_from_persisted_scanner_periods():
         await conn.commit()
 
         report = await fetch_market_regime_report(conn)
+        expected_daily_lag_report = await fetch_market_regime_report(
+            conn,
+            evaluation_date="2026-07-29",
+        )
         expired_report = await fetch_market_regime_report(
             conn,
             evaluation_date="2026-08-05",
@@ -328,6 +332,8 @@ async def test_report_loads_fresh_trade_plan_from_persisted_scanner_periods():
     assert report["trade_plan"]["count"] == 1
     assert report["trade_plan"]["candidates"][0]["ticker"] == "ETH/USD"
     assert report["trade_plan"]["candidates"][0]["current_price_label"] == "$3 200.00"
+    assert expected_daily_lag_report["is_stale"] is False
+    assert expected_daily_lag_report["stale_days"] == 1
     assert expired_report["trade_plan"]["count"] == 0
     assert expired_report["trade_plan"]["expired_count"] == 1
     assert expired_report["is_stale"] is True

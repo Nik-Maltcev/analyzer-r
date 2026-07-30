@@ -1500,6 +1500,8 @@ async def fetch_market_regime_report(
         "history_json": json.dumps(history, ensure_ascii=False),
         "is_ready": latest is not None,
         "evaluation_date": evaluated_on.isoformat(),
-        "is_stale": stale_days > 0,
+        # Completed UTC daily candles normally trail the Moscow calendar by
+        # one day. Only a larger gap means the Alpha snapshot is stale.
+        "is_stale": stale_days > 1,
         "stale_days": stale_days,
     }
