@@ -223,7 +223,7 @@
                     </span>
                     <span>
                         <strong>{{ trade.current_price_label }}</strong>
-                        <small>расчёт {{ trade.last_seen_on_label }}</small>
+                        <small>{{ trade.current_price_source_label }}</small>
                     </span>
                     <span>
                         <strong class="{{ 'positive' if trade.cash_result >= 0 else 'negative' }}">

@@ -403,6 +403,40 @@ async def test_alpha_journal_freezes_entries_and_closed_results():
             ("ETH/USD", 10.0, 10.0),
             ("SOL/USD", 10.0, 10.0),
         ]
+        live_stats = await fetch_alpha_statistics(
+            conn,
+            live_prices={
+                "ETH/USD": 120.0,
+                "SOL/USD": 160.0,
+            },
+            live_price_source_label="live MEXC · 29.07 12:00",
+        )
+        assert live_stats["summary"]["active_cash"] == 40.0
+        assert live_stats["has_live_prices"] is True
+        assert {
+            row["current_price_source_label"]
+            for row in live_stats["active_trades"]
+        } == {"live MEXC · 29.07 12:00"}
+
+        same_snapshot = await sync_alpha_trade_journal(
+            conn,
+            {"data_date": "2026-07-29", "dominant_regime": "range"},
+            {"candidates": []},
+        )
+        assert same_snapshot["closed"] == 0
+        assert same_snapshot["active"] == 2
+        cursor = await conn.execute(
+            """
+            SELECT ticker, status, last_price
+            FROM alpha_trade_journal
+            ORDER BY ticker
+            """
+        )
+        persisted = [dict(row) for row in await cursor.fetchall()]
+        assert persisted == [
+            {"ticker": "ETH/USD", "status": "active", "last_price": 110.0},
+            {"ticker": "SOL/USD", "status": "active", "last_price": 180.0},
+        ]
 
         await sync_alpha_trade_journal(
             conn,
@@ -466,6 +500,20 @@ async def test_alpha_statistics_include_only_high_confidence_trades():
                 (CALCULATION_VERSION, "SOL/USD", "Средняя"),
             ],
         )
+        await conn.execute(
+            """
+            INSERT INTO alpha_trade_journal (
+                calculation_version, ticker, direction, scanner, confidence,
+                regime, opened_on, entry_price, signal_age_at_entry,
+                last_seen_on, last_price, closed_on, exit_price, exit_reason,
+                return_pct, cash_result, stake, status
+            ) VALUES (?, 'STX/USD', 'short', 'Momentum', 'Высокая', 'range',
+                      '2026-07-28', 0.1326, 1, '2026-07-28', 0.1326,
+                      '2026-07-28', 0.1326, 'signal_or_regime_filter',
+                      0.0, 0.0, 100.0, 'closed')
+            """,
+            (CALCULATION_VERSION,),
+        )
         await conn.commit()
 
         statistics = await fetch_alpha_statistics(conn)
@@ -476,3 +524,4 @@ async def test_alpha_statistics_include_only_high_confidence_trades():
     assert [row["ticker"] for row in statistics["active_trades"]] == [
         "ETH/USD"
     ]
+    assert statistics["history"] == []

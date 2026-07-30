@@ -576,6 +576,7 @@ async def sync_alpha_trade_journal(
     opened = 0
     closed = 0
     updated = 0
+    deferred_tickers: set[str] = set()
     for ticker, active in active_by_ticker.items():
         candidate = candidates.get(ticker)
         same_direction = (
@@ -612,6 +613,13 @@ async def sync_alpha_trade_journal(
                 ),
             )
             updated += 1
+            continue
+
+        # A repeated run for the same completed market snapshot must not close
+        # and reopen a forward position at the exact same price. Wait until a
+        # newer daily candle can provide a genuine exit observation.
+        if data_date <= str(active.get("last_seen_on") or ""):
+            deferred_tickers.add(ticker)
             continue
 
         if current_price <= 0:
@@ -662,6 +670,8 @@ async def sync_alpha_trade_journal(
         closed += 1
 
     for ticker, candidate in candidates.items():
+        if ticker in deferred_tickers:
+            continue
         active = active_by_ticker.get(ticker)
         if active and candidate.get("direction") == active["direction"]:
             continue
@@ -710,7 +720,7 @@ async def sync_alpha_trade_journal(
         "opened": opened,
         "closed": closed,
         "updated": updated,
-        "active": len(candidates),
+        "active": len(set(candidates) | deferred_tickers),
         "data_date": data_date,
     }
 
@@ -811,6 +821,10 @@ def _alpha_trade_row(row: dict[str, Any]) -> dict[str, Any]:
         "last_seen_on_label": _format_alpha_date(row.get("last_seen_on")),
         "current_price": current_price,
         "current_price_label": _format_trade_plan_price(current_price),
+        "current_price_source_label": str(
+            row.get("_current_price_source_label")
+            or f"расчёт {_format_alpha_date(row.get('last_seen_on'))}"
+        ),
         "closed_on": row.get("closed_on"),
         "closed_on_label": _format_alpha_date(row.get("closed_on")),
         "result_pct": round(result_pct, 2),
@@ -825,6 +839,8 @@ def _alpha_trade_row(row: dict[str, Any]) -> dict[str, Any]:
 async def fetch_alpha_statistics(
     conn,
     as_of_date: str | None = None,
+    live_prices: dict[str, Any] | None = None,
+    live_price_source_label: str | None = None,
 ) -> dict[str, Any]:
     await ensure_market_regime_schema(conn)
     cursor = await conn.execute(
@@ -833,12 +849,37 @@ async def fetch_alpha_statistics(
         FROM alpha_trade_journal
         WHERE calculation_version = ?
           AND confidence IN ('Высокая', 'high')
+          AND NOT (
+              status = 'closed'
+              AND closed_on = opened_on
+              AND exit_reason = 'signal_or_regime_filter'
+              AND ABS(COALESCE(exit_price, 0) - entry_price) < 0.000000000001
+          )
         ORDER BY opened_on, id
         """,
         (CALCULATION_VERSION,),
     )
     rows = [dict(row) for row in await cursor.fetchall()]
-    summary = _alpha_stats_row("all", "Все идеи", rows)
+    display_rows = [row.copy() for row in rows]
+    normalized_live_prices = {
+        str(ticker).upper(): _finite(price, 0.0)
+        for ticker, price in (live_prices or {}).items()
+    }
+    for row in display_rows:
+        if row["status"] != "active":
+            continue
+        live_price = normalized_live_prices.get(
+            str(row.get("ticker") or "").upper(),
+            0.0,
+        )
+        if live_price <= 0:
+            continue
+        row["last_price"] = live_price
+        row["_current_price_source_label"] = (
+            live_price_source_label or "live MEXC"
+        )
+
+    summary = _alpha_stats_row("all", "Все идеи", display_rows)
     summary["opened"] = len(rows)
     summary["started_on"] = rows[0]["opened_on"] if rows else None
     summary["stake"] = ALPHA_TRADE_STAKE
@@ -847,17 +888,21 @@ async def fetch_alpha_statistics(
         _alpha_stats_row(
             direction,
             "LONG" if direction == "long" else "SHORT",
-            [row for row in rows if row["direction"] == direction],
+            [row for row in display_rows if row["direction"] == direction],
         )
         for direction in ("long", "short")
-        if any(row["direction"] == direction for row in rows)
+        if any(row["direction"] == direction for row in display_rows)
     ]
-    scanners = sorted({str(row["scanner"]) for row in rows if row["scanner"]})
+    scanners = sorted({
+        str(row["scanner"])
+        for row in display_rows
+        if row["scanner"]
+    })
     scanner_rows = [
         _alpha_stats_row(
             scanner.lower().replace(" ", "-"),
             scanner,
-            [row for row in rows if row["scanner"] == scanner],
+            [row for row in display_rows if row["scanner"] == scanner],
         )
         for scanner in scanners
     ]
@@ -869,7 +914,7 @@ async def fetch_alpha_statistics(
         )
     active_trades = [
         _alpha_trade_row(row)
-        for row in rows
+        for row in display_rows
         if row["status"] == "active"
     ]
     closed_rows = sorted(
@@ -895,6 +940,10 @@ async def fetch_alpha_statistics(
         "active_trades": active_trades,
         "closed_today": closed_today,
         "history": history,
+        "has_live_prices": any(
+            "_current_price_source_label" in row
+            for row in display_rows
+        ),
     }
 
 
@@ -1237,7 +1286,12 @@ def _display_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     return snapshot
 
 
-async def fetch_market_regime_report(conn, history_limit: int = 30) -> dict[str, Any]:
+async def fetch_market_regime_report(
+    conn,
+    history_limit: int = 30,
+    live_prices: dict[str, Any] | None = None,
+    live_price_source_label: str | None = None,
+) -> dict[str, Any]:
     await ensure_market_regime_schema(conn)
     cursor = await conn.execute(
         """
@@ -1280,6 +1334,8 @@ async def fetch_market_regime_report(conn, history_limit: int = 30) -> dict[str,
     statistics = await fetch_alpha_statistics(
         conn,
         latest["data_date"] if latest else None,
+        live_prices=live_prices,
+        live_price_source_label=live_price_source_label,
     )
 
     history = [
