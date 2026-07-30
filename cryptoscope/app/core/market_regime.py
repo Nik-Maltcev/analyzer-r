@@ -525,6 +525,111 @@ def _alpha_return_pct(
     return round(raw_return if direction == "long" else -raw_return, 6)
 
 
+def _alpha_scanner_horizon(scanner: Any) -> int | None:
+    normalized = str(scanner or "").strip().lower()
+    horizons = []
+    if "momentum" in normalized:
+        horizons.append(TRADE_PLAN_HORIZONS["momentum"])
+    if "drawdown" in normalized or "просад" in normalized:
+        horizons.append(TRADE_PLAN_HORIZONS["drawdown"])
+    return min(horizons) if horizons else None
+
+
+def _alpha_planned_close_date(row: dict[str, Any]) -> date | None:
+    try:
+        opened_on = date.fromisoformat(str(row.get("opened_on") or "")[:10])
+    except ValueError:
+        return None
+    horizon = _alpha_scanner_horizon(row.get("scanner"))
+    if horizon is None:
+        return None
+    age_at_entry = max(1, int(row.get("signal_age_at_entry") or 1))
+    remaining_days = max(0, horizon - age_at_entry)
+    return opened_on + timedelta(days=remaining_days)
+
+
+async def expire_alpha_trade_journal(
+    conn,
+    *,
+    as_of_date: str,
+    live_prices: dict[str, Any],
+) -> dict[str, Any]:
+    """Close calendar-expired Alpha positions at an observed live price."""
+    await ensure_market_regime_schema(conn)
+    evaluation_date = date.fromisoformat(str(as_of_date)[:10])
+    cursor = await conn.execute(
+        """
+        SELECT *
+        FROM alpha_trade_journal
+        WHERE calculation_version = ?
+          AND status = 'active'
+        ORDER BY id
+        """,
+        (CALCULATION_VERSION,),
+    )
+    active_rows = [dict(row) for row in await cursor.fetchall()]
+    normalized_prices = {
+        str(ticker).upper(): _finite(price, 0.0)
+        for ticker, price in (live_prices or {}).items()
+    }
+
+    closed = 0
+    skipped: list[str] = []
+    for row in active_rows:
+        planned_close = _alpha_planned_close_date(row)
+        if planned_close is None or planned_close > evaluation_date:
+            continue
+        ticker = str(row.get("ticker") or "").upper()
+        exit_price = normalized_prices.get(ticker, 0.0)
+        if exit_price <= 0:
+            skipped.append(ticker)
+            continue
+        return_pct = _alpha_return_pct(
+            row.get("entry_price"),
+            exit_price,
+            str(row.get("direction") or ""),
+        )
+        cash_result = round(
+            _finite(row.get("stake"), ALPHA_TRADE_STAKE)
+            * return_pct
+            / 100.0,
+            6,
+        )
+        await conn.execute(
+            """
+            UPDATE alpha_trade_journal
+            SET status = 'closed',
+                last_seen_on = ?,
+                last_price = ?,
+                closed_on = ?,
+                exit_price = ?,
+                exit_reason = 'horizon_reached',
+                return_pct = ?,
+                cash_result = ?,
+                updated_at = datetime('now')
+            WHERE id = ?
+              AND status = 'active'
+            """,
+            (
+                evaluation_date.isoformat(),
+                exit_price,
+                evaluation_date.isoformat(),
+                exit_price,
+                return_pct,
+                cash_result,
+                row["id"],
+            ),
+        )
+        closed += 1
+
+    await conn.commit()
+    return {
+        "closed": closed,
+        "skipped": skipped,
+        "as_of_date": evaluation_date.isoformat(),
+    }
+
+
 async def sync_alpha_trade_journal(
     conn,
     latest: dict[str, Any],
@@ -1291,6 +1396,7 @@ async def fetch_market_regime_report(
     history_limit: int = 30,
     live_prices: dict[str, Any] | None = None,
     live_price_source_label: str | None = None,
+    evaluation_date: str | None = None,
 ) -> dict[str, Any]:
     await ensure_market_regime_schema(conn)
     cursor = await conn.execute(
@@ -1331,6 +1437,43 @@ async def fetch_market_regime_report(
             latest["data_date"],
         )
         trade_plan = build_regime_trade_plan(latest, periods)
+    evaluated_on = date.fromisoformat(
+        str(evaluation_date or (latest or {}).get("data_date") or date.today())[:10]
+    )
+    expired_candidates = []
+    fresh_candidates = []
+    for candidate in trade_plan.get("candidates", []):
+        raw_close_date = str(candidate.get("planned_close_date") or "")
+        try:
+            planned_close = date.fromisoformat(raw_close_date[:10])
+        except ValueError:
+            fresh_candidates.append(candidate)
+            continue
+        if planned_close <= evaluated_on:
+            expired_candidates.append(candidate)
+        else:
+            fresh_candidates.append(candidate)
+    if expired_candidates:
+        trade_plan["candidates"] = fresh_candidates
+        trade_plan["count"] = len(fresh_candidates)
+        trade_plan["expired_count"] = len(expired_candidates)
+        if not fresh_candidates:
+            trade_plan["empty_reason"] = (
+                "Просроченные рекомендации скрыты. Нужен свежий расчёт рынка."
+            )
+    else:
+        trade_plan["expired_count"] = 0
+
+    latest_date = (
+        date.fromisoformat(str(latest["data_date"])[:10])
+        if latest
+        else None
+    )
+    stale_days = (
+        max(0, (evaluated_on - latest_date).days)
+        if latest_date is not None
+        else 0
+    )
     statistics = await fetch_alpha_statistics(
         conn,
         latest["data_date"] if latest else None,
@@ -1356,4 +1499,7 @@ async def fetch_market_regime_report(
         "history": history,
         "history_json": json.dumps(history, ensure_ascii=False),
         "is_ready": latest is not None,
+        "evaluation_date": evaluated_on.isoformat(),
+        "is_stale": stale_days > 0,
+        "stale_days": stale_days,
     }

@@ -31,6 +31,14 @@
     </div>
     {% endif %}
 
+    {% if report.is_stale %}
+    <div class="crypto-refresh-message is-error">
+        Данные Alpha отстают на {{ report.stale_days }} дн.
+        Просроченные торговые действия скрыты. Нажмите «Пересчитать»,
+        чтобы получить свежий план.
+    </div>
+    {% endif %}
+
     {% if latest %}
     <section class="alpha-regime-band is-{{ latest.dominant_regime }}">
         <div class="alpha-regime-primary">

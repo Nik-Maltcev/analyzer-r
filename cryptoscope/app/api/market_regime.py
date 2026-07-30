@@ -1,5 +1,6 @@
 """Crypto Alpha Command Center routes."""
 
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -7,6 +8,7 @@ from fastapi.responses import HTMLResponse
 
 from app.access import is_admin_user
 from app.core.market_regime import (
+    expire_alpha_trade_journal,
     fetch_market_regime_report,
     sync_market_regime_snapshots,
 )
@@ -85,11 +87,21 @@ async def market_regime_tab(
                 "Активные позиции показаны по последней дневной цене."
             )
 
+    evaluation_date = datetime.now(MOSCOW_TZ).date().isoformat()
     async with get_connection() as conn:
+        expiration_result = await expire_alpha_trade_journal(
+            conn,
+            as_of_date=evaluation_date,
+            live_prices=live_prices,
+        )
+        if refresh_result is not None:
+            refresh_result["alpha_expired"] = expiration_result["closed"]
+            refresh_result["alpha_expiration_skipped"] = expiration_result["skipped"]
         report = await fetch_market_regime_report(
             conn,
             live_prices=live_prices,
             live_price_source_label=live_price_source_label,
+            evaluation_date=evaluation_date,
         )
 
     return templates.TemplateResponse(
@@ -110,11 +122,18 @@ async def market_regime_api():
     live_prices, live_price_source_label = await _alpha_live_context(
         force_refresh=False,
     )
+    evaluation_date = datetime.now(MOSCOW_TZ).date().isoformat()
     async with get_connection() as conn:
+        await expire_alpha_trade_journal(
+            conn,
+            as_of_date=evaluation_date,
+            live_prices=live_prices,
+        )
         report = await fetch_market_regime_report(
             conn,
             live_prices=live_prices,
             live_price_source_label=live_price_source_label,
+            evaluation_date=evaluation_date,
         )
     if not report["is_ready"]:
         raise HTTPException(

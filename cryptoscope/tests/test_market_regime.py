@@ -10,6 +10,7 @@ from app.core.market_regime import (
     REGIME_ORDER,
     build_market_regime_history,
     build_regime_trade_plan,
+    expire_alpha_trade_journal,
     fetch_alpha_statistics,
     fetch_market_regime_report,
     sync_alpha_trade_journal,
@@ -319,10 +320,18 @@ async def test_report_loads_fresh_trade_plan_from_persisted_scanner_periods():
         await conn.commit()
 
         report = await fetch_market_regime_report(conn)
+        expired_report = await fetch_market_regime_report(
+            conn,
+            evaluation_date="2026-08-05",
+        )
 
     assert report["trade_plan"]["count"] == 1
     assert report["trade_plan"]["candidates"][0]["ticker"] == "ETH/USD"
     assert report["trade_plan"]["candidates"][0]["current_price_label"] == "$3 200.00"
+    assert expired_report["trade_plan"]["count"] == 0
+    assert expired_report["trade_plan"]["expired_count"] == 1
+    assert expired_report["is_stale"] is True
+    assert expired_report["stale_days"] == 8
 
 
 @pytest.mark.asyncio
@@ -525,3 +534,49 @@ async def test_alpha_statistics_include_only_high_confidence_trades():
         "ETH/USD"
     ]
     assert statistics["history"] == []
+
+
+@pytest.mark.asyncio
+async def test_alpha_calendar_expiry_uses_observed_live_price():
+    async with aiosqlite.connect(":memory:") as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute(CREATE_ALPHA_TRADE_JOURNAL)
+        await conn.execute(
+            """
+            INSERT INTO alpha_trade_journal (
+                calculation_version, ticker, direction, scanner, confidence,
+                regime, opened_on, entry_price, signal_age_at_entry,
+                last_seen_on, last_price, stake, status
+            ) VALUES (?, 'WLD/USD', 'short', 'Momentum', 'Высокая', 'range',
+                      '2026-07-28', 100.0, 4, '2026-07-28', 100.0,
+                      100.0, 'active')
+            """,
+            (CALCULATION_VERSION,),
+        )
+        await conn.commit()
+
+        result = await expire_alpha_trade_journal(
+            conn,
+            as_of_date="2026-07-30",
+            live_prices={"WLD/USD": 80.0},
+        )
+        cursor = await conn.execute(
+            """
+            SELECT status, closed_on, exit_price, exit_reason,
+                   return_pct, cash_result
+            FROM alpha_trade_journal
+            WHERE ticker = 'WLD/USD'
+            """
+        )
+        closed = dict(await cursor.fetchone())
+
+    assert result["closed"] == 1
+    assert result["skipped"] == []
+    assert closed == {
+        "status": "closed",
+        "closed_on": "2026-07-30",
+        "exit_price": 80.0,
+        "exit_reason": "horizon_reached",
+        "return_pct": 20.0,
+        "cash_result": 20.0,
+    }
