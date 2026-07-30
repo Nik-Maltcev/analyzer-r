@@ -4499,6 +4499,7 @@ html[data-view-mode='beginner'] .signals-page {
 .alpha-probability-band,
 .alpha-strategy-band,
 .alpha-trade-plan,
+.alpha-lifecycle,
 .alpha-statistics,
 .alpha-metrics-panel,
 .alpha-history-panel,
@@ -4510,6 +4511,7 @@ html[data-view-mode='beginner'] .signals-page {
 .alpha-probability-band > header,
 .alpha-strategy-band > header,
 .alpha-trade-plan > header,
+.alpha-lifecycle > header,
 .alpha-statistics > header,
 .alpha-warning-band > header,
 .alpha-metrics-panel > header,
@@ -4521,6 +4523,7 @@ html[data-view-mode='beginner'] .signals-page {
 .alpha-probability-band h3,
 .alpha-strategy-band h3,
 .alpha-trade-plan h3,
+.alpha-lifecycle h3,
 .alpha-statistics h3,
 .alpha-warning-band h3,
 .alpha-metrics-panel h3,
@@ -4532,6 +4535,7 @@ html[data-view-mode='beginner'] .signals-page {
 .alpha-probability-band header > span,
 .alpha-strategy-band header > span,
 .alpha-trade-plan header > span,
+.alpha-lifecycle header > span,
 .alpha-statistics header > span,
 .alpha-warning-band header > span {
     color: var(--text-muted);
@@ -4743,6 +4747,127 @@ html[data-view-mode='beginner'] .signals-page {
     font-size: 10px;
     line-height: 1.45;
     padding: 10px 16px;
+}
+
+.alpha-lifecycle > header {
+    align-items: flex-end;
+    display: flex;
+    justify-content: space-between;
+}
+
+.alpha-lifecycle-group {
+    border-bottom: 1px solid var(--border);
+}
+
+.alpha-lifecycle-group:last-child {
+    border-bottom: 0;
+}
+
+.alpha-lifecycle-group > header {
+    align-items: center;
+    background: rgba(128, 145, 155, 0.025);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    min-height: 42px;
+    padding: 9px 16px;
+}
+
+.alpha-lifecycle-group > header > div {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+}
+
+.alpha-lifecycle-group > header svg {
+    color: var(--green);
+    height: 15px;
+    width: 15px;
+}
+
+.alpha-lifecycle-group.is-closing > header svg {
+    color: var(--red);
+}
+
+.alpha-lifecycle-group.is-history > header svg {
+    color: var(--text-secondary);
+}
+
+.alpha-lifecycle-group > header strong {
+    font-size: 12px;
+}
+
+.alpha-lifecycle-group > header > span {
+    color: var(--text-muted);
+    font: 9px var(--font-mono);
+}
+
+.alpha-journal-table {
+    display: grid;
+}
+
+.alpha-journal-row {
+    align-items: stretch;
+    border-bottom: 1px solid var(--border);
+    border-left: 2px solid var(--green);
+    display: grid;
+    grid-template-columns: 0.75fr 0.85fr 1.1fr 1.25fr 0.85fr;
+    min-height: 62px;
+}
+
+.alpha-journal-row:last-child {
+    border-bottom: 0;
+}
+
+.alpha-journal-row.is-short {
+    border-left-color: var(--red);
+}
+
+.alpha-journal-row.is-head {
+    border-left-color: transparent;
+    color: var(--text-muted);
+    font: 9px var(--font-mono);
+    min-height: 32px;
+    text-transform: uppercase;
+}
+
+.alpha-journal-row > span {
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 9px 14px;
+}
+
+.alpha-journal-row > span:last-child {
+    border-right: 0;
+}
+
+.alpha-journal-row strong {
+    font: 12px var(--font-mono);
+    line-height: 1.35;
+}
+
+.alpha-journal-row small {
+    color: var(--text-muted);
+    font-size: 9px;
+    line-height: 1.35;
+    margin-top: 4px;
+}
+
+.alpha-journal-row .positive {
+    color: var(--green);
+}
+
+.alpha-journal-row .negative {
+    color: var(--red);
+}
+
+.alpha-lifecycle-empty {
+    color: var(--text-muted);
+    font-size: 11px;
+    min-height: 58px;
+    padding: 20px 16px;
 }
 
 .alpha-statistics > header {
@@ -5015,6 +5140,7 @@ html[data-view-mode='beginner'] .signals-page {
     .alpha-probability-band > header,
     .alpha-strategy-band > header,
     .alpha-trade-plan > header,
+    .alpha-lifecycle > header,
     .alpha-statistics > header,
     .alpha-warning-band > header {
         align-items: flex-start;
@@ -5097,6 +5223,44 @@ html[data-view-mode='beginner'] .signals-page {
     }
 
     .alpha-trade-reason {
+        border-bottom: 0;
+    }
+
+    .alpha-journal-table {
+        gap: 8px;
+        padding: 8px;
+    }
+
+    .alpha-journal-row {
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--green);
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .alpha-journal-row.is-short {
+        border-left-color: var(--red);
+    }
+
+    .alpha-journal-row.is-head {
+        display: none;
+    }
+
+    .alpha-journal-row > span {
+        border-bottom: 1px solid var(--border);
+    }
+
+    .alpha-journal-row > span:nth-child(3),
+    .alpha-journal-row > span:nth-child(5) {
+        border-right: 0;
+    }
+
+    .alpha-journal-row > span:first-child,
+    .alpha-journal-row > span:last-child {
+        border-right: 0;
+        grid-column: 1 / -1;
+    }
+
+    .alpha-journal-row > span:last-child {
         border-bottom: 0;
     }
 

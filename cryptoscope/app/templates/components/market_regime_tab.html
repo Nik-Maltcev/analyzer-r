@@ -181,6 +181,169 @@
         </footer>
     </section>
 
+    <section class="alpha-lifecycle">
+        <header>
+            <div>
+                <span class="section-kicker">ЖУРНАЛ ALPHA</span>
+                <h3>Состояние сигналов</h3>
+            </div>
+            <span>срез на {{ report.statistics.as_of_date_label }}</span>
+        </header>
+
+        <div class="alpha-lifecycle-group is-active">
+            <header>
+                <div>
+                    <i data-lucide="activity"></i>
+                    <strong>Активные сигналы</strong>
+                </div>
+                <span>{{ report.statistics.active_trades|length }} в работе</span>
+            </header>
+            {% if report.statistics.active_trades %}
+            <div class="alpha-journal-table">
+                <div class="alpha-journal-row is-head">
+                    <span>Монета</span>
+                    <span>Сигнал</span>
+                    <span>Вход</span>
+                    <span>Сейчас</span>
+                    <span>Текущий результат</span>
+                </div>
+                {% for trade in report.statistics.active_trades %}
+                <div class="alpha-journal-row {{ 'is-short' if trade.direction == 'short' else 'is-long' }}">
+                    <span>
+                        <strong>{{ trade.symbol }}</strong>
+                        <small>{{ trade.ticker }}</small>
+                    </span>
+                    <span>
+                        <strong>{{ trade.direction_label }}</strong>
+                        <small>{{ trade.scanner }} · {{ trade.confidence }}</small>
+                    </span>
+                    <span>
+                        <strong>{{ trade.entry_price_label }}</strong>
+                        <small>{{ trade.opened_on_label }}</small>
+                    </span>
+                    <span>
+                        <strong>{{ trade.current_price_label }}</strong>
+                        <small>расчёт {{ trade.last_seen_on_label }}</small>
+                    </span>
+                    <span>
+                        <strong class="{{ 'positive' if trade.cash_result >= 0 else 'negative' }}">
+                            {{ '%+.2f'|format(trade.result_pct) }}%
+                        </strong>
+                        <small class="{{ 'positive' if trade.cash_result >= 0 else 'negative' }}">
+                            {{ '%+.2f'|format(trade.cash_result) }} $ при ${{ trade.stake|int }}
+                        </small>
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="alpha-lifecycle-empty">Сейчас активных Alpha-сигналов нет.</div>
+            {% endif %}
+        </div>
+
+        <div class="alpha-lifecycle-group is-closing">
+            <header>
+                <div>
+                    <i data-lucide="circle-x"></i>
+                    <strong>Закрыть сегодня</strong>
+                </div>
+                <span>{{ report.statistics.closed_today|length }} завершено на расчёте</span>
+            </header>
+            {% if report.statistics.closed_today %}
+            <div class="alpha-journal-table">
+                <div class="alpha-journal-row is-head">
+                    <span>Монета</span>
+                    <span>Позиция</span>
+                    <span>Вход → выход</span>
+                    <span>Причина</span>
+                    <span>Итог</span>
+                </div>
+                {% for trade in report.statistics.closed_today %}
+                <div class="alpha-journal-row {{ 'is-short' if trade.direction == 'short' else 'is-long' }}">
+                    <span>
+                        <strong>{{ trade.symbol }}</strong>
+                        <small>{{ trade.ticker }}</small>
+                    </span>
+                    <span>
+                        <strong>{{ trade.direction_label }}</strong>
+                        <small>{{ trade.scanner }}</small>
+                    </span>
+                    <span>
+                        <strong>{{ trade.entry_price_label }} → {{ trade.current_price_label }}</strong>
+                        <small>{{ trade.opened_on_label }} → {{ trade.closed_on_label }}</small>
+                    </span>
+                    <span>
+                        <strong>{{ trade.exit_reason_label }}</strong>
+                        <small>результат зафиксирован</small>
+                    </span>
+                    <span>
+                        <strong class="{{ 'positive' if trade.cash_result >= 0 else 'negative' }}">
+                            {{ '%+.2f'|format(trade.result_pct) }}%
+                        </strong>
+                        <small class="{{ 'positive' if trade.cash_result >= 0 else 'negative' }}">
+                            {{ '%+.2f'|format(trade.cash_result) }} $
+                        </small>
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="alpha-lifecycle-empty">На последнем расчёте закрытий не было.</div>
+            {% endif %}
+        </div>
+
+        <div class="alpha-lifecycle-group is-history">
+            <header>
+                <div>
+                    <i data-lucide="history"></i>
+                    <strong>История Alpha</strong>
+                </div>
+                <span>{{ report.statistics.history|length }} закрытых сигналов</span>
+            </header>
+            {% if report.statistics.history %}
+            <div class="alpha-journal-table">
+                <div class="alpha-journal-row is-head">
+                    <span>Монета</span>
+                    <span>Сигнал</span>
+                    <span>Период</span>
+                    <span>Вход → выход</span>
+                    <span>Результат</span>
+                </div>
+                {% for trade in report.statistics.history %}
+                <div class="alpha-journal-row {{ 'is-short' if trade.direction == 'short' else 'is-long' }}">
+                    <span>
+                        <strong>{{ trade.symbol }}</strong>
+                        <small>{{ trade.ticker }}</small>
+                    </span>
+                    <span>
+                        <strong>{{ trade.direction_label }}</strong>
+                        <small>{{ trade.scanner }}</small>
+                    </span>
+                    <span>
+                        <strong>{{ trade.opened_on_label }} → {{ trade.closed_on_label }}</strong>
+                        <small>{{ trade.exit_reason_label }}</small>
+                    </span>
+                    <span>
+                        <strong>{{ trade.entry_price_label }} → {{ trade.current_price_label }}</strong>
+                        <small>$100 на сигнал</small>
+                    </span>
+                    <span>
+                        <strong class="{{ 'positive' if trade.cash_result >= 0 else 'negative' }}">
+                            {{ '%+.2f'|format(trade.result_pct) }}%
+                        </strong>
+                        <small class="{{ 'positive' if trade.cash_result >= 0 else 'negative' }}">
+                            {{ '%+.2f'|format(trade.cash_result) }} $
+                        </small>
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="alpha-lifecycle-empty">Закрытых Alpha-сигналов пока нет.</div>
+            {% endif %}
+        </div>
+    </section>
+
     <section class="alpha-statistics">
         <header>
             <div>

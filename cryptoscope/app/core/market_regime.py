@@ -750,7 +750,82 @@ def _alpha_stats_row(
     }
 
 
-async def fetch_alpha_statistics(conn) -> dict[str, Any]:
+def _format_alpha_date(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return "—"
+    try:
+        return date.fromisoformat(raw[:10]).strftime("%d.%m.%Y")
+    except ValueError:
+        return raw
+
+
+def _alpha_exit_reason_label(value: Any) -> str:
+    return {
+        "direction_changed": "Направление сигнала изменилось",
+        "signal_or_regime_filter": "Сигнал исчез или не прошёл фильтр режима",
+        "manual": "Закрыто вручную",
+        "horizon_reached": "Расчётный срок сигнала завершён",
+    }.get(str(value or ""), "Сигнал завершён по правилам Alpha")
+
+
+def _alpha_trade_row(row: dict[str, Any]) -> dict[str, Any]:
+    is_active = row.get("status") == "active"
+    current_price = (
+        _finite(row.get("last_price"), 0.0)
+        if is_active
+        else _finite(row.get("exit_price"), 0.0)
+    )
+    result_pct = (
+        _alpha_return_pct(
+            row.get("entry_price"),
+            current_price,
+            str(row.get("direction") or ""),
+        )
+        if is_active
+        else _finite(row.get("return_pct"), 0.0)
+    )
+    stake = _finite(row.get("stake"), ALPHA_TRADE_STAKE)
+    cash_result = (
+        round(stake * result_pct / 100.0, 2)
+        if is_active
+        else round(_finite(row.get("cash_result"), 0.0), 2)
+    )
+    direction = str(row.get("direction") or "")
+    ticker = str(row.get("ticker") or "")
+    return {
+        "id": row.get("id"),
+        "ticker": ticker,
+        "symbol": ticker.split("/")[0],
+        "direction": direction,
+        "direction_label": "LONG" if direction == "long" else "SHORT",
+        "action_label": "Купить" if direction == "long" else "Шорт",
+        "scanner": str(row.get("scanner") or "—"),
+        "confidence": str(row.get("confidence") or "—"),
+        "regime": str(row.get("regime") or "—"),
+        "opened_on": row.get("opened_on"),
+        "opened_on_label": _format_alpha_date(row.get("opened_on")),
+        "entry_price": _finite(row.get("entry_price"), 0.0),
+        "entry_price_label": _format_trade_plan_price(row.get("entry_price")),
+        "last_seen_on": row.get("last_seen_on"),
+        "last_seen_on_label": _format_alpha_date(row.get("last_seen_on")),
+        "current_price": current_price,
+        "current_price_label": _format_trade_plan_price(current_price),
+        "closed_on": row.get("closed_on"),
+        "closed_on_label": _format_alpha_date(row.get("closed_on")),
+        "result_pct": round(result_pct, 2),
+        "cash_result": cash_result,
+        "exit_reason": str(row.get("exit_reason") or ""),
+        "exit_reason_label": _alpha_exit_reason_label(row.get("exit_reason")),
+        "status": str(row.get("status") or ""),
+        "stake": round(stake, 2),
+    }
+
+
+async def fetch_alpha_statistics(
+    conn,
+    as_of_date: str | None = None,
+) -> dict[str, Any]:
     await ensure_market_regime_schema(conn)
     cursor = await conn.execute(
         """
@@ -786,11 +861,40 @@ async def fetch_alpha_statistics(conn) -> dict[str, Any]:
         )
         for scanner in scanners
     ]
+    effective_date = str(as_of_date or "").strip()
+    if not effective_date:
+        effective_date = max(
+            (str(row.get("last_seen_on") or "") for row in rows),
+            default="",
+        )
+    active_trades = [
+        _alpha_trade_row(row)
+        for row in rows
+        if row["status"] == "active"
+    ]
+    closed_rows = sorted(
+        (row for row in rows if row["status"] == "closed"),
+        key=lambda row: (
+            str(row.get("closed_on") or ""),
+            int(row.get("id") or 0),
+        ),
+        reverse=True,
+    )
+    history = [_alpha_trade_row(row) for row in closed_rows]
+    closed_today = [
+        row for row in history
+        if str(row.get("closed_on") or "") == effective_date
+    ]
     return {
         "is_ready": bool(rows),
         "summary": summary,
         "directions": direction_rows,
         "scanners": scanner_rows,
+        "as_of_date": effective_date or None,
+        "as_of_date_label": _format_alpha_date(effective_date),
+        "active_trades": active_trades,
+        "closed_today": closed_today,
+        "history": history,
     }
 
 
@@ -1173,7 +1277,10 @@ async def fetch_market_regime_report(conn, history_limit: int = 30) -> dict[str,
             latest["data_date"],
         )
         trade_plan = build_regime_trade_plan(latest, periods)
-    statistics = await fetch_alpha_statistics(conn)
+    statistics = await fetch_alpha_statistics(
+        conn,
+        latest["data_date"] if latest else None,
+    )
 
     history = [
         {

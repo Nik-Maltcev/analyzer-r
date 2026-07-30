@@ -394,6 +394,15 @@ async def test_alpha_journal_freezes_entries_and_closed_results():
         active_stats = await fetch_alpha_statistics(conn)
         assert active_stats["summary"]["active"] == 2
         assert active_stats["summary"]["active_cash"] == 20.0
+        assert active_stats["as_of_date"] == "2026-07-29"
+        assert active_stats["closed_today"] == []
+        assert [
+            (row["ticker"], row["result_pct"], row["cash_result"])
+            for row in active_stats["active_trades"]
+        ] == [
+            ("ETH/USD", 10.0, 10.0),
+            ("SOL/USD", 10.0, 10.0),
+        ]
 
         await sync_alpha_trade_journal(
             conn,
@@ -406,6 +415,25 @@ async def test_alpha_journal_freezes_entries_and_closed_results():
         assert closed_stats["summary"]["realized_cash"] == 10.0
         assert closed_stats["summary"]["active_cash"] == 0.0
         assert closed_stats["summary"]["total_cash"] == 10.0
+        assert closed_stats["as_of_date_label"] == "30.07.2026"
+        assert closed_stats["active_trades"] == []
+        assert len(closed_stats["closed_today"]) == 2
+        assert len(closed_stats["history"]) == 2
+        assert {
+            row["exit_reason_label"]
+            for row in closed_stats["closed_today"]
+        } == {"Сигнал исчез или не прошёл фильтр режима"}
+        eth_history = next(
+            row
+            for row in closed_stats["history"]
+            if row["ticker"] == "ETH/USD"
+        )
+        assert eth_history["opened_on_label"] == "28.07.2026"
+        assert eth_history["closed_on_label"] == "30.07.2026"
+        assert eth_history["entry_price_label"] == "$100"
+        assert eth_history["current_price_label"] == "$105"
+        assert eth_history["result_pct"] == 5.0
+        assert eth_history["cash_result"] == 5.0
 
         await conn.execute(
             """
@@ -445,3 +473,6 @@ async def test_alpha_statistics_include_only_high_confidence_trades():
     assert statistics["summary"]["opened"] == 1
     assert statistics["summary"]["active"] == 1
     assert statistics["summary"]["active_cash"] == 10.0
+    assert [row["ticker"] for row in statistics["active_trades"]] == [
+        "ETH/USD"
+    ]
