@@ -6,6 +6,7 @@ import pytest
 
 from app.data.mexc import (
     LEGACY_PROVIDER,
+    _is_completed_daily_candle,
     activate_mexc_prices,
     archive_legacy_crypto_prices,
     normalize_mexc_symbol,
@@ -52,6 +53,20 @@ def test_normalize_mexc_symbol_uses_usdt_spot_quote():
     assert normalize_mexc_symbol("BTC/USD") == "BTCUSDT"
     assert normalize_mexc_symbol("eth/usdt") == "ETHUSDT"
     assert normalize_mexc_symbol("BTC") is None
+
+
+def test_mexc_daily_candle_closing_at_midnight_is_completed():
+    today_midnight_ms = 1_785_456_000_000
+    previous_day_open_ms = today_midnight_ms - 86_400_000
+
+    assert _is_completed_daily_candle(
+        previous_day_open_ms,
+        today_midnight_ms,
+    )
+    assert not _is_completed_daily_candle(
+        today_midnight_ms,
+        today_midnight_ms,
+    )
 
 
 def test_mexc_activation_is_atomic_and_legacy_can_be_restored():

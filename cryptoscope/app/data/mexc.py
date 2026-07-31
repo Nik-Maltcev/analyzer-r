@@ -142,6 +142,14 @@ def _to_milliseconds(value: date) -> int:
     )
 
 
+def _is_completed_daily_candle(
+    open_ms: int,
+    completed_before_ms: int,
+) -> bool:
+    """Treat candles opened before today's UTC boundary as completed."""
+    return open_ms < completed_before_ms
+
+
 async def _fetch_symbol_klines(
     client: httpx.AsyncClient,
     semaphore: asyncio.Semaphore,
@@ -188,18 +196,20 @@ async def _fetch_symbol_klines(
 
         last_open_ms = cursor_ms
         for candle in payload:
-            if not isinstance(candle, list) or len(candle) < 7:
+            if not isinstance(candle, list) or len(candle) < 6:
                 continue
             try:
                 open_ms = int(candle[0])
                 close_price = float(candle[4])
                 volume = float(candle[5] or 0)
-                close_ms = int(candle[6])
             except (TypeError, ValueError):
                 continue
             last_open_ms = max(last_open_ms, open_ms)
             if (
-                close_ms >= completed_before_ms
+                not _is_completed_daily_candle(
+                    open_ms,
+                    completed_before_ms,
+                )
                 or not math.isfinite(close_price)
                 or close_price <= 0
             ):
@@ -570,6 +580,23 @@ async def refresh_mexc_crypto_market(
     prices, mapping, unavailable = await fetch_mexc_daily_prices(
         selected,
         start_dates,
+    )
+    fetched_tickers = (
+        int(prices["ticker"].nunique())
+        if not prices.empty
+        else 0
+    )
+    latest_date = (
+        str(prices["date"].max())
+        if not prices.empty
+        else "none"
+    )
+    print(
+        "[MEXC] Daily refresh: "
+        f"{len(prices)} rows, "
+        f"{fetched_tickers}/{len(selected)} tickers, "
+        f"latest={latest_date}, "
+        f"unsupported_or_failed={len(unavailable)}"
     )
     written = upsert_mexc_price_versions(conn, prices)
     activation = activate_mexc_prices(conn, selected)
