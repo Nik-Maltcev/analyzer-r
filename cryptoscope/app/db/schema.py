@@ -619,6 +619,64 @@ CREATE TABLE IF NOT EXISTS alpha_trade_journal (
 )
 """
 
+CREATE_REVERSAL_CANDLES = """
+CREATE TABLE IF NOT EXISTS reversal_candles (
+    ticker       TEXT NOT NULL,
+    open_time    INTEGER NOT NULL,
+    open          REAL NOT NULL,
+    high          REAL NOT NULL,
+    low           REAL NOT NULL,
+    close         REAL NOT NULL,
+    volume        REAL NOT NULL DEFAULT 0,
+    quote_volume  REAL NOT NULL DEFAULT 0,
+    provider      TEXT NOT NULL DEFAULT 'mexc',
+    imported_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (ticker, open_time)
+)
+"""
+
+CREATE_REVERSAL_RUNS = """
+CREATE TABLE IF NOT EXISTS reversal_runs (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_version TEXT NOT NULL,
+    status           TEXT NOT NULL,
+    started_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at     TEXT,
+    data_start       TEXT,
+    data_end         TEXT,
+    candle_count     INTEGER NOT NULL DEFAULT 0,
+    trade_count      INTEGER NOT NULL DEFAULT 0,
+    metrics_json     TEXT,
+    error            TEXT
+)
+"""
+
+CREATE_REVERSAL_TRADES = """
+CREATE TABLE IF NOT EXISTS reversal_trades (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id              INTEGER NOT NULL,
+    strategy_version    TEXT NOT NULL,
+    ticker              TEXT NOT NULL,
+    direction           TEXT NOT NULL,
+    shock_time          INTEGER NOT NULL,
+    shock_return_pct    REAL NOT NULL,
+    residual_return_pct REAL NOT NULL,
+    shock_z             REAL NOT NULL,
+    volume_ratio        REAL NOT NULL,
+    entry_time          INTEGER NOT NULL,
+    entry_price         REAL NOT NULL,
+    exit_time           INTEGER NOT NULL,
+    exit_price          REAL NOT NULL,
+    exit_reason         TEXT NOT NULL,
+    gross_return_pct    REAL NOT NULL,
+    cost_pct            REAL NOT NULL,
+    net_return_pct      REAL NOT NULL,
+    cash_result         REAL NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES reversal_runs(id),
+    UNIQUE (run_id, ticker, shock_time, direction)
+)
+"""
+
 ALPHA_TRADE_COLUMN_MIGRATIONS = {
     "episode_canonical": "INTEGER NOT NULL DEFAULT 1",
 }
@@ -699,6 +757,21 @@ CREATE_MARKET_REGIME_INDICES = [
     """,
 ]
 
+CREATE_REVERSAL_INDICES = [
+    """
+    CREATE INDEX IF NOT EXISTS idx_reversal_candles_ticker_time
+    ON reversal_candles(ticker, open_time)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_reversal_runs_latest
+    ON reversal_runs(status, completed_at DESC, id DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_reversal_trades_run_exit
+    ON reversal_trades(run_id, exit_time DESC)
+    """,
+]
+
 CREATE_CONTENT_PUBLICATION_INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_content_status ON content_publications(status, data_date)",
     "CREATE INDEX IF NOT EXISTS idx_content_ticker ON content_publications(market, ticker, created_at)",
@@ -741,6 +814,9 @@ ALL_TABLES_SQL = [
     CREATE_CRYPTO_V2_TRADES,
     CREATE_MARKET_REGIME_SNAPSHOTS,
     CREATE_ALPHA_TRADE_JOURNAL,
+    CREATE_REVERSAL_CANDLES,
+    CREATE_REVERSAL_RUNS,
+    CREATE_REVERSAL_TRADES,
 ]
 
 ALL_INDICES_SQL = (
@@ -754,4 +830,5 @@ ALL_INDICES_SQL = (
     + CREATE_MOMENTUM_PORTFOLIO_INDICES
     + CREATE_CRYPTO_V2_INDICES
     + CREATE_MARKET_REGIME_INDICES
+    + CREATE_REVERSAL_INDICES
 )

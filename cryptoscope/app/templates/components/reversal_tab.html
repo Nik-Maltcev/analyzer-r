@@ -1,0 +1,103 @@
+<section class="reversal-shell"
+         {% if report.running %}
+         hx-get="/tab/reversal" hx-trigger="every 4s" hx-target="this" hx-swap="outerHTML"
+         {% endif %}>
+    <header class="reversal-header">
+        <div>
+            <span class="section-kicker">ADMIN · RESEARCH</span>
+            <h2>Reversal Lab</h2>
+            <p>Проверка короткого возврата цены после резкого 5-минутного движения.</p>
+        </div>
+        <button class="btn btn-secondary" type="button"
+                hx-get="/tab/reversal?refresh=true"
+                hx-target="#main-content" hx-swap="innerHTML"
+                {% if report.running %}disabled{% endif %}>
+            <i data-lucide="refresh-cw"></i>
+            {% if report.running %}Собираем данные{% else %}Обновить расчёт{% endif %}
+        </button>
+    </header>
+
+    {% if report.running %}
+    <div class="reversal-notice is-running">
+        <strong>Идёт фоновый сбор MEXC</strong>
+        <span>Первый запуск может занять несколько минут. Сайт продолжает работать.</span>
+    </div>
+    {% endif %}
+
+    {% if report.latest and report.latest.status == 'failed' %}
+    <div class="reversal-notice is-error">
+        <strong>Последний расчёт не завершён</strong>
+        <span>{{ report.latest.error or 'Неизвестная ошибка' }}</span>
+    </div>
+    {% endif %}
+
+    {% if report.latest and report.latest.status == 'completed' %}
+    <div class="reversal-meta">
+        <span>Версия {{ report.latest.strategy_version }}</span>
+        <span>{{ report.latest.data_start }} — {{ report.latest.data_end }}</span>
+        <span>{{ report.latest.candle_count }} свечей</span>
+        <span>Расходы {{ '%.2f'|format(report.settings.cost_pct) }}% на сделку</span>
+    </div>
+
+    <section class="reversal-metrics" aria-label="Результаты теста">
+        <div><span>Сделок</span><strong>{{ report.metrics.trades or 0 }}</strong></div>
+        <div><span>Доля прибыльных</span><strong>{{ '%.1f'|format(report.metrics.win_rate or 0) }}%</strong></div>
+        <div><span>Итог при $100</span><strong class="{% if (report.metrics.net_cash or 0) >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(report.metrics.net_cash or 0) }} $</strong></div>
+        <div><span>Средняя сделка</span><strong>{{ '%+.2f'|format(report.metrics.average_net_pct or 0) }}%</strong></div>
+        <div><span>Profit factor</span><strong>{{ '%.2f'|format(report.metrics.profit_factor or 0) }}</strong></div>
+        <div><span>Макс. просадка</span><strong class="negative">-{{ '%.2f'|format(report.metrics.max_drawdown or 0) }} $</strong></div>
+    </section>
+
+    <section class="reversal-method">
+        <div>
+            <span>Условие</span>
+            <strong>Движение ≥1.5% · Z ≥3 · объём ≥2x</strong>
+        </div>
+        <div>
+            <span>Вход</span>
+            <strong>Только после подтверждения следующей свечой</strong>
+        </div>
+        <div>
+            <span>Выход</span>
+            <strong>+0.8% / -0.8% / максимум 30 минут</strong>
+        </div>
+    </section>
+
+    <section class="reversal-history">
+        <header>
+            <div><span class="section-kicker">ПОСЛЕДНИЕ СОБЫТИЯ</span><h3>Проверенные сделки</h3></div>
+            <span>LONG {{ report.metrics.long_trades or 0 }} · SHORT {{ report.metrics.short_trades or 0 }}</span>
+        </header>
+        {% if report.trades %}
+        <div class="reversal-table-wrap">
+            <table class="reversal-table">
+                <thead><tr><th>Монета</th><th>Сторона</th><th>Импульс</th><th>Вход → выход</th><th>Причина</th><th>После расходов</th></tr></thead>
+                <tbody>
+                {% for trade in report.trades %}
+                <tr>
+                    <td><strong>{{ trade.ticker }}</strong><span>{{ trade.entry_label }} → {{ trade.exit_label }} UTC</span></td>
+                    <td class="{{ 'positive' if trade.direction == 'long' else 'negative' }}">{{ trade.direction|upper }}</td>
+                    <td>{{ '%+.2f'|format(trade.residual_return_pct) }}%<span>Z {{ '%.1f'|format(trade.shock_z) }} · vol {{ '%.1f'|format(trade.volume_ratio) }}x</span></td>
+                    <td>${{ '%.6g'|format(trade.entry_price) }} → ${{ '%.6g'|format(trade.exit_price) }}</td>
+                    <td>{{ {'target':'цель','stop':'стоп','time':'30 минут'}.get(trade.exit_reason, trade.exit_reason) }}</td>
+                    <td class="{% if trade.net_return_pct >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(trade.net_return_pct) }}%</strong><span>{{ '%+.2f'|format(trade.cash_result) }} $ при $100</span></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="reversal-empty">На выбранных строгих условиях сделок пока не найдено.</div>
+        {% endif %}
+    </section>
+    {% elif not report.running %}
+    <div class="reversal-empty">
+        Истории пока нет. Нажмите «Обновить расчёт»: данные загрузятся в фоне и сохранятся на диске.
+    </div>
+    {% endif %}
+
+    <footer class="reversal-disclaimer">
+        Исследовательская гипотеза, не торговый сигнал. Тест использует только завершённые свечи,
+        не смотрит в будущее и вычитает 0.30% комиссии, спреда и проскальзывания.
+    </footer>
+</section>

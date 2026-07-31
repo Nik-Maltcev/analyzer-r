@@ -228,6 +228,16 @@ if [ ! -f "$ANALYSIS_POLICY_MARKER" ]; then
     ) &
 fi
 
+# Build the admin Reversal Lab dataset in the background. The collector is
+# incremental, so subsequent deployments only request missing 5-minute bars.
+(
+    until curl -fsS "http://127.0.0.1:$PORT/health/live" >/dev/null 2>&1; do
+        sleep 1
+    done
+    sleep 12
+    python /scripts/refresh_reversal.py || echo "[$(date -u)] Reversal Lab startup refresh failed"
+) &
+
 (
     while true; do
         CURRENT_DATE=$(date -u +%F)
@@ -238,6 +248,7 @@ fi
         if [ "$CURRENT_TIME" -ge "0630" ] && [ "$CURRENT_TIME" -lt "0800" ] && [ ! -f "$DAILY_MARKER" ]; then
             echo "[$(date -u)] Running daily update..."
             if python /scripts/daily_update.py; then
+                python /scripts/refresh_reversal.py || echo "[$(date -u)] Reversal Lab daily refresh failed"
                 touch "$DAILY_MARKER"
             else
                 echo "[$(date -u)] daily update failed"

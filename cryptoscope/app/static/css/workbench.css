@@ -5313,3 +5313,206 @@ html[data-view-mode='beginner'] .signals-page {
         height: 250px;
     }
 }
+/* Reversal Lab */
+.reversal-shell {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+    color: var(--text);
+}
+
+.reversal-header,
+.reversal-history > header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.reversal-header h2,
+.reversal-history h3 {
+    margin: 4px 0 0;
+}
+
+.reversal-header p,
+.reversal-history > header > span,
+.reversal-disclaimer,
+.reversal-table td span {
+    color: var(--text-muted);
+}
+
+.reversal-header p {
+    margin: 6px 0 0;
+}
+
+.reversal-notice,
+.reversal-meta,
+.reversal-disclaimer,
+.reversal-empty {
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    padding: 12px 14px;
+}
+
+.reversal-notice {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+}
+
+.reversal-notice.is-running {
+    border-left: 3px solid var(--green);
+}
+
+.reversal-notice.is-error {
+    border-left: 3px solid var(--red);
+}
+
+.reversal-notice span,
+.reversal-meta span {
+    color: var(--text-dim);
+}
+
+.reversal-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.reversal-metrics,
+.reversal-method {
+    display: grid;
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+}
+
+.reversal-metrics {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.reversal-method {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.reversal-metrics > div,
+.reversal-method > div {
+    min-width: 0;
+    padding: 14px;
+    border-right: 1px solid var(--border);
+}
+
+.reversal-metrics > div:last-child,
+.reversal-method > div:last-child {
+    border-right: 0;
+}
+
+.reversal-metrics span,
+.reversal-method span {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.reversal-metrics strong {
+    font-family: var(--font-mono);
+    font-size: 20px;
+}
+
+.reversal-method strong {
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.reversal-history {
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+}
+
+.reversal-history > header {
+    padding: 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.reversal-table-wrap {
+    overflow-x: auto;
+}
+
+.reversal-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.reversal-table th,
+.reversal-table td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.reversal-table th {
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.reversal-table td span {
+    display: block;
+    margin-top: 3px;
+    font-size: 10px;
+}
+
+.reversal-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.reversal-empty {
+    min-height: 130px;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    color: var(--text-dim);
+}
+
+.reversal-disclaimer {
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+    .reversal-shell {
+        padding: 12px;
+    }
+
+    .reversal-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .reversal-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .reversal-method {
+        grid-template-columns: 1fr;
+    }
+
+    .reversal-metrics > div:nth-child(2n),
+    .reversal-method > div {
+        border-right: 0;
+    }
+
+    .reversal-method > div {
+        border-bottom: 1px solid var(--border);
+    }
+
+    .reversal-method > div:last-child {
+        border-bottom: 0;
+    }
+}

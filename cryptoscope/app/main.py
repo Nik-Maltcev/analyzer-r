@@ -24,6 +24,7 @@ from app.api.payments import router as payments_router
 from app.api.portfolio import router as portfolio_router
 from app.api.public_content import router as public_content_router
 from app.api.public_extension import router as public_extension_router
+from app.api.reversal import router as reversal_router
 from app.api.scanners import router as scanners_router
 from app.api.signals import router as signals_router
 from app.api.ui_routes import router as ui_router
@@ -175,6 +176,7 @@ app.include_router(ui_router)
 app.include_router(crypto_picks_router)
 app.include_router(crypto_v2_router)
 app.include_router(market_regime_router)
+app.include_router(reversal_router)
 
 
 async def _get_dashboard_context(market: str = "crypto"):
