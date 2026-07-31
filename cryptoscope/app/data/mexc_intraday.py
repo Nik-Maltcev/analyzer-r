@@ -15,7 +15,10 @@ from app.data.mexc import MEXC_REST_URL, fetch_mexc_spot_symbols, normalize_mexc
 REVERSAL_TICKERS = (
     "BTC/USD", "ETH/USD", "BNB/USD", "SOL/USD", "XRP/USD",
     "DOGE/USD", "ADA/USD", "LINK/USD", "AVAX/USD", "LTC/USD",
-    "SUI/USD", "BCH/USD",
+    "SUI/USD", "BCH/USD", "TRX/USD", "DOT/USD", "UNI/USD",
+    "NEAR/USD", "AAVE/USD", "ETC/USD", "ATOM/USD", "FIL/USD",
+    "INJ/USD", "ICP/USD", "ARB/USD", "OP/USD", "TON/USD",
+    "XLM/USD", "HBAR/USD", "PEPE/USD", "SHIB/USD", "RENDER/USD",
 )
 INTERVAL_MS = 5 * 60 * 1000
 HISTORY_DAYS = 90

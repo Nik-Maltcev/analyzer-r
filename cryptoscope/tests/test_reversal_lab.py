@@ -39,6 +39,7 @@ def _synthetic_candles() -> pd.DataFrame:
                 "open_time": int(timestamp),
                 "close": float(prices[index]),
                 "volume": float(volumes[index] if ticker == "ALT/USD" else 100.0),
+                "quote_volume": 50_000.0,
             })
     return pd.DataFrame(rows)
 
@@ -68,7 +69,8 @@ def _insert_candles(conn: sqlite3.Connection, frame: pd.DataFrame) -> None:
         [
             (
                 row.ticker, int(row.open_time), float(row.close), float(row.close),
-                float(row.close), float(row.close), float(row.volume), 0.0,
+                float(row.close), float(row.close), float(row.volume),
+                float(getattr(row, "quote_volume", row.volume * row.close)),
             )
             for row in frame.itertuples(index=False)
         ],

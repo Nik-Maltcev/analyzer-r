@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pandas as pd
 
-from app.data.mexc_intraday import refresh_reversal_candles
+from app.data.mexc_intraday import REVERSAL_TICKERS, refresh_reversal_candles
 from app.db.schema import (
     CREATE_REVERSAL_CANDLES,
     CREATE_REVERSAL_FORWARD_STATE,
@@ -21,12 +21,15 @@ from app.db.schema import (
     CREATE_REVERSAL_TRADES,
 )
 
-STRATEGY_VERSION = "reversal-5m-v1"
+STRATEGY_VERSION = "reversal-5m-v2"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 SHOCK_RETURN_PCT = 1.50
 SHOCK_Z = 3.0
 MIN_VOLUME_RATIO = 2.0
+MIN_DAILY_QUOTE_VOLUME_USD = 5_000_000.0
+MIN_CANDLE_COVERAGE = 0.95
+DAILY_BARS = 24 * 12
 TARGET_PCT = 0.80
 STOP_PCT = 0.80
 MAX_HOLD_BARS = 6
@@ -82,12 +85,19 @@ def find_latest_confirmed_signals(
     frame = candles.copy().sort_values(["open_time", "ticker"])
     closes = frame.pivot(index="open_time", columns="ticker", values="close")
     volumes = frame.pivot(index="open_time", columns="ticker", values="volume")
+    quote_volumes = (
+        frame.pivot(index="open_time", columns="ticker", values="quote_volume")
+        if "quote_volume" in frame.columns
+        else volumes * closes
+    )
     returns = closes.pct_change(fill_method=None)
     btc_returns = returns.get("BTC/USD")
     signals: list[dict] = []
 
     for ticker in closes.columns:
         prices = closes[ticker].dropna()
+        if prices.reindex(closes.index).notna().mean() < MIN_CANDLE_COVERAGE:
+            continue
         if confirmation_time not in prices.index:
             continue
         confirmation_index = int(prices.index.get_loc(confirmation_time))
@@ -95,6 +105,9 @@ def find_latest_confirmed_signals(
         if shock_index < MIN_LOOKBACK_BARS:
             continue
         ticker_volume = volumes[ticker].reindex(prices.index)
+        daily_quote_volume = quote_volumes[ticker].reindex(prices.index).rolling(
+            DAILY_BARS, min_periods=DAILY_BARS
+        ).sum().shift(1)
         coin_returns = prices.pct_change(fill_method=None)
         residual = (
             coin_returns
@@ -112,12 +125,16 @@ def find_latest_confirmed_signals(
         residual_value = residual.iloc[shock_index]
         z_value = shock_z.iloc[shock_index]
         volume_value = volume_ratio.iloc[shock_index]
-        if not all(pd.notna(value) for value in (residual_value, z_value, volume_value)):
+        liquidity_value = daily_quote_volume.iloc[shock_index]
+        if not all(pd.notna(value) for value in (
+            residual_value, z_value, volume_value, liquidity_value
+        )):
             continue
         if (
             abs(float(residual_value)) * 100 < SHOCK_RETURN_PCT
             or abs(float(z_value)) < SHOCK_Z
             or float(volume_value) < MIN_VOLUME_RATIO
+            or float(liquidity_value) < MIN_DAILY_QUOTE_VOLUME_USD
         ):
             continue
         shock_price = float(prices.iloc[shock_index])
@@ -149,13 +166,23 @@ def backtest_reversal(candles: pd.DataFrame) -> tuple[list[dict], dict]:
     frame = candles.copy().sort_values(["open_time", "ticker"])
     closes = frame.pivot(index="open_time", columns="ticker", values="close")
     volumes = frame.pivot(index="open_time", columns="ticker", values="volume")
+    quote_volumes = (
+        frame.pivot(index="open_time", columns="ticker", values="quote_volume")
+        if "quote_volume" in frame.columns
+        else volumes * closes
+    )
     returns = closes.pct_change(fill_method=None)
     btc_returns = returns.get("BTC/USD")
     trades: list[dict] = []
 
     for ticker in closes.columns:
         prices = closes[ticker].dropna()
+        if prices.reindex(closes.index).notna().mean() < MIN_CANDLE_COVERAGE:
+            continue
         ticker_volume = volumes[ticker].reindex(prices.index)
+        daily_quote_volume = quote_volumes[ticker].reindex(prices.index).rolling(
+            DAILY_BARS, min_periods=DAILY_BARS
+        ).sum().shift(1)
         coin_returns = prices.pct_change(fill_method=None)
         residual = (
             coin_returns
@@ -178,12 +205,16 @@ def backtest_reversal(candles: pd.DataFrame) -> tuple[list[dict], dict]:
             residual_value = residual.iloc[index]
             z_value = shock_z.iloc[index]
             volume_value = volume_ratio.iloc[index]
-            if not all(pd.notna(value) for value in (residual_value, z_value, volume_value)):
+            liquidity_value = daily_quote_volume.iloc[index]
+            if not all(pd.notna(value) for value in (
+                residual_value, z_value, volume_value, liquidity_value
+            )):
                 continue
             if (
                 abs(float(residual_value)) * 100 < SHOCK_RETURN_PCT
                 or abs(float(z_value)) < SHOCK_Z
                 or float(volume_value) < MIN_VOLUME_RATIO
+                or float(liquidity_value) < MIN_DAILY_QUOTE_VOLUME_USD
             ):
                 continue
             shock_price = float(prices.iloc[index])
@@ -272,7 +303,7 @@ def _metrics(trades: list[dict]) -> dict:
 def _load_candles(conn: sqlite3.Connection) -> pd.DataFrame:
     return pd.read_sql_query(
         """
-        SELECT ticker, open_time, close, volume
+        SELECT ticker, open_time, close, volume, quote_volume
         FROM reversal_candles
         ORDER BY open_time, ticker
         """,
@@ -502,10 +533,11 @@ async def refresh_and_backtest(db_path: str) -> dict:
     conn.commit()
     try:
         collection = await refresh_reversal_candles(conn)
-        if collection["ticker_count"] < 10:
+        minimum_tickers = math.ceil(len(REVERSAL_TICKERS) * 0.80)
+        if collection["ticker_count"] < minimum_tickers:
             raise RuntimeError(
                 "MEXC intraday coverage is incomplete: "
-                f"{collection['ticker_count']}/12 tickers"
+                f"{collection['ticker_count']}/{len(REVERSAL_TICKERS)} tickers"
             )
         if (
             collection.get("data_end") is None
@@ -514,6 +546,17 @@ async def refresh_and_backtest(db_path: str) -> dict:
         ):
             raise RuntimeError("MEXC intraday candles are stale")
         candles = _load_candles(conn)
+        eligible_tickers = candles.groupby("ticker")["open_time"].nunique()
+        expected_bars = max(1, candles["open_time"].nunique())
+        eligible_count = int(
+            (eligible_tickers / expected_bars >= MIN_CANDLE_COVERAGE).sum()
+        )
+        if eligible_count < minimum_tickers:
+            raise RuntimeError(
+                "MEXC candle completeness is insufficient: "
+                f"{eligible_count}/{len(REVERSAL_TICKERS)} tickers have "
+                f"at least {MIN_CANDLE_COVERAGE:.0%} coverage"
+            )
         trades, metrics = await asyncio.to_thread(backtest_reversal, candles)
         conn.execute("DELETE FROM reversal_trades WHERE run_id = ?", (run_id,))
         conn.executemany(
