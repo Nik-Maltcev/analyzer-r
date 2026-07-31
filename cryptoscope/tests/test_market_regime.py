@@ -586,3 +586,113 @@ async def test_alpha_calendar_expiry_uses_observed_live_price():
         "return_pct": 20.0,
         "cash_result": 20.0,
     }
+
+
+@pytest.mark.asyncio
+async def test_closed_alpha_episode_is_not_reopened_or_duplicated():
+    async with aiosqlite.connect(":memory:") as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute(
+            """
+            CREATE TABLE prices (
+                market TEXT,
+                ticker TEXT,
+                date TEXT,
+                close REAL
+            )
+            """
+        )
+        await conn.execute(
+            """
+            INSERT INTO prices (market, ticker, date, close)
+            VALUES ('crypto', 'WLD/USD', '2026-07-28', 100.0)
+            """
+        )
+        await conn.commit()
+        candidate = _trade_candidate("WLD/USD", "short", 100.0)
+        candidate["age_days"] = 4
+        plan = {"candidates": [candidate]}
+
+        await sync_alpha_trade_journal(
+            conn,
+            {"data_date": "2026-07-28", "dominant_regime": "range"},
+            plan,
+        )
+        await expire_alpha_trade_journal(
+            conn,
+            as_of_date="2026-07-30",
+            live_prices={"WLD/USD": 80.0},
+        )
+        repeated = await sync_alpha_trade_journal(
+            conn,
+            {"data_date": "2026-07-30", "dominant_regime": "range"},
+            plan,
+        )
+        cursor = await conn.execute(
+            """
+            SELECT status, exit_price, return_pct
+            FROM alpha_trade_journal
+            WHERE ticker = 'WLD/USD'
+            """
+        )
+        rows = [dict(row) for row in await cursor.fetchall()]
+
+    assert repeated["opened"] == 0
+    assert repeated["active"] == 0
+    assert rows == [{
+        "status": "closed",
+        "exit_price": 80.0,
+        "return_pct": 20.0,
+    }]
+
+
+@pytest.mark.asyncio
+async def test_alpha_schema_migration_hides_closed_episode_duplicates():
+    async with aiosqlite.connect(":memory:") as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute(CREATE_ALPHA_TRADE_JOURNAL)
+        await conn.executemany(
+            """
+            INSERT INTO alpha_trade_journal (
+                calculation_version, ticker, direction, scanner, confidence,
+                regime, opened_on, entry_price, signal_first_seen_date,
+                signal_age_at_entry, last_seen_on, last_price, closed_on,
+                exit_price, exit_reason, return_pct, cash_result, stake, status
+            ) VALUES (
+                ?, 'WLD/USD', 'short', 'Momentum', 'high', 'range',
+                '2026-07-28', 0.3212, '2026-07-25', 4,
+                '2026-07-30', ?, '2026-07-30', ?,
+                'horizon_reached', ?, ?, 100.0, 'closed'
+            )
+            """,
+            [
+                (CALCULATION_VERSION, 0.3083, 0.3083, 4.02, 4.02),
+                (CALCULATION_VERSION, 0.3085, 0.3085, 3.95, 3.95),
+                (CALCULATION_VERSION, 0.3085, 0.3085, 3.95, 3.95),
+            ],
+        )
+        await conn.commit()
+
+        statistics = await fetch_alpha_statistics(conn)
+        cursor = await conn.execute(
+            """
+            SELECT exit_price, return_pct
+            FROM alpha_trade_journal
+            WHERE ticker = 'WLD/USD'
+              AND episode_canonical = 1
+            """
+        )
+        rows = [dict(row) for row in await cursor.fetchall()]
+        cursor = await conn.execute(
+            """
+            SELECT episode_canonical
+            FROM alpha_trade_journal
+            WHERE ticker = 'WLD/USD'
+            ORDER BY id
+            """
+        )
+        audit_flags = [row["episode_canonical"] for row in await cursor.fetchall()]
+
+    assert statistics["summary"]["closed"] == 1
+    assert rows == [{"exit_price": 0.3083, "return_pct": 4.02}]
+    assert audit_flags == [1, 0, 0]

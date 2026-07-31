@@ -613,9 +613,34 @@ CREATE TABLE IF NOT EXISTS alpha_trade_journal (
     cash_result REAL,
     stake REAL NOT NULL DEFAULT 100.0,
     status TEXT NOT NULL DEFAULT 'active',
+    episode_canonical INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 )
+"""
+
+ALPHA_TRADE_COLUMN_MIGRATIONS = {
+    "episode_canonical": "INTEGER NOT NULL DEFAULT 1",
+}
+
+MARK_ALPHA_TRADE_EPISODE_DUPLICATES = """
+UPDATE alpha_trade_journal
+SET episode_canonical = CASE
+    WHEN id IN (
+        SELECT COALESCE(
+            MIN(CASE WHEN status = 'closed' THEN id END),
+            MIN(id)
+        )
+        FROM alpha_trade_journal
+        GROUP BY
+            calculation_version,
+            ticker,
+            direction,
+            COALESCE(NULLIF(signal_first_seen_date, ''), opened_on)
+    )
+    THEN 1
+    ELSE 0
+END
 """
 
 CREATE_MOMENTUM_PORTFOLIO_INDICES = [
@@ -661,6 +686,16 @@ CREATE_MARKET_REGIME_INDICES = [
     """
     CREATE INDEX IF NOT EXISTS idx_alpha_trade_history
     ON alpha_trade_journal(calculation_version, status, closed_on, opened_on)
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_alpha_trade_episode
+    ON alpha_trade_journal(
+        calculation_version,
+        ticker,
+        direction,
+        COALESCE(NULLIF(signal_first_seen_date, ''), opened_on)
+    )
+    WHERE episode_canonical = 1
     """,
 ]
 

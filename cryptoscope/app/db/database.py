@@ -10,9 +10,11 @@ import pandas as pd
 from app.config import get_settings
 from app.core.cointegration import fit_fixed_zscore_model
 from app.db.schema import (
+    ALPHA_TRADE_COLUMN_MIGRATIONS,
     ALL_INDICES_SQL,
     ALL_TABLES_SQL,
     FAVORITE_COLUMN_MIGRATIONS,
+    MARK_ALPHA_TRADE_EPISODE_DUPLICATES,
     PAIR_COLUMN_MIGRATIONS,
     PAYMENT_ORDER_COLUMN_MIGRATIONS,
     PRICE_COLUMN_MIGRATIONS,
@@ -182,6 +184,15 @@ async def init_db(db_path: str | None = None):
                 await conn.execute(
                     f"ALTER TABLE payment_orders ADD COLUMN {column} {definition}"
                 )
+        cursor = await conn.execute("PRAGMA table_info(alpha_trade_journal)")
+        alpha_trade_columns = {row["name"] for row in await cursor.fetchall()}
+        for column, definition in ALPHA_TRADE_COLUMN_MIGRATIONS.items():
+            if column not in alpha_trade_columns:
+                await conn.execute(
+                    "ALTER TABLE alpha_trade_journal "
+                    f"ADD COLUMN {column} {definition}"
+                )
+        await conn.execute(MARK_ALPHA_TRADE_EPISODE_DUPLICATES)
         for sql in ALL_INDICES_SQL:
             await conn.execute(sql)
         await conn.commit()

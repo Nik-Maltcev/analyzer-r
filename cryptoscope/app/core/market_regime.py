@@ -12,8 +12,10 @@ import numpy as np
 import pandas as pd
 
 from app.db.schema import (
+    ALPHA_TRADE_COLUMN_MIGRATIONS,
     CREATE_ALPHA_TRADE_JOURNAL,
     CREATE_MARKET_REGIME_SNAPSHOTS,
+    MARK_ALPHA_TRADE_EPISODE_DUPLICATES,
 )
 
 CALCULATION_VERSION = "crypto-regime-v1"
@@ -563,6 +565,7 @@ async def expire_alpha_trade_journal(
         FROM alpha_trade_journal
         WHERE calculation_version = ?
           AND status = 'active'
+          AND episode_canonical = 1
         ORDER BY id
         """,
         (CALCULATION_VERSION,),
@@ -652,6 +655,7 @@ async def sync_alpha_trade_journal(
         FROM alpha_trade_journal
         WHERE calculation_version = ?
           AND status = 'active'
+          AND episode_canonical = 1
         ORDER BY id
         """,
         (CALCULATION_VERSION,),
@@ -783,9 +787,9 @@ async def sync_alpha_trade_journal(
         entry_price = _finite(candidate.get("current_price"), 0.0)
         if entry_price <= 0:
             raise RuntimeError(f"Cannot open Alpha trade without a price for {ticker}")
-        await conn.execute(
+        cursor = await conn.execute(
             """
-            INSERT INTO alpha_trade_journal (
+            INSERT OR IGNORE INTO alpha_trade_journal (
                 calculation_version,
                 ticker,
                 direction,
@@ -818,14 +822,25 @@ async def sync_alpha_trade_journal(
                 ALPHA_TRADE_STAKE,
             ),
         )
-        opened += 1
+        opened += max(0, int(cursor.rowcount or 0))
 
     await conn.commit()
+    cursor = await conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM alpha_trade_journal
+        WHERE calculation_version = ?
+          AND status = 'active'
+          AND episode_canonical = 1
+        """,
+        (CALCULATION_VERSION,),
+    )
+    active_count = int((await cursor.fetchone())[0] or 0)
     return {
         "opened": opened,
         "closed": closed,
         "updated": updated,
-        "active": len(set(candidates) | deferred_tickers),
+        "active": active_count,
         "data_date": data_date,
     }
 
@@ -953,6 +968,7 @@ async def fetch_alpha_statistics(
         SELECT *
         FROM alpha_trade_journal
         WHERE calculation_version = ?
+          AND episode_canonical = 1
           AND confidence IN ('Высокая', 'high')
           AND NOT (
               status = 'closed'
@@ -1214,6 +1230,15 @@ def build_market_regime_history(
 async def ensure_market_regime_schema(conn) -> None:
     await conn.execute(CREATE_MARKET_REGIME_SNAPSHOTS)
     await conn.execute(CREATE_ALPHA_TRADE_JOURNAL)
+    cursor = await conn.execute("PRAGMA table_info(alpha_trade_journal)")
+    alpha_trade_columns = {row["name"] for row in await cursor.fetchall()}
+    for column, definition in ALPHA_TRADE_COLUMN_MIGRATIONS.items():
+        if column not in alpha_trade_columns:
+            await conn.execute(
+                "ALTER TABLE alpha_trade_journal "
+                f"ADD COLUMN {column} {definition}"
+            )
+    await conn.execute(MARK_ALPHA_TRADE_EPISODE_DUPLICATES)
     await conn.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_market_regime_latest
@@ -1240,6 +1265,18 @@ async def ensure_market_regime_schema(conn) -> None:
             closed_on,
             opened_on
         )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_alpha_trade_episode
+        ON alpha_trade_journal(
+            calculation_version,
+            ticker,
+            direction,
+            COALESCE(NULLIF(signal_first_seen_date, ''), opened_on)
+        )
+        WHERE episode_canonical = 1
         """
     )
     await conn.commit()
