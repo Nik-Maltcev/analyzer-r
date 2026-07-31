@@ -677,6 +677,48 @@ CREATE TABLE IF NOT EXISTS reversal_trades (
 )
 """
 
+CREATE_REVERSAL_FORWARD_STATE = """
+CREATE TABLE IF NOT EXISTS reversal_forward_state (
+    strategy_version       TEXT PRIMARY KEY,
+    initialized_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    last_confirmation_time INTEGER NOT NULL,
+    updated_at             TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
+CREATE_REVERSAL_FORWARD_TRADES = """
+CREATE TABLE IF NOT EXISTS reversal_forward_trades (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_version         TEXT NOT NULL,
+    ticker                   TEXT NOT NULL,
+    direction                TEXT NOT NULL,
+    shock_time               INTEGER NOT NULL,
+    shock_return_pct         REAL NOT NULL,
+    residual_return_pct      REAL NOT NULL,
+    shock_z                  REAL NOT NULL,
+    volume_ratio             REAL NOT NULL,
+    entry_time               INTEGER NOT NULL,
+    entry_price              REAL NOT NULL,
+    status                   TEXT NOT NULL DEFAULT 'active',
+    last_evaluated_time      INTEGER NOT NULL,
+    bars_held                INTEGER NOT NULL DEFAULT 0,
+    last_price               REAL NOT NULL,
+    current_gross_return_pct REAL NOT NULL DEFAULT 0,
+    current_net_return_pct   REAL NOT NULL DEFAULT 0,
+    current_cash_result      REAL NOT NULL DEFAULT 0,
+    exit_time                INTEGER,
+    exit_price               REAL,
+    exit_reason              TEXT,
+    gross_return_pct         REAL,
+    cost_pct                 REAL NOT NULL,
+    net_return_pct           REAL,
+    cash_result              REAL,
+    created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at               TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (strategy_version, ticker, shock_time, direction)
+)
+"""
+
 ALPHA_TRADE_COLUMN_MIGRATIONS = {
     "episode_canonical": "INTEGER NOT NULL DEFAULT 1",
 }
@@ -770,6 +812,15 @@ CREATE_REVERSAL_INDICES = [
     CREATE INDEX IF NOT EXISTS idx_reversal_trades_run_exit
     ON reversal_trades(run_id, exit_time DESC)
     """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_reversal_forward_active
+    ON reversal_forward_trades(strategy_version, ticker)
+    WHERE status = 'active'
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_reversal_forward_history
+    ON reversal_forward_trades(strategy_version, status, exit_time DESC)
+    """,
 ]
 
 CREATE_CONTENT_PUBLICATION_INDICES = [
@@ -817,6 +868,8 @@ ALL_TABLES_SQL = [
     CREATE_REVERSAL_CANDLES,
     CREATE_REVERSAL_RUNS,
     CREATE_REVERSAL_TRADES,
+    CREATE_REVERSAL_FORWARD_STATE,
+    CREATE_REVERSAL_FORWARD_TRADES,
 ]
 
 ALL_INDICES_SQL = (

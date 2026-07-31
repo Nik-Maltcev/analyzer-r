@@ -236,6 +236,11 @@ fi
     done
     sleep 12
     python /scripts/refresh_reversal.py || echo "[$(date -u)] Reversal Lab startup refresh failed"
+    python /scripts/refresh_reversal_forward.py || echo "[$(date -u)] Reversal forward initialization failed"
+    while true; do
+        sleep 300
+        python /scripts/refresh_reversal_forward.py || echo "[$(date -u)] Reversal forward refresh failed"
+    done
 ) &
 
 (

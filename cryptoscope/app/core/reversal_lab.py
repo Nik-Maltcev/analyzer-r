@@ -14,6 +14,8 @@ import pandas as pd
 from app.data.mexc_intraday import refresh_reversal_candles
 from app.db.schema import (
     CREATE_REVERSAL_CANDLES,
+    CREATE_REVERSAL_FORWARD_STATE,
+    CREATE_REVERSAL_FORWARD_TRADES,
     CREATE_REVERSAL_RUNS,
     CREATE_REVERSAL_TRADES,
 )
@@ -36,6 +38,8 @@ def ensure_reversal_schema(conn: sqlite3.Connection) -> None:
         CREATE_REVERSAL_CANDLES,
         CREATE_REVERSAL_RUNS,
         CREATE_REVERSAL_TRADES,
+        CREATE_REVERSAL_FORWARD_STATE,
+        CREATE_REVERSAL_FORWARD_TRADES,
     ):
         conn.execute(statement)
     conn.commit()
@@ -43,6 +47,82 @@ def ensure_reversal_schema(conn: sqlite3.Connection) -> None:
 
 def _as_float(value: float) -> float:
     return float(value) if math.isfinite(float(value)) else 0.0
+
+
+def _directional_return_pct(direction: str, entry_price: float, price: float) -> float:
+    if direction == "long":
+        return (price / entry_price - 1) * 100
+    return (entry_price - price) / entry_price * 100
+
+
+def find_latest_confirmed_signals(
+    candles: pd.DataFrame,
+    confirmation_time: int,
+) -> list[dict]:
+    """Return signals that became tradable on one completed confirmation bar."""
+    if candles.empty:
+        return []
+    frame = candles.copy().sort_values(["open_time", "ticker"])
+    closes = frame.pivot(index="open_time", columns="ticker", values="close")
+    volumes = frame.pivot(index="open_time", columns="ticker", values="volume")
+    returns = closes.pct_change(fill_method=None)
+    btc_returns = returns.get("BTC/USD")
+    signals: list[dict] = []
+
+    for ticker in closes.columns:
+        prices = closes[ticker].dropna()
+        if confirmation_time not in prices.index:
+            continue
+        confirmation_index = int(prices.index.get_loc(confirmation_time))
+        shock_index = confirmation_index - 1
+        if shock_index < MIN_LOOKBACK_BARS:
+            continue
+        ticker_volume = volumes[ticker].reindex(prices.index)
+        coin_returns = prices.pct_change(fill_method=None)
+        residual = (
+            coin_returns
+            if ticker == "BTC/USD" or btc_returns is None
+            else coin_returns - btc_returns.reindex(prices.index)
+        )
+        baseline_std = residual.rolling(
+            LOOKBACK_BARS, min_periods=MIN_LOOKBACK_BARS
+        ).std().shift(1)
+        volume_median = ticker_volume.rolling(
+            LOOKBACK_BARS, min_periods=MIN_LOOKBACK_BARS
+        ).median().shift(1)
+        shock_z = residual / baseline_std.replace(0, np.nan)
+        volume_ratio = ticker_volume / volume_median.replace(0, np.nan)
+        residual_value = residual.iloc[shock_index]
+        z_value = shock_z.iloc[shock_index]
+        volume_value = volume_ratio.iloc[shock_index]
+        if not all(pd.notna(value) for value in (residual_value, z_value, volume_value)):
+            continue
+        if (
+            abs(float(residual_value)) * 100 < SHOCK_RETURN_PCT
+            or abs(float(z_value)) < SHOCK_Z
+            or float(volume_value) < MIN_VOLUME_RATIO
+        ):
+            continue
+        shock_price = float(prices.iloc[shock_index])
+        confirmation_price = float(prices.iloc[confirmation_index])
+        if residual_value < 0 and confirmation_price > shock_price:
+            direction = "long"
+        elif residual_value > 0 and confirmation_price < shock_price:
+            direction = "short"
+        else:
+            continue
+        signals.append({
+            "ticker": ticker,
+            "direction": direction,
+            "shock_time": int(prices.index[shock_index]),
+            "shock_return_pct": _as_float(float(coin_returns.iloc[shock_index]) * 100),
+            "residual_return_pct": _as_float(float(residual_value) * 100),
+            "shock_z": _as_float(z_value),
+            "volume_ratio": _as_float(volume_value),
+            "entry_time": confirmation_time,
+            "entry_price": confirmation_price,
+        })
+    return signals
 
 
 def backtest_reversal(candles: pd.DataFrame) -> tuple[list[dict], dict]:
@@ -183,6 +263,196 @@ def _load_candles(conn: sqlite3.Connection) -> pd.DataFrame:
     )
 
 
+def process_reversal_forward(conn: sqlite3.Connection) -> dict:
+    """Advance the shadow journal using only candles unseen by this process."""
+    conn.row_factory = sqlite3.Row
+    ensure_reversal_schema(conn)
+    latest_row = conn.execute(
+        "SELECT MAX(open_time) FROM reversal_candles WHERE ticker='BTC/USD'"
+    ).fetchone()
+    latest_time = int(latest_row[0]) if latest_row and latest_row[0] is not None else None
+    if latest_time is None:
+        return {"status": "waiting_for_candles", "opened": 0, "closed": 0}
+
+    state = conn.execute(
+        "SELECT * FROM reversal_forward_state WHERE strategy_version=?",
+        (STRATEGY_VERSION,),
+    ).fetchone()
+    if state is None:
+        conn.execute(
+            """
+            INSERT INTO reversal_forward_state(strategy_version, last_confirmation_time)
+            VALUES (?, ?)
+            """,
+            (STRATEGY_VERSION, latest_time),
+        )
+        conn.commit()
+        return {
+            "status": "initialized",
+            "watermark": latest_time,
+            "opened": 0,
+            "closed": 0,
+        }
+
+    last_confirmation_time = int(state["last_confirmation_time"])
+    active_rows = conn.execute(
+        """
+        SELECT * FROM reversal_forward_trades
+        WHERE strategy_version=? AND status='active'
+        ORDER BY entry_time, id
+        """,
+        (STRATEGY_VERSION,),
+    ).fetchall()
+    closed = 0
+    closed_tickers: set[str] = set()
+    for row in active_rows:
+        trade = dict(row)
+        bars = conn.execute(
+            """
+            SELECT open_time, close FROM reversal_candles
+            WHERE ticker=? AND open_time>? AND open_time<=?
+            ORDER BY open_time
+            """,
+            (trade["ticker"], trade["last_evaluated_time"], latest_time),
+        ).fetchall()
+        bars_held = int(trade["bars_held"])
+        for candle_time, candle_close in bars:
+            price = float(candle_close)
+            bars_held += 1
+            gross_pct = _directional_return_pct(
+                trade["direction"], float(trade["entry_price"]), price
+            )
+            net_pct = gross_pct - ROUND_TRIP_COST_PCT
+            reason = None
+            if gross_pct >= TARGET_PCT:
+                reason = "target"
+            elif gross_pct <= -STOP_PCT:
+                reason = "stop"
+            elif bars_held >= MAX_HOLD_BARS:
+                reason = "time"
+            if reason:
+                conn.execute(
+                    """
+                    UPDATE reversal_forward_trades
+                    SET status='closed', last_evaluated_time=?, bars_held=?,
+                        last_price=?, current_gross_return_pct=?,
+                        current_net_return_pct=?, current_cash_result=?,
+                        exit_time=?, exit_price=?, exit_reason=?,
+                        gross_return_pct=?, net_return_pct=?, cash_result=?,
+                        updated_at=datetime('now')
+                    WHERE id=? AND status='active'
+                    """,
+                    (
+                        candle_time, bars_held, price, gross_pct, net_pct,
+                        STAKE_USD * net_pct / 100, candle_time, price, reason,
+                        gross_pct, net_pct, STAKE_USD * net_pct / 100,
+                        trade["id"],
+                    ),
+                )
+                closed += 1
+                closed_tickers.add(str(trade["ticker"]))
+                break
+            conn.execute(
+                """
+                UPDATE reversal_forward_trades
+                SET last_evaluated_time=?, bars_held=?, last_price=?,
+                    current_gross_return_pct=?, current_net_return_pct=?,
+                    current_cash_result=?, updated_at=datetime('now')
+                WHERE id=? AND status='active'
+                """,
+                (
+                    candle_time, bars_held, price, gross_pct, net_pct,
+                    STAKE_USD * net_pct / 100, trade["id"],
+                ),
+            )
+
+    opened = 0
+    if latest_time > last_confirmation_time:
+        candles = _load_candles(conn)
+        signals = find_latest_confirmed_signals(candles, latest_time)
+        active_tickers = {
+            str(row[0]) for row in conn.execute(
+                """
+                SELECT ticker FROM reversal_forward_trades
+                WHERE strategy_version=? AND status='active'
+                """,
+                (STRATEGY_VERSION,),
+            ).fetchall()
+        }
+        for signal in signals:
+            if signal["ticker"] in active_tickers or signal["ticker"] in closed_tickers:
+                continue
+            cursor = conn.execute(
+                """
+                INSERT OR IGNORE INTO reversal_forward_trades (
+                    strategy_version, ticker, direction, shock_time,
+                    shock_return_pct, residual_return_pct, shock_z, volume_ratio,
+                    entry_time, entry_price, last_evaluated_time, last_price,
+                    current_gross_return_pct, current_net_return_pct,
+                    current_cash_result, cost_pct
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+                """,
+                (
+                    STRATEGY_VERSION, signal["ticker"], signal["direction"],
+                    signal["shock_time"], signal["shock_return_pct"],
+                    signal["residual_return_pct"], signal["shock_z"],
+                    signal["volume_ratio"], signal["entry_time"],
+                    signal["entry_price"], signal["entry_time"],
+                    signal["entry_price"], -ROUND_TRIP_COST_PCT,
+                    -STAKE_USD * ROUND_TRIP_COST_PCT / 100,
+                    ROUND_TRIP_COST_PCT,
+                ),
+            )
+            if cursor.rowcount:
+                opened += 1
+                active_tickers.add(str(signal["ticker"]))
+
+        conn.execute(
+            """
+            UPDATE reversal_forward_state
+            SET last_confirmation_time=?, updated_at=datetime('now')
+            WHERE strategy_version=?
+            """,
+            (latest_time, STRATEGY_VERSION),
+        )
+    conn.commit()
+    return {
+        "status": "processed",
+        "watermark": latest_time,
+        "opened": opened,
+        "closed": closed,
+    }
+
+
+async def refresh_reversal_forward(db_path: str) -> dict:
+    """Fetch missing completed candles and advance the forward journal."""
+    conn = sqlite3.connect(db_path, timeout=60)
+    try:
+        ensure_reversal_schema(conn)
+        stale_before = (datetime.now(UTC) - timedelta(hours=1)).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        running = conn.execute(
+            """
+            SELECT id FROM reversal_runs
+            WHERE status='running' AND started_at>=?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (stale_before,),
+        ).fetchone()
+        if running:
+            return {"status": "waiting_for_backtest", "run_id": int(running[0])}
+        collection = await refresh_reversal_candles(conn)
+        if collection.get("data_end") is None or int(collection["data_end"]) < (
+            int(collection["completed_before"]) - 30 * 60 * 1000
+        ):
+            raise RuntimeError("MEXC forward candles are stale")
+        result = process_reversal_forward(conn)
+        return {**result, "collection": collection}
+    finally:
+        conn.close()
+
+
 async def refresh_and_backtest(db_path: str) -> dict:
     """Collect candles and persist one immutable research run."""
     conn = sqlite3.connect(db_path, timeout=60)
@@ -278,6 +548,73 @@ def _date_label(timestamp_ms: int | None) -> str | None:
     return datetime.fromtimestamp(int(timestamp_ms) / 1000, UTC).date().isoformat()
 
 
+def _forward_report(conn: sqlite3.Connection) -> dict:
+    state = conn.execute(
+        "SELECT * FROM reversal_forward_state WHERE strategy_version=?",
+        (STRATEGY_VERSION,),
+    ).fetchone()
+    active_rows = conn.execute(
+        """
+        SELECT * FROM reversal_forward_trades
+        WHERE strategy_version=? AND status='active'
+        ORDER BY entry_time DESC
+        """,
+        (STRATEGY_VERSION,),
+    ).fetchall()
+    closed_rows = conn.execute(
+        """
+        SELECT * FROM reversal_forward_trades
+        WHERE strategy_version=? AND status='closed'
+        ORDER BY exit_time DESC, id DESC LIMIT 30
+        """,
+        (STRATEGY_VERSION,),
+    ).fetchall()
+    summary = conn.execute(
+        """
+        SELECT COUNT(*) AS trades,
+               SUM(CASE WHEN cash_result>0 THEN 1 ELSE 0 END) AS wins,
+               COALESCE(SUM(cash_result), 0) AS net_cash,
+               COALESCE(AVG(net_return_pct), 0) AS average_net_pct
+        FROM reversal_forward_trades
+        WHERE strategy_version=? AND status='closed'
+        """,
+        (STRATEGY_VERSION,),
+    ).fetchone()
+
+    def serialize(row: sqlite3.Row, *, closed: bool) -> dict:
+        item = dict(row)
+        item["entry_label"] = datetime.fromtimestamp(
+            item["entry_time"] / 1000, UTC
+        ).strftime("%d.%m %H:%M")
+        if closed:
+            item["exit_label"] = datetime.fromtimestamp(
+                item["exit_time"] / 1000, UTC
+            ).strftime("%d.%m %H:%M")
+        else:
+            item["updated_label"] = datetime.fromtimestamp(
+                item["last_evaluated_time"] / 1000, UTC
+            ).strftime("%d.%m %H:%M")
+        return item
+
+    closed_count = int(summary["trades"] or 0)
+    wins = int(summary["wins"] or 0)
+    return {
+        "initialized": state is not None,
+        "initialized_at": state["initialized_at"] if state else None,
+        "updated_at": state["updated_at"] if state else None,
+        "active": [serialize(row, closed=False) for row in active_rows],
+        "closed": [serialize(row, closed=True) for row in closed_rows],
+        "metrics": {
+            "active": len(active_rows),
+            "closed": closed_count,
+            "wins": wins,
+            "win_rate": wins / closed_count * 100 if closed_count else 0.0,
+            "net_cash": float(summary["net_cash"] or 0),
+            "average_net_pct": float(summary["average_net_pct"] or 0),
+        },
+    }
+
+
 def get_reversal_report(db_path: str) -> dict:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -312,6 +649,7 @@ def get_reversal_report(db_path: str) -> dict:
         "latest": dict(latest) if latest else None,
         "metrics": metrics,
         "trades": trades,
+        "forward": _forward_report(conn),
         "settings": {
             "history_days": 90,
             "cost_pct": ROUND_TRIP_COST_PCT,

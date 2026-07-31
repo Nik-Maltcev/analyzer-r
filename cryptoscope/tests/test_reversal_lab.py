@@ -1,7 +1,14 @@
+import sqlite3
+
 import numpy as np
 import pandas as pd
 
-from app.core.reversal_lab import ROUND_TRIP_COST_PCT, backtest_reversal
+from app.core.reversal_lab import (
+    ROUND_TRIP_COST_PCT,
+    backtest_reversal,
+    ensure_reversal_schema,
+    process_reversal_forward,
+)
 
 
 def _synthetic_candles() -> pd.DataFrame:
@@ -45,3 +52,62 @@ def test_reversal_requires_confirmation_and_deducts_costs():
         trade["gross_return_pct"] - ROUND_TRIP_COST_PCT
     )
     assert metrics["trades"] >= 1
+
+
+def _insert_candles(conn: sqlite3.Connection, frame: pd.DataFrame) -> None:
+    conn.executemany(
+        """
+        INSERT INTO reversal_candles (
+            ticker, open_time, open, high, low, close, volume, quote_volume
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                row.ticker, int(row.open_time), float(row.close), float(row.close),
+                float(row.close), float(row.close), float(row.volume), 0.0,
+            )
+            for row in frame.itertuples(index=False)
+        ],
+    )
+    conn.commit()
+
+
+def test_forward_journal_starts_now_and_never_duplicates_closed_trade():
+    candles = _synthetic_candles()
+    timestamps = sorted(candles["open_time"].unique())
+    conn = sqlite3.connect(":memory:")
+    ensure_reversal_schema(conn)
+
+    _insert_candles(conn, candles[candles["open_time"] <= timestamps[305]])
+    initialized = process_reversal_forward(conn)
+    assert initialized["status"] == "initialized"
+    assert conn.execute("SELECT COUNT(*) FROM reversal_forward_trades").fetchone()[0] == 0
+
+    _insert_candles(conn, candles[candles["open_time"] == timestamps[306]])
+    opened = process_reversal_forward(conn)
+    trade = conn.execute(
+        "SELECT * FROM reversal_forward_trades WHERE ticker='ALT/USD'"
+    ).fetchone()
+    assert opened["opened"] == 1
+    assert trade["direction"] == "long"
+    assert trade["status"] == "active"
+
+    _insert_candles(conn, candles[candles["open_time"] == timestamps[307]])
+    closed = process_reversal_forward(conn)
+    final = conn.execute(
+        """
+        SELECT status, exit_reason, gross_return_pct, net_return_pct, cash_result
+        FROM reversal_forward_trades WHERE ticker='ALT/USD'
+        """
+    ).fetchone()
+    assert closed["closed"] == 1
+    assert final[0] == "closed"
+    assert final[1] == "target"
+    assert final[3] == final[2] - ROUND_TRIP_COST_PCT
+    assert final[4] == final[3]
+
+    process_reversal_forward(conn)
+    assert conn.execute("SELECT COUNT(*) FROM reversal_forward_trades").fetchone()[0] == 1
+    assert conn.execute(
+        "SELECT net_return_pct FROM reversal_forward_trades WHERE ticker='ALT/USD'"
+    ).fetchone()[0] == final[3]

@@ -5432,6 +5432,83 @@ html[data-view-mode='beginner'] .signals-page {
     background: var(--surface-1);
 }
 
+.reversal-forward {
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+}
+
+.reversal-forward > header,
+.reversal-forward-panel > header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.reversal-forward h3,
+.reversal-forward h4 {
+    margin: 4px 0 0;
+}
+
+.reversal-forward > header > span,
+.reversal-forward-panel > header > span {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.reversal-forward-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border-bottom: 1px solid var(--border);
+}
+
+.reversal-forward-metrics > div {
+    min-width: 0;
+    padding: 13px 14px;
+    border-right: 1px solid var(--border);
+}
+
+.reversal-forward-metrics > div:last-child {
+    border-right: 0;
+}
+
+.reversal-forward-metrics span {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.reversal-forward-metrics strong {
+    font-family: var(--font-mono);
+    font-size: 18px;
+}
+
+.reversal-forward-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.reversal-forward-panel {
+    min-width: 0;
+}
+
+.reversal-forward-panel + .reversal-forward-panel {
+    border-left: 1px solid var(--border);
+}
+
+.reversal-forward-empty {
+    min-height: 92px;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    color: var(--text-dim);
+    text-align: center;
+}
+
 .reversal-history > header {
     padding: 14px;
     border-bottom: 1px solid var(--border);
@@ -5501,6 +5578,25 @@ html[data-view-mode='beginner'] .signals-page {
 
     .reversal-method {
         grid-template-columns: 1fr;
+    }
+
+    .reversal-forward-metrics,
+    .reversal-forward-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .reversal-forward-metrics > div {
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .reversal-forward-metrics > div:last-child {
+        border-bottom: 0;
+    }
+
+    .reversal-forward-panel + .reversal-forward-panel {
+        border-left: 0;
+        border-top: 1px solid var(--border);
     }
 
     .reversal-metrics > div:nth-child(2n),

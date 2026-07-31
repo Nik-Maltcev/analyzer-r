@@ -1,7 +1,7 @@
 <section class="reversal-shell"
-         {% if report.running %}
-         hx-get="/tab/reversal" hx-trigger="every 4s" hx-target="this" hx-swap="outerHTML"
-         {% endif %}>
+         hx-get="/tab/reversal"
+         hx-trigger="{% if report.running %}every 4s{% else %}every 60s{% endif %}"
+         hx-target="this" hx-swap="outerHTML">
     <header class="reversal-header">
         <div>
             <span class="section-kicker">ADMIN · RESEARCH</span>
@@ -30,6 +30,81 @@
         <span>{{ report.latest.error or 'Неизвестная ошибка' }}</span>
     </div>
     {% endif %}
+
+    <section class="reversal-forward">
+        <header>
+            <div>
+                <span class="section-kicker">FORWARD TEST · БЕЗ ПЕРЕСЧЁТА ЗАДНИМ ЧИСЛОМ</span>
+                <h3>Наблюдение в реальном времени</h3>
+            </div>
+            {% if report.forward.initialized %}
+            <span>Запущен {{ report.forward.initialized_at }} UTC · проверка каждые 5 минут</span>
+            {% else %}
+            <span>Ожидает первой синхронизации MEXC</span>
+            {% endif %}
+        </header>
+
+        {% if report.forward.initialized %}
+        <div class="reversal-forward-metrics">
+            <div><span>Сейчас открыто</span><strong>{{ report.forward.metrics.active }}</strong></div>
+            <div><span>Завершено</span><strong>{{ report.forward.metrics.closed }}</strong></div>
+            <div><span>Доля прибыльных</span><strong>{{ '%.1f'|format(report.forward.metrics.win_rate) }}%</strong></div>
+            <div><span>Зафиксировано при $100</span><strong class="{% if report.forward.metrics.net_cash >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(report.forward.metrics.net_cash) }} $</strong></div>
+        </div>
+
+        <div class="reversal-forward-grid">
+            <section class="reversal-forward-panel">
+                <header><h4>Активные сделки</h4><span>Текущая оценка уже включает расходы 0.30%</span></header>
+                {% if report.forward.active %}
+                <div class="reversal-table-wrap">
+                    <table class="reversal-table">
+                        <thead><tr><th>Монета</th><th>Сторона</th><th>Вход</th><th>Сейчас</th><th>Результат</th></tr></thead>
+                        <tbody>
+                        {% for trade in report.forward.active %}
+                        <tr>
+                            <td><strong>{{ trade.ticker }}</strong><span>{{ trade.entry_label }} UTC</span></td>
+                            <td class="{{ 'positive' if trade.direction == 'long' else 'negative' }}">{{ trade.direction|upper }}</td>
+                            <td>${{ '%.6g'|format(trade.entry_price) }}</td>
+                            <td>${{ '%.6g'|format(trade.last_price) }}<span>{{ trade.updated_label }} UTC · {{ trade.bars_held }}/{{ report.settings.hold_minutes // 5 }} свечей</span></td>
+                            <td class="{% if trade.current_net_return_pct >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(trade.current_net_return_pct) }}%</strong><span>{{ '%+.2f'|format(trade.current_cash_result) }} $</span></td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="reversal-forward-empty">Свежих подтверждённых входов пока нет.</div>
+                {% endif %}
+            </section>
+
+            <section class="reversal-forward-panel">
+                <header><h4>Завершённые сделки</h4><span>Зафиксированный результат не изменяется</span></header>
+                {% if report.forward.closed %}
+                <div class="reversal-table-wrap">
+                    <table class="reversal-table">
+                        <thead><tr><th>Монета</th><th>Сторона</th><th>Период</th><th>Причина</th><th>Итог</th></tr></thead>
+                        <tbody>
+                        {% for trade in report.forward.closed %}
+                        <tr>
+                            <td><strong>{{ trade.ticker }}</strong></td>
+                            <td class="{{ 'positive' if trade.direction == 'long' else 'negative' }}">{{ trade.direction|upper }}</td>
+                            <td>{{ trade.entry_label }} → {{ trade.exit_label }}<span>UTC</span></td>
+                            <td>{{ {'target':'цель','stop':'стоп','time':'30 минут'}.get(trade.exit_reason, trade.exit_reason) }}</td>
+                            <td class="{% if trade.net_return_pct >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(trade.net_return_pct) }}%</strong><span>{{ '%+.2f'|format(trade.cash_result) }} $</span></td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="reversal-forward-empty">Завершённых forward-сделок пока нет.</div>
+                {% endif %}
+            </section>
+        </div>
+        {% else %}
+        <div class="reversal-forward-empty">После первой синхронизации будет поставлена временная отметка. Исторические сигналы сюда не попадут.</div>
+        {% endif %}
+    </section>
 
     {% if report.latest and report.latest.status == 'completed' %}
     <div class="reversal-meta">
