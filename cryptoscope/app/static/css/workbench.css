@@ -5487,6 +5487,97 @@ html[data-view-mode='beginner'] .signals-page {
     font-size: 18px;
 }
 
+.reversal-credibility {
+    border-bottom: 1px solid var(--border);
+    border-left: 3px solid var(--text-dim);
+    background: var(--surface-0);
+}
+
+.reversal-credibility.is-positive {
+    border-left-color: var(--green);
+}
+
+.reversal-credibility.is-negative {
+    border-left-color: var(--red);
+}
+
+.reversal-credibility > header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 14px;
+}
+
+.reversal-credibility h4,
+.reversal-credibility p {
+    margin: 4px 0 0;
+}
+
+.reversal-credibility p {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.reversal-credibility > header > strong {
+    font-family: var(--font-mono);
+    white-space: nowrap;
+}
+
+.reversal-confidence-progress {
+    height: 3px;
+    margin: 0 14px;
+    overflow: hidden;
+    background: var(--surface-2);
+}
+
+.reversal-confidence-progress > span {
+    display: block;
+    height: 100%;
+    background: var(--blue);
+}
+
+.reversal-credibility-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    margin-top: 14px;
+    border-top: 1px solid var(--border);
+}
+
+.reversal-credibility-grid > div {
+    min-width: 0;
+    padding: 12px 14px;
+    border-right: 1px solid var(--border);
+}
+
+.reversal-credibility-grid > div:last-child {
+    border-right: 0;
+}
+
+.reversal-credibility-grid span,
+.reversal-credibility-grid strong {
+    display: block;
+}
+
+.reversal-credibility-grid span {
+    margin-bottom: 5px;
+    color: var(--text-muted);
+    font-size: 9px;
+    text-transform: uppercase;
+}
+
+.reversal-credibility-grid strong {
+    font-family: var(--font-mono);
+    font-size: 14px;
+}
+
+.reversal-freshness-warning {
+    padding: 10px 14px;
+    border-top: 1px solid var(--red);
+    color: var(--red);
+    font-size: 11px;
+}
+
 .reversal-forward-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5583,6 +5674,18 @@ html[data-view-mode='beginner'] .signals-page {
     .reversal-forward-metrics,
     .reversal-forward-grid {
         grid-template-columns: 1fr;
+    }
+
+    .reversal-credibility > header {
+        flex-direction: column;
+    }
+
+    .reversal-credibility-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .reversal-credibility-grid > div:nth-child(2n) {
+        border-right: 0;
     }
 
     .reversal-forward-metrics > div {

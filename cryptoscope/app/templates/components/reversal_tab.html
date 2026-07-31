@@ -38,7 +38,9 @@
                 <h3>Наблюдение в реальном времени</h3>
             </div>
             {% if report.forward.initialized %}
-            <span>Запущен {{ report.forward.initialized_at }} UTC · проверка каждые 5 минут</span>
+            <span class="{% if report.forward.data_stale %}negative{% endif %}">
+                Данные {{ report.forward.data_label }} · проверка каждые 5 минут
+            </span>
             {% else %}
             <span>Ожидает первой синхронизации MEXC</span>
             {% endif %}
@@ -51,6 +53,32 @@
             <div><span>Доля прибыльных</span><strong>{{ '%.1f'|format(report.forward.metrics.win_rate) }}%</strong></div>
             <div><span>Зафиксировано при $100</span><strong class="{% if report.forward.metrics.net_cash >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(report.forward.metrics.net_cash) }} $</strong></div>
         </div>
+
+        {% set credibility = report.forward.credibility %}
+        <section class="reversal-credibility is-{{ credibility.verdict_tone }}">
+            <header>
+                <div>
+                    <span class="section-kicker">ПАНЕЛЬ ДОСТОВЕРНОСТИ</span>
+                    <h4>{{ credibility.verdict }}</h4>
+                    <p>{{ credibility.verdict_detail }}</p>
+                </div>
+                <strong>{{ credibility.sample }} / {{ credibility.sample_target }} сделок</strong>
+            </header>
+            <div class="reversal-confidence-progress" aria-label="Набрано {{ credibility.sample }} из {{ credibility.sample_target }} сделок">
+                <span style="width: {{ '%.1f'|format(credibility.sample_progress) }}%"></span>
+            </div>
+            <div class="reversal-credibility-grid">
+                <div><span>Profit factor</span><strong>{{ '%.2f'|format(credibility.profit_factor) }}</strong></div>
+                <div><span>Средняя прибыль</span><strong class="positive">{{ '%+.2f'|format(credibility.average_win_pct) }}%</strong></div>
+                <div><span>Средний убыток</span><strong class="negative">{{ '%+.2f'|format(credibility.average_loss_pct) }}%</strong></div>
+                <div><span>Макс. просадка</span><strong class="negative">-{{ '%.2f'|format(credibility.max_drawdown) }} $</strong></div>
+                <div><span>95% диапазон win rate</span><strong>{% if credibility.sample %}{{ '%.0f'|format(credibility.win_rate_low) }}–{{ '%.0f'|format(credibility.win_rate_high) }}%{% else %}—{% endif %}</strong></div>
+                <div><span>LONG / SHORT</span><strong>{{ credibility.long_trades }} / {{ credibility.short_trades }}</strong></div>
+            </div>
+            {% if report.forward.data_stale %}
+            <div class="reversal-freshness-warning">MEXC не дал свежую завершённую свечу более 15 минут. Новые входы нельзя считать актуальными.</div>
+            {% endif %}
+        </section>
 
         <div class="reversal-forward-grid">
             <section class="reversal-forward-panel">

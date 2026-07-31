@@ -15,6 +15,7 @@ from app.data.mexc_intraday import refresh_reversal_candles
 from app.db.schema import (
     CREATE_REVERSAL_CANDLES,
     CREATE_REVERSAL_FORWARD_STATE,
+    CREATE_REVERSAL_FORWARD_NOTIFICATIONS,
     CREATE_REVERSAL_FORWARD_TRADES,
     CREATE_REVERSAL_RUNS,
     CREATE_REVERSAL_TRADES,
@@ -40,6 +41,7 @@ def ensure_reversal_schema(conn: sqlite3.Connection) -> None:
         CREATE_REVERSAL_TRADES,
         CREATE_REVERSAL_FORWARD_STATE,
         CREATE_REVERSAL_FORWARD_TRADES,
+        CREATE_REVERSAL_FORWARD_NOTIFICATIONS,
     ):
         conn.execute(statement)
     conn.commit()
@@ -53,6 +55,21 @@ def _directional_return_pct(direction: str, entry_price: float, price: float) ->
     if direction == "long":
         return (price / entry_price - 1) * 100
     return (entry_price - price) / entry_price * 100
+
+
+def _queue_forward_notification(
+    conn: sqlite3.Connection,
+    trade_id: int,
+    event_type: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO reversal_forward_notifications (
+            strategy_version, trade_id, event_type
+        ) VALUES (?, ?, ?)
+        """,
+        (STRATEGY_VERSION, trade_id, event_type),
+    )
 
 
 def find_latest_confirmed_signals(
@@ -349,6 +366,7 @@ def process_reversal_forward(conn: sqlite3.Connection) -> dict:
                         trade["id"],
                     ),
                 )
+                _queue_forward_notification(conn, int(trade["id"]), "closed")
                 closed += 1
                 closed_tickers.add(str(trade["ticker"]))
                 break
@@ -404,6 +422,7 @@ def process_reversal_forward(conn: sqlite3.Connection) -> dict:
                 ),
             )
             if cursor.rowcount:
+                _queue_forward_notification(conn, int(cursor.lastrowid), "opened")
                 opened += 1
                 active_tickers.add(str(signal["ticker"]))
 
@@ -548,6 +567,74 @@ def _date_label(timestamp_ms: int | None) -> str | None:
     return datetime.fromtimestamp(int(timestamp_ms) / 1000, UTC).date().isoformat()
 
 
+def _forward_credibility(trades: list[dict]) -> dict:
+    count = len(trades)
+    wins = [trade for trade in trades if float(trade["cash_result"]) > 0]
+    losses = [trade for trade in trades if float(trade["cash_result"]) < 0]
+    win_rate = len(wins) / count if count else 0.0
+    if count:
+        z = 1.96
+        denominator = 1 + z * z / count
+        center = (win_rate + z * z / (2 * count)) / denominator
+        margin = z * math.sqrt(
+            win_rate * (1 - win_rate) / count + z * z / (4 * count * count)
+        ) / denominator
+        win_rate_low = max(0.0, center - margin) * 100
+        win_rate_high = min(1.0, center + margin) * 100
+    else:
+        win_rate_low = win_rate_high = 0.0
+    gross_wins = sum(float(trade["cash_result"]) for trade in wins)
+    gross_losses = abs(sum(float(trade["cash_result"]) for trade in losses))
+    profit_factor = gross_wins / gross_losses if gross_losses else (999.0 if wins else 0.0)
+    equity = np.cumsum([float(trade["cash_result"]) for trade in trades])
+    if len(equity):
+        peaks = np.maximum.accumulate(np.insert(equity, 0, 0.0))[1:]
+        max_drawdown = abs(float((equity - peaks).min()))
+    else:
+        max_drawdown = 0.0
+    average_net_pct = (
+        sum(float(trade["net_return_pct"]) for trade in trades) / count if count else 0.0
+    )
+    if count < 10:
+        verdict = "Данных пока мало"
+        verdict_tone = "neutral"
+        verdict_detail = "Не делайте вывод о стратегии по нескольким сделкам."
+    elif count < 30:
+        verdict = "Предварительный результат"
+        verdict_tone = "neutral"
+        verdict_detail = "Нужны минимум 30 закрытых forward-сделок."
+    elif profit_factor >= 1.2 and average_net_pct > 0:
+        verdict = "Преимущество подтверждается"
+        verdict_tone = "positive"
+        verdict_detail = "После расходов результат положительный, но наблюдение продолжается."
+    else:
+        verdict = "Преимущество не подтверждено"
+        verdict_tone = "negative"
+        verdict_detail = "Текущий forward-тест не показывает устойчивой прибыли после расходов."
+    return {
+        "sample": count,
+        "sample_target": 30,
+        "sample_progress": min(count / 30 * 100, 100.0),
+        "profit_factor": profit_factor,
+        "average_win_pct": (
+            sum(float(trade["net_return_pct"]) for trade in wins) / len(wins)
+            if wins else 0.0
+        ),
+        "average_loss_pct": (
+            sum(float(trade["net_return_pct"]) for trade in losses) / len(losses)
+            if losses else 0.0
+        ),
+        "max_drawdown": max_drawdown,
+        "win_rate_low": win_rate_low,
+        "win_rate_high": win_rate_high,
+        "long_trades": sum(trade["direction"] == "long" for trade in trades),
+        "short_trades": sum(trade["direction"] == "short" for trade in trades),
+        "verdict": verdict,
+        "verdict_tone": verdict_tone,
+        "verdict_detail": verdict_detail,
+    }
+
+
 def _forward_report(conn: sqlite3.Connection) -> dict:
     state = conn.execute(
         "SELECT * FROM reversal_forward_state WHERE strategy_version=?",
@@ -580,6 +667,15 @@ def _forward_report(conn: sqlite3.Connection) -> dict:
         """,
         (STRATEGY_VERSION,),
     ).fetchone()
+    credibility_rows = conn.execute(
+        """
+        SELECT direction, net_return_pct, cash_result
+        FROM reversal_forward_trades
+        WHERE strategy_version=? AND status='closed'
+        ORDER BY exit_time, id
+        """,
+        (STRATEGY_VERSION,),
+    ).fetchall()
 
     def serialize(row: sqlite3.Row, *, closed: bool) -> dict:
         item = dict(row)
@@ -598,10 +694,21 @@ def _forward_report(conn: sqlite3.Connection) -> dict:
 
     closed_count = int(summary["trades"] or 0)
     wins = int(summary["wins"] or 0)
+    last_confirmation_time = int(state["last_confirmation_time"]) if state else None
+    freshness_minutes = (
+        max(0.0, (datetime.now(UTC).timestamp() * 1000 - last_confirmation_time) / 60000)
+        if last_confirmation_time else None
+    )
     return {
         "initialized": state is not None,
         "initialized_at": state["initialized_at"] if state else None,
         "updated_at": state["updated_at"] if state else None,
+        "data_label": (
+            datetime.fromtimestamp(last_confirmation_time / 1000, UTC).strftime("%d.%m %H:%M UTC")
+            if last_confirmation_time else None
+        ),
+        "freshness_minutes": freshness_minutes,
+        "data_stale": freshness_minutes is not None and freshness_minutes > 15,
         "active": [serialize(row, closed=False) for row in active_rows],
         "closed": [serialize(row, closed=True) for row in closed_rows],
         "metrics": {
@@ -612,6 +719,7 @@ def _forward_report(conn: sqlite3.Connection) -> dict:
             "net_cash": float(summary["net_cash"] or 0),
             "average_net_pct": float(summary["average_net_pct"] or 0),
         },
+        "credibility": _forward_credibility([dict(row) for row in credibility_rows]),
     }
 
 

@@ -260,7 +260,7 @@ fi
             fi
         fi
 
-        if [ "$CURRENT_TIME" -ge "1600" ] && [ "$CURRENT_TIME" -lt "1800" ] && [ ! -f "$EVENING_MARKER" ]; then
+        if [ "${CONTENT_SIGNAL_POSTS_ENABLED:-false}" = "true" ] && [ "$CURRENT_TIME" -ge "1600" ] && [ "$CURRENT_TIME" -lt "1800" ] && [ ! -f "$EVENING_MARKER" ]; then
             echo "[$(date -u)] Publishing evening signal update..."
             if python /scripts/run_content_automation.py --updates-only; then
                 touch "$EVENING_MARKER"

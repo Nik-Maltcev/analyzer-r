@@ -17,6 +17,7 @@ from app.api.public_extension import refresh_extension_feed_snapshots
 from app.core.crypto_v2 import sync_crypto_v2_journal
 from app.core.market_regime import sync_market_regime_snapshots
 from app.core.scanner_history import sync_all_scanner_states
+from app.config import get_settings
 from app.data.brazil import fetch_brazil_prices, upsert_brazil_prices
 from app.data.indonesia import fetch_indonesia_prices, upsert_indonesia_prices
 from app.data.international import (
@@ -328,15 +329,18 @@ def main() -> int:
         print(f"Extension feed snapshot refresh failed: {exc}")
         return 1
 
-    print("Running crypto content automation...")
-    content_script = SCRIPT_DIR / "run_content_automation.py"
-    result = subprocess.run(
-        [sys.executable, str(content_script), "--main-only"],
-        check=False,
-    )
-    if result.returncode != 0:
-        print(f"Content automation failed with exit code {result.returncode}")
-        return result.returncode
+    if get_settings().content_signal_posts_enabled:
+        print("Running crypto content automation...")
+        content_script = SCRIPT_DIR / "run_content_automation.py"
+        result = subprocess.run(
+            [sys.executable, str(content_script), "--main-only"],
+            check=False,
+        )
+        if result.returncode != 0:
+            print(f"Content automation failed with exit code {result.returncode}")
+            return result.returncode
+    else:
+        print("Daily signal posts disabled; Reversal event notifications remain enabled")
     return 0
 
 

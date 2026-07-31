@@ -719,6 +719,24 @@ CREATE TABLE IF NOT EXISTS reversal_forward_trades (
 )
 """
 
+CREATE_REVERSAL_FORWARD_NOTIFICATIONS = """
+CREATE TABLE IF NOT EXISTS reversal_forward_notifications (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_version    TEXT NOT NULL,
+    trade_id            INTEGER NOT NULL,
+    event_type          TEXT NOT NULL CHECK (event_type IN ('opened', 'closed')),
+    status              TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'sent', 'failed')),
+    attempts            INTEGER NOT NULL DEFAULT 0,
+    telegram_message_id INTEGER,
+    last_error          TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    sent_at             TEXT,
+    UNIQUE (trade_id, event_type),
+    FOREIGN KEY (trade_id) REFERENCES reversal_forward_trades(id)
+)
+"""
+
 ALPHA_TRADE_COLUMN_MIGRATIONS = {
     "episode_canonical": "INTEGER NOT NULL DEFAULT 1",
 }
@@ -821,6 +839,10 @@ CREATE_REVERSAL_INDICES = [
     CREATE INDEX IF NOT EXISTS idx_reversal_forward_history
     ON reversal_forward_trades(strategy_version, status, exit_time DESC)
     """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_reversal_forward_notifications_pending
+    ON reversal_forward_notifications(status, attempts, id)
+    """,
 ]
 
 CREATE_CONTENT_PUBLICATION_INDICES = [
@@ -870,6 +892,7 @@ ALL_TABLES_SQL = [
     CREATE_REVERSAL_TRADES,
     CREATE_REVERSAL_FORWARD_STATE,
     CREATE_REVERSAL_FORWARD_TRADES,
+    CREATE_REVERSAL_FORWARD_NOTIFICATIONS,
 ]
 
 ALL_INDICES_SQL = (

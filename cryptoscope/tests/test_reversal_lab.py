@@ -5,10 +5,14 @@ import pandas as pd
 
 from app.core.reversal_lab import (
     ROUND_TRIP_COST_PCT,
+    _forward_credibility,
     backtest_reversal,
     ensure_reversal_schema,
     process_reversal_forward,
 )
+from app.config import get_settings
+from app.content.reversal_notifications import dispatch_reversal_notifications
+from app.content.telegram import TelegramPublisher
 
 
 def _synthetic_candles() -> pd.DataFrame:
@@ -89,6 +93,9 @@ def test_forward_journal_starts_now_and_never_duplicates_closed_trade():
         "SELECT * FROM reversal_forward_trades WHERE ticker='ALT/USD'"
     ).fetchone()
     assert opened["opened"] == 1
+    assert conn.execute(
+        "SELECT COUNT(*) FROM reversal_forward_notifications WHERE event_type='opened'"
+    ).fetchone()[0] == 1
     assert trade["direction"] == "long"
     assert trade["status"] == "active"
 
@@ -105,9 +112,68 @@ def test_forward_journal_starts_now_and_never_duplicates_closed_trade():
     assert final[1] == "target"
     assert final[3] == final[2] - ROUND_TRIP_COST_PCT
     assert final[4] == final[3]
+    assert conn.execute(
+        "SELECT COUNT(*) FROM reversal_forward_notifications WHERE event_type='closed'"
+    ).fetchone()[0] == 1
 
     process_reversal_forward(conn)
     assert conn.execute("SELECT COUNT(*) FROM reversal_forward_trades").fetchone()[0] == 1
     assert conn.execute(
         "SELECT net_return_pct FROM reversal_forward_trades WHERE ticker='ALT/USD'"
     ).fetchone()[0] == final[3]
+    assert conn.execute(
+        "SELECT COUNT(*) FROM reversal_forward_notifications"
+    ).fetchone()[0] == 2
+
+
+def test_forward_credibility_requires_a_real_sample():
+    small = _forward_credibility([
+        {"cash_result": 1.0, "net_return_pct": 1.0, "direction": "long"},
+        {"cash_result": -1.0, "net_return_pct": -1.0, "direction": "short"},
+    ])
+    assert small["verdict"] == "Данных пока мало"
+    assert small["sample_progress"] < 10
+    assert 0 <= small["win_rate_low"] <= small["win_rate_high"] <= 100
+
+    confirmed = _forward_credibility([
+        {"cash_result": 1.0, "net_return_pct": 1.0, "direction": "long"}
+        for _ in range(20)
+    ] + [
+        {"cash_result": -0.5, "net_return_pct": -0.5, "direction": "short"}
+        for _ in range(10)
+    ])
+    assert confirmed["sample_progress"] == 100
+    assert confirmed["profit_factor"] == 4.0
+    assert confirmed["verdict"] == "Преимущество подтверждается"
+
+
+def test_forward_telegram_event_is_delivered_once(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "forward.db")
+    candles = _synthetic_candles()
+    timestamps = sorted(candles["open_time"].unique())
+    conn = sqlite3.connect(db_path)
+    ensure_reversal_schema(conn)
+    _insert_candles(conn, candles[candles["open_time"] <= timestamps[305]])
+    process_reversal_forward(conn)
+    _insert_candles(conn, candles[candles["open_time"] == timestamps[306]])
+    process_reversal_forward(conn)
+    conn.close()
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "reversal_telegram_notifications_enabled", True)
+    monkeypatch.setattr(settings, "content_telegram_bot_token", "test-token")
+    monkeypatch.setattr(settings, "content_telegram_chat_id", "test-chat")
+    sent_messages = []
+
+    def fake_send(self, text, reply_to_message_id=None):
+        sent_messages.append(text)
+        return 42
+
+    monkeypatch.setattr(TelegramPublisher, "send_message", fake_send)
+    first = dispatch_reversal_notifications(db_path)
+    second = dispatch_reversal_notifications(db_path)
+
+    assert first == {"status": "processed", "sent": 1, "failed": 0}
+    assert second == {"status": "processed", "sent": 0, "failed": 0}
+    assert len(sent_messages) == 1
+    assert "Открыта тестовая позиция" in sent_messages[0]

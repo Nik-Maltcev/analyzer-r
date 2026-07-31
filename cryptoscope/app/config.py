@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     telegram_chat_id: str = ""
 
     content_automation_enabled: bool = False
+    content_signal_posts_enabled: bool = False
     content_bot_user_id: str = "content-bot"
     content_telegram_bot_token: str = ""
     content_telegram_chat_id: str = ""
@@ -62,6 +63,7 @@ class Settings(BaseSettings):
     content_threads_access_token: str = ""
     content_threads_api_version: str = ""
     content_public_asset_base_url: str = ""
+    reversal_telegram_notifications_enabled: bool = True
 
     log_level: str = "info"
     readiness_max_age_hours: int = 48
