@@ -142,10 +142,11 @@
         }, 60000);
 
         // Wake Lock
-        if ('wakeLock' in navigator) {
-            try {
-                navigator.wakeLock.request('screen');
-            } catch(e) {}
+        if (
+            'wakeLock' in navigator
+            && document.visibilityState === 'visible'
+        ) {
+            navigator.wakeLock.request('screen').catch(() => {});
         }
 
 // Check the MEXC live-price status.

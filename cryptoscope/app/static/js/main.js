@@ -190,6 +190,7 @@ function appLoadingMessage(source, target) {
 }
 
 function shouldBlockAppRequest(source, target) {
+    if (source?.dataset?.nonblockingRequest === 'true') return false;
     const targetId = target?.id || '';
     if (
         targetId === 'main-content'

@@ -1,0 +1,26 @@
+{% if refresh_state.status == "running" %}
+<div id="alpha-refresh-status"
+     class="crypto-refresh-message"
+     hx-get="/tab/alpha/refresh-status"
+     hx-trigger="load delay:4s"
+     hx-target="this"
+     hx-swap="outerHTML"
+     data-nonblocking-request="true">
+    Обновляем дневные цены MEXC, сканеры и план Alpha. Сервис продолжает работать.
+</div>
+{% else %}
+<div id="alpha-refresh-status"
+     class="crypto-refresh-message{% if refresh_state.status == 'error' %} is-error{% endif %}"
+     hx-get="/tab/alpha?refresh_status=true"
+     hx-trigger="load"
+     hx-target="#main-content"
+     hx-swap="innerHTML"
+     hx-sync="#main-content:replace"
+     data-nonblocking-request="true">
+    {% if refresh_state.status == "success" %}
+        Пересчёт завершён. Загружаем свежий план.
+    {% else %}
+        Пересчёт завершился ошибкой. Загружаем подробности.
+    {% endif %}
+</div>
+{% endif %}

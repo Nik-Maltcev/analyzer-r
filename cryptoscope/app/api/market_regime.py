@@ -27,33 +27,72 @@ from app.ui.templates import templates
 
 router = APIRouter(tags=["market-regime"])
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
-_ALPHA_REFRESH_LOCK = asyncio.Lock()
+_ALPHA_REFRESH_TASK: asyncio.Task | None = None
+_ALPHA_REFRESH_STATE: dict = {
+    "status": "idle",
+    "result": None,
+    "error": None,
+}
 
 
 async def _refresh_alpha_inputs() -> dict:
     """Refresh completed crypto candles and scanner state before Alpha."""
-    async with _ALPHA_REFRESH_LOCK:
-        conn = sqlite3.connect(database.DB_PATH, timeout=60)
-        try:
-            market_result = await refresh_mexc_crypto_market(
-                conn,
-                CRYPTO_TICKERS,
-            )
-        finally:
-            conn.close()
+    conn = sqlite3.connect(database.DB_PATH, timeout=60)
+    try:
+        market_result = await refresh_mexc_crypto_market(
+            conn,
+            CRYPTO_TICKERS,
+        )
+    finally:
+        conn.close()
 
-        await sync_all_scanner_states(
-            database.DB_PATH,
-            ("crypto",),
-        )
-        regime_result = await sync_market_regime_snapshots(
-            database.DB_PATH,
-        )
-        regime_result["market_latest_data_date"] = market_result.get(
-            "latest_date"
-        )
-        regime_result["market_tickers"] = market_result.get("tickers")
-        return regime_result
+    await sync_all_scanner_states(
+        database.DB_PATH,
+        ("crypto",),
+    )
+    regime_result = await sync_market_regime_snapshots(
+        database.DB_PATH,
+    )
+    regime_result["market_latest_data_date"] = market_result.get(
+        "latest_date"
+    )
+    regime_result["market_tickers"] = market_result.get("tickers")
+    return regime_result
+
+
+def _refresh_alpha_inputs_in_worker() -> dict:
+    """Run the async refresh pipeline on a dedicated worker thread."""
+    return asyncio.run(_refresh_alpha_inputs())
+
+
+async def _run_alpha_refresh() -> None:
+    try:
+        result = await asyncio.to_thread(_refresh_alpha_inputs_in_worker)
+    except Exception as exc:
+        _ALPHA_REFRESH_STATE.update({
+            "status": "error",
+            "result": None,
+            "error": str(exc)[:500],
+        })
+        print(f"Market regime background refresh failed: {exc!r}")
+        return
+    _ALPHA_REFRESH_STATE.update({
+        "status": "success",
+        "result": result,
+        "error": None,
+    })
+
+
+def _start_alpha_refresh() -> None:
+    global _ALPHA_REFRESH_TASK
+    if _ALPHA_REFRESH_TASK is not None and not _ALPHA_REFRESH_TASK.done():
+        return
+    _ALPHA_REFRESH_STATE.update({
+        "status": "running",
+        "result": None,
+        "error": None,
+    })
+    _ALPHA_REFRESH_TASK = asyncio.create_task(_run_alpha_refresh())
 
 
 async def _alpha_live_context(
@@ -84,6 +123,7 @@ async def _alpha_live_context(
 async def market_regime_tab(
     request: Request,
     refresh: bool = Query(False),
+    refresh_status: bool = Query(False),
 ):
     user = getattr(request.state, "current_user", None)
     is_admin = is_admin_user(user)
@@ -92,21 +132,27 @@ async def market_regime_tab(
     live_prices: dict[str, float] = {}
     live_price_source_label = None
 
-    if refresh and not is_admin:
+    if (refresh or refresh_status) and not is_admin:
         raise HTTPException(status_code=404, detail="Not found")
-    if refresh:
-        try:
-            refresh_result = await _refresh_alpha_inputs()
-        except Exception as exc:
+
+    refresh_state = dict(_ALPHA_REFRESH_STATE)
+    refresh_in_progress = refresh_state["status"] == "running"
+    if refresh or refresh_status:
+        if refresh_state["status"] == "success":
+            refresh_result = refresh_state["result"]
+        elif refresh_state["status"] == "error":
+            detail = refresh_state.get("error") or "неизвестная ошибка"
             refresh_error = (
                 "Не удалось пересчитать режим рынка. "
-                "Сохранённый снимок не изменён."
+                f"Причина: {detail}"
             )
-            print(f"Market regime refresh failed: {exc}")
 
     try:
         live_prices, live_price_source_label = await _alpha_live_context(
-            force_refresh=refresh,
+            force_refresh=(
+                refresh_status
+                and refresh_state["status"] == "success"
+            ),
         )
     except Exception as exc:
         print(f"Alpha MEXC live refresh failed: {exc}")
@@ -118,11 +164,16 @@ async def market_regime_tab(
 
     evaluation_date = datetime.now(MOSCOW_TZ).date().isoformat()
     async with get_connection() as conn:
-        expiration_result = await expire_alpha_trade_journal(
-            conn,
-            as_of_date=evaluation_date,
-            live_prices=live_prices,
-        )
+        expiration_result = {
+            "closed": 0,
+            "skipped": [],
+        }
+        if not refresh_in_progress:
+            expiration_result = await expire_alpha_trade_journal(
+                conn,
+                as_of_date=evaluation_date,
+                live_prices=live_prices,
+            )
         if refresh_result is not None:
             refresh_result["alpha_expired"] = expiration_result["closed"]
             refresh_result["alpha_expiration_skipped"] = expiration_result["skipped"]
@@ -133,6 +184,12 @@ async def market_regime_tab(
             evaluation_date=evaluation_date,
         )
 
+    if refresh:
+        _start_alpha_refresh()
+        refresh_result = None
+        refresh_error = None
+        refresh_in_progress = True
+
     return templates.TemplateResponse(
         request,
         "components/market_regime_tab.html",
@@ -141,7 +198,22 @@ async def market_regime_tab(
             "latest": report.get("latest"),
             "refresh_result": refresh_result,
             "refresh_error": refresh_error,
+            "refresh_in_progress": refresh_in_progress,
             "is_admin": is_admin,
+        },
+    )
+
+
+@router.get("/tab/alpha/refresh-status", response_class=HTMLResponse)
+async def market_regime_refresh_status(request: Request):
+    user = getattr(request.state, "current_user", None)
+    if not is_admin_user(user):
+        raise HTTPException(status_code=404, detail="Not found")
+    return templates.TemplateResponse(
+        request,
+        "components/alpha_refresh_status.html",
+        {
+            "refresh_state": dict(_ALPHA_REFRESH_STATE),
         },
     )
 

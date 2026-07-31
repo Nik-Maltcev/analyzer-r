@@ -10,6 +10,7 @@
             {% if is_admin %}
             <button class="crypto-refresh-button"
                     type="button"
+                    {% if refresh_in_progress %}disabled{% endif %}
                     hx-get="/tab/alpha?refresh=true"
                     hx-target="#main-content"
                     hx-swap="innerHTML"
@@ -25,13 +26,24 @@
     {% if refresh_error %}
     <div class="crypto-refresh-message is-error">{{ refresh_error }}</div>
     {% endif %}
+    {% if refresh_in_progress %}
+    <div id="alpha-refresh-status"
+         class="crypto-refresh-message"
+         hx-get="/tab/alpha/refresh-status"
+         hx-trigger="load delay:4s"
+         hx-target="this"
+         hx-swap="outerHTML"
+         data-nonblocking-request="true">
+        Обновляем дневные цены MEXC, сканеры и план Alpha. Страницу можно не держать открытой.
+    </div>
+    {% endif %}
     {% if refresh_result %}
     <div class="crypto-refresh-message is-success">
         Снимок за {{ refresh_result.latest_data_date }} готов · {{ refresh_result.snapshots }} сессий в истории
     </div>
     {% endif %}
 
-    {% if report.is_stale %}
+    {% if report.is_stale and not refresh_in_progress %}
     <div class="crypto-refresh-message is-error">
         Данные Alpha отстают на {{ report.stale_days }} дн.
         Просроченные торговые действия скрыты. Нажмите «Пересчитать»,
