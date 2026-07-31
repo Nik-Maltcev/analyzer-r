@@ -19,7 +19,10 @@ REVERSAL_TICKERS = (
 )
 INTERVAL_MS = 5 * 60 * 1000
 HISTORY_DAYS = 90
-PAGE_LIMIT = 1000
+# MEXC documents 1000 as the maximum, but the live endpoint currently caps
+# kline responses at 500. Pagination must use the effective limit; otherwise a
+# 500-row response looks like the final page and leaves the dataset stale.
+PAGE_LIMIT = 500
 
 
 async def refresh_reversal_candles(
