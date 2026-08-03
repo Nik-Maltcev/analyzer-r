@@ -47,7 +47,7 @@ def test_short_return_uses_entry_not_exit_as_denominator():
     assert _directional_return("long", 100, 110) == pytest.approx(10.0)
 
 
-def test_second_batch_candidate_generation_smoke():
+def test_third_batch_candidate_generation_smoke():
     rng = np.random.default_rng(42)
     rows = []
     times = np.arange(2_200, dtype=np.int64) * 300_000
@@ -67,15 +67,15 @@ def test_second_batch_candidate_generation_smoke():
 
     candidates = generate_candidates(_bars(rows))
 
-    assert CALCULATION_VERSION == "short-term-lab-v2"
+    assert CALCULATION_VERSION == "short-term-lab-v3"
     assert set(candidates) == {
-        "vwap_reversion",
-        "liquidity_sweep",
-        "volatility_squeeze",
-        "btc_lead_lag",
+        "trend_persistence",
+        "trend_rsi_pullback",
+        "residual_reversion",
+        "volume_flow_breakout",
     }
     assert all(
-        event["signal_time"] % (15 * 60_000) == 0
+        event["signal_time"] % (60 * 60_000) == 0
         for events in candidates.values()
         for event in events
     )

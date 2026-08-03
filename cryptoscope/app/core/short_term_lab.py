@@ -20,46 +20,46 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v2"
+CALCULATION_VERSION = "short-term-lab-v3"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 STRATEGIES = {
-    "vwap_reversion": {
-        "name": "VWAP Mean Reversion",
-        "short_name": "Возврат к VWAP",
-        "timeframe": 15,
-        "hold": 4 * 60,
-        "stop": 3.0,
-        "target": 4.0,
-        "description": "Входит после подтверждённого возврата от экстремального отклонения к объёмной средней.",
+    "trend_persistence": {
+        "name": "Trend Persistence",
+        "short_name": "Устойчивый тренд",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 5.0,
+        "target": 10.0,
+        "description": "Торгует только сильный согласованный тренд цены и объёма на часовом горизонте.",
     },
-    "liquidity_sweep": {
-        "name": "Liquidity Sweep Reversal",
-        "short_name": "Ложный пробой",
-        "timeframe": 15,
-        "hold": 4 * 60,
-        "stop": 3.0,
-        "target": 5.0,
-        "description": "Ищет прокол локального экстремума с длинной тенью и возвратом цены внутрь диапазона.",
+    "trend_rsi_pullback": {
+        "name": "Trend RSI Pullback",
+        "short_name": "Откат в тренде",
+        "timeframe": 60,
+        "hold": 18 * 60,
+        "stop": 4.0,
+        "target": 8.0,
+        "description": "Входит после восстановления импульса из умеренного отката внутри сильного тренда.",
     },
-    "volatility_squeeze": {
-        "name": "Volatility Squeeze",
-        "short_name": "Выход из сжатия",
-        "timeframe": 15,
+    "residual_reversion": {
+        "name": "BTC Residual Reversion",
+        "short_name": "Возврат к BTC-бете",
+        "timeframe": 60,
         "hold": 12 * 60,
         "stop": 4.0,
         "target": 7.0,
-        "description": "Торгует выход из аномально узкого диапазона только при подтверждении объёмом.",
+        "description": "Ищет подтверждённый возврат аномального движения монеты к зависимости от BTC.",
     },
-    "btc_lead_lag": {
-        "name": "BTC Lead-Lag",
-        "short_name": "Запаздывание за BTC",
-        "timeframe": 15,
-        "hold": 3 * 60,
-        "stop": 3.0,
-        "target": 4.5,
-        "description": "Ищет ликвидные монеты, которые запаздывают после сильного движения BTC.",
+    "volume_flow_breakout": {
+        "name": "Volume Flow Breakout",
+        "short_name": "Импульс денежного потока",
+        "timeframe": 60,
+        "hold": 18 * 60,
+        "stop": 5.0,
+        "target": 9.0,
+        "description": "Принимает пробой только при устойчивом направленном денежном потоке и всплеске объёма.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -460,13 +460,178 @@ def _btc_lead_lag(fifteen: pd.DataFrame) -> list[dict]:
     return [_candidate("btc_lead_lag", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
+def _trend_persistence(hourly: pd.DataFrame) -> list[dict]:
+    rows: list[pd.DataFrame] = []
+    btc = hourly[hourly["ticker"] == "BTC/USD"].set_index("open_time")["close"]
+    btc_return_24h = btc.pct_change(24, fill_method=None) * 100
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        ema24 = frame["close"].ewm(span=24, adjust=False, min_periods=24).mean()
+        ema72 = frame["close"].ewm(span=72, adjust=False, min_periods=72).mean()
+        return_6h = frame["close"].pct_change(6, fill_method=None) * 100
+        return_24h = frame["close"].pct_change(24, fill_method=None) * 100
+        return_72h = frame["close"].pct_change(72, fill_method=None) * 100
+        volume_base = frame["quote_volume"].rolling(24, min_periods=18).median().shift(1).replace(0, np.nan)
+        volume_ratio = frame["quote_volume"] / volume_base
+        btc_context = frame["open_time"].map(btc_return_24h).fillna(0.0)
+        cadence = pd.Series(np.arange(len(frame)) % 6 == 0, index=frame.index)
+        long_condition = (
+            cadence & (ema24 > ema72 * 1.015) & (frame["close"] > ema24)
+            & (return_6h >= 0.6) & (return_24h >= 3.0) & (return_72h >= 5.0)
+            & (volume_ratio >= 1.10) & (btc_context >= -3.0)
+        )
+        short_condition = (
+            cadence & (ema24 < ema72 * 0.985) & (frame["close"] < ema24)
+            & (return_6h <= -0.6) & (return_24h <= -3.0) & (return_72h <= -5.0)
+            & (volume_ratio >= 1.10) & (btc_context <= 3.0)
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        trend_strength = (ema24 / ema72 - 1.0).abs() * 100
+        score = trend_strength + return_24h.abs() / 3 + np.log1p(volume_ratio)
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = score[direction != ""]
+        rows.append(out.rename(columns={"close": "signal_price"}))
+    selected = _cap_per_time(
+        pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=1
+    )
+    return [_candidate("trend_persistence", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
+def _trend_rsi_pullback(hourly: pd.DataFrame) -> list[dict]:
+    rows: list[pd.DataFrame] = []
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        ema24 = frame["close"].ewm(span=24, adjust=False, min_periods=24).mean()
+        ema72 = frame["close"].ewm(span=72, adjust=False, min_periods=72).mean()
+        delta = frame["close"].diff()
+        gain = delta.clip(lower=0).ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
+        loss = (-delta.clip(upper=0)).ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
+        rsi = 100 - 100 / (1 + gain / loss.replace(0, np.nan))
+        return_72h = frame["close"].pct_change(72, fill_method=None) * 100
+        volume_base = frame["quote_volume"].rolling(24, min_periods=18).median().shift(1).replace(0, np.nan)
+        volume_ratio = frame["quote_volume"] / volume_base
+        long_condition = (
+            (ema24 > ema72 * 1.01) & (return_72h >= 3.0)
+            & (rsi.shift(1) < 45) & (rsi >= 45)
+            & (frame["close"] > frame["open"]) & (volume_ratio >= 0.8)
+        )
+        short_condition = (
+            (ema24 < ema72 * 0.99) & (return_72h <= -3.0)
+            & (rsi.shift(1) > 55) & (rsi <= 55)
+            & (frame["close"] < frame["open"]) & (volume_ratio >= 0.8)
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        trend_strength = (ema24 / ema72 - 1.0).abs() * 100
+        score = 2.0 + trend_strength + (rsi - 50).abs() / 25
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = score[direction != ""]
+        rows.append(out.rename(columns={"close": "signal_price"}))
+    selected = _cap_per_time(
+        pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=1
+    )
+    return [_candidate("trend_rsi_pullback", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
+def _residual_reversion(hourly: pd.DataFrame) -> list[dict]:
+    close = hourly.pivot(index="open_time", columns="ticker", values="close")
+    returns = close.pct_change(fill_method=None)
+    btc = returns.get("BTC/USD")
+    if btc is None:
+        return []
+    btc_variance = btc.rolling(336, min_periods=168).var().shift(1).replace(0, np.nan)
+    rows: list[dict] = []
+    for ticker in close.columns:
+        if ticker == "BTC/USD":
+            continue
+        coin = returns[ticker]
+        beta = coin.rolling(336, min_periods=168).cov(btc).shift(1) / btc_variance
+        correlation = coin.rolling(336, min_periods=168).corr(btc).shift(1)
+        residual = coin - beta * btc
+        cumulative = residual.rolling(6, min_periods=6).sum()
+        baseline = cumulative.rolling(336, min_periods=168).std().shift(1).replace(0, np.nan)
+        zscore = cumulative / baseline
+        previous = zscore.shift(1)
+        long_condition = (previous <= -2.5) & (zscore > previous) & (correlation >= 0.45)
+        short_condition = (previous >= 2.5) & (zscore < previous) & (correlation >= 0.45)
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        selected = direction != ""
+        for timestamp in close.index[selected]:
+            price = close.at[timestamp, ticker]
+            value = previous.loc[timestamp]
+            if pd.isna(price) or pd.isna(value):
+                continue
+            rows.append({
+                "open_time": int(timestamp),
+                "ticker": ticker,
+                "direction": str(direction[close.index.get_loc(timestamp)]),
+                "signal_price": float(price),
+                "score": float(abs(value)),
+            })
+    selected = _cap_per_time(pd.DataFrame(rows), count=1)
+    return [_candidate("residual_reversion", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
+def _volume_flow_breakout(hourly: pd.DataFrame) -> list[dict]:
+    rows: list[pd.DataFrame] = []
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        candle_range = (frame["high"] - frame["low"]).replace(0, np.nan)
+        close_location = (
+            (frame["close"] - frame["low"]) - (frame["high"] - frame["close"])
+        ) / candle_range
+        signed_flow = close_location * frame["quote_volume"]
+        flow_ratio = (
+            signed_flow.rolling(12, min_periods=12).sum()
+            / frame["quote_volume"].rolling(12, min_periods=12).sum().replace(0, np.nan)
+        )
+        range_high = frame["high"].rolling(48, min_periods=36).max().shift(1)
+        range_low = frame["low"].rolling(48, min_periods=36).min().shift(1)
+        previous_close = frame["close"].shift(1)
+        true_range = pd.concat([
+            frame["high"] - frame["low"],
+            (frame["high"] - previous_close).abs(),
+            (frame["low"] - previous_close).abs(),
+        ], axis=1).max(axis=1)
+        atr = true_range.rolling(14, min_periods=14).mean().shift(1).replace(0, np.nan)
+        volume_base = frame["quote_volume"].rolling(24, min_periods=18).median().shift(1).replace(0, np.nan)
+        volume_ratio = frame["quote_volume"] / volume_base
+        long_condition = (
+            (frame["close"] > range_high) & (flow_ratio >= 0.25)
+            & (close_location >= 0.5) & (volume_ratio >= 1.5)
+        )
+        short_condition = (
+            (frame["close"] < range_low) & (flow_ratio <= -0.25)
+            & (close_location <= -0.5) & (volume_ratio >= 1.5)
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        distance = np.where(
+            direction == "long",
+            (frame["close"] - range_high) / atr,
+            (range_low - frame["close"]) / atr,
+        )
+        score = 1.5 + np.maximum(distance, 0) + np.log1p(volume_ratio) + flow_ratio.abs()
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = score[direction != ""]
+        rows.append(out.rename(columns={"close": "signal_price"}))
+    selected = _cap_per_time(
+        pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=1
+    )
+    return [_candidate("volume_flow_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
 def generate_candidates(candles: pd.DataFrame) -> dict[str, list[dict]]:
-    fifteen = _aggregate(candles, 15)
+    hourly = _aggregate(candles, 60)
     return {
-        "vwap_reversion": _vwap_reversion(fifteen),
-        "liquidity_sweep": _liquidity_sweep(fifteen),
-        "volatility_squeeze": _volatility_squeeze(fifteen),
-        "btc_lead_lag": _btc_lead_lag(fifteen),
+        "trend_persistence": _trend_persistence(hourly),
+        "trend_rsi_pullback": _trend_rsi_pullback(hourly),
+        "residual_reversion": _residual_reversion(hourly),
+        "volume_flow_breakout": _volume_flow_breakout(hourly),
     }
 
 
