@@ -72,7 +72,7 @@ def test_ninth_batch_candidate_generation_smoke():
 
     candidates = generate_candidates(_bars(rows))
 
-    assert CALCULATION_VERSION == "short-term-lab-v9"
+    assert CALCULATION_VERSION == "short-term-lab-v10"
     assert set(candidates) == {"trend_persistence"}
     assert all(
         event["signal_time"] % (6 * 60 * 60_000) == 0
@@ -106,6 +106,7 @@ def test_trend_backtest_has_30_90_180_and_365_day_windows():
         "trend_persistence_365d",
     }
     assert [metrics[key]["window_days"] for key in metrics] == [30, 90, 180, 365]
+    assert all(not metrics[key]["is_complete"] for key in metrics)
 
 
 def test_intraday_universe_uses_all_100_configured_crypto_tickers():

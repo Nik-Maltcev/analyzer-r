@@ -12,15 +12,20 @@ from threading import Lock
 import numpy as np
 import pandas as pd
 
-from app.data.mexc_intraday import INTRADAY_TICKERS, refresh_reversal_candles
+from app.data.mexc_intraday import (
+    INTRADAY_TICKERS,
+    refresh_reversal_candles,
+    refresh_short_term_hourly_candles,
+)
 from app.db.schema import (
     CREATE_REVERSAL_CANDLES,
+    CREATE_SHORT_TERM_HOURLY_CANDLES,
     CREATE_SHORT_TERM_BACKTEST_TRADES,
     CREATE_SHORT_TERM_FORWARD_TRADES,
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v9"
+CALCULATION_VERSION = "short-term-lab-v10"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -42,6 +47,7 @@ _REFRESH_LOCK = Lock()
 def ensure_short_term_schema(conn: sqlite3.Connection) -> None:
     for statement in (
         CREATE_REVERSAL_CANDLES,
+        CREATE_SHORT_TERM_HOURLY_CANDLES,
         CREATE_SHORT_TERM_RUNS,
         CREATE_SHORT_TERM_BACKTEST_TRADES,
         CREATE_SHORT_TERM_FORWARD_TRADES,
@@ -86,6 +92,22 @@ def _load_candles(conn: sqlite3.Connection) -> pd.DataFrame:
         """
         SELECT ticker, open_time, open, high, low, close, volume, quote_volume
         FROM reversal_candles
+        ORDER BY ticker, open_time
+        """,
+        conn,
+    )
+    if frame.empty:
+        return frame
+    for column in ("open", "high", "low", "close", "volume", "quote_volume"):
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    return frame.dropna(subset=["open", "high", "low", "close"])
+
+
+def _load_hourly_candles(conn: sqlite3.Connection) -> pd.DataFrame:
+    frame = pd.read_sql_query(
+        """
+        SELECT ticker, open_time, open, high, low, close, volume, quote_volume
+        FROM short_term_hourly_candles
         ORDER BY ticker, open_time
         """,
         conn,
@@ -825,8 +847,12 @@ def _volume_flow_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("volume_flow_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
-def generate_candidates(candles: pd.DataFrame) -> dict[str, list[dict]]:
-    hourly = _aggregate(candles, 60)
+def generate_candidates(
+    candles: pd.DataFrame,
+    *,
+    already_hourly: bool = False,
+) -> dict[str, list[dict]]:
+    hourly = candles if already_hourly else _aggregate(candles, 60)
     return {"trend_persistence": _trend_persistence(hourly)}
 
 
@@ -983,6 +1009,11 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
             next_free[event["ticker"]] = int(trade["exit_time"] + FIVE_MINUTES_MS)
     metrics: dict[str, dict] = {}
     latest_time = int(candles["open_time"].max()) if not candles.empty else 0
+    earliest_time = int(candles["open_time"].min()) if not candles.empty else 0
+    coverage_days = (
+        int((latest_time - earliest_time) // (24 * 60 * 60 * 1000)) + 1
+        if latest_time and earliest_time else 0
+    )
     for days in BACKTEST_WINDOWS_DAYS:
         cutoff = latest_time - days * 24 * 60 * 60 * 1000
         subset = [
@@ -995,6 +1026,8 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
         losses = [value for value in values if value < 0]
         metrics[f"trend_persistence_{days}d"] = {
             "window_days": days,
+            "coverage_days": coverage_days,
+            "is_complete": coverage_days >= days,
             "trades": len(subset),
             "wins": len(wins),
             "win_rate": len(wins) / len(subset) * 100 if subset else 0.0,
@@ -1202,9 +1235,13 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
         conn.commit()
         try:
             refresh = await refresh_reversal_candles(conn)
+            historical_refresh = await refresh_short_term_hourly_candles(conn)
             candles = _load_candles(conn)
+            historical_candles = _load_hourly_candles(conn)
             if candles.empty:
                 raise RuntimeError("MEXC did not return completed 5-minute candles")
+            if historical_candles.empty:
+                raise RuntimeError("MEXC did not return completed hourly candles")
             latest = int(candles["open_time"].max())
             age_minutes = (datetime.now(UTC).timestamp() * 1000 - latest) / 60_000
             if age_minutes > 20:
@@ -1232,8 +1269,16 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
             trades: list[dict] = []
             metrics: dict = {}
             if include_backtest:
-                historical_candidates = generate_candidates(candles)
-                trades, metrics = backtest(candles, historical_candidates)
+                historical_candidates = generate_candidates(
+                    historical_candles, already_hourly=True
+                )
+                trades, metrics = backtest(historical_candles, historical_candidates)
+                coverage_days = int(historical_refresh.get("coverage_days") or 0)
+                for metric in metrics.values():
+                    metric["coverage_days"] = coverage_days
+                    metric["is_complete"] = coverage_days >= int(
+                        metric.get("window_days") or 0
+                    )
             else:
                 previous = conn.execute(
                     """
@@ -1266,14 +1311,21 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                   trade.get("hedge_exit_price"))
                  for trade in trades],
             )
-            payload = {"strategies": metrics, "forward": {**forward, "pending": inserted}}
+            payload = {
+                "strategies": metrics,
+                "forward": {**forward, "pending": inserted},
+                "coverage_days": int(historical_refresh.get("coverage_days") or 0),
+                "historical_refresh": historical_refresh,
+            }
             conn.execute(
                 """
                 UPDATE short_term_runs
                 SET status='completed', completed_at=datetime('now'), data_start=?,
                     data_end=?, candle_count=?, metrics_json=? WHERE id=?
                 """,
-                (int(candles["open_time"].min()), latest, len(candles), json.dumps(payload), run_id),
+                (int(historical_candles["open_time"].min()),
+                 int(historical_candles["open_time"].max()),
+                 len(historical_candles), json.dumps(payload), run_id),
             )
             conn.commit()
             return {"status": "completed", "run_id": run_id, "refresh": refresh, **payload}
@@ -1353,9 +1405,19 @@ def get_short_term_report(db_path: str) -> dict:
     latest_dict = dict(latest) if latest else None
     if latest_dict:
         latest_dict["data_label"] = _format_time(latest_dict.get("data_end"))
+        started_at = latest_dict.get("started_at")
+        try:
+            started = datetime.fromisoformat(str(started_at)).replace(tzinfo=UTC)
+            age_minutes = (datetime.now(UTC) - started).total_seconds() / 60
+        except (TypeError, ValueError):
+            age_minutes = 0
+        latest_dict["is_stale"] = bool(
+            latest_dict.get("status") == "running" and age_minutes > 30
+        )
     completed_dict = dict(completed) if completed else None
     if completed_dict:
         completed_dict["data_label"] = _format_time(completed_dict.get("data_end"))
+        completed_dict["coverage_days"] = int(metrics.get("coverage_days") or 0)
     strategy_metrics = metrics.get("strategies", {})
     strategy_cards = []
     settings = STRATEGIES["trend_persistence"]

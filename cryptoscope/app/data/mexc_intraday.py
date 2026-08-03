@@ -19,8 +19,10 @@ INTRADAY_TICKERS = tuple(CRYPTO_TICKERS[:100])
 # Backwards-compatible name for the retired Reversal Lab internals.
 REVERSAL_TICKERS = INTRADAY_TICKERS
 INTERVAL_MS = 5 * 60 * 1000
-# Five extra days warm up the 72-hour trend features before a 365-day test.
-HISTORY_DAYS = 370
+# Five-minute candles are only needed for live entries and exits. Historical
+# comparisons use the separate hourly store below.
+HISTORY_DAYS = 10
+SHORT_TERM_HISTORY_DAYS = 370
 # MEXC documents 1000 as the maximum, but the live endpoint currently caps
 # kline responses at 500. Pagination must use the effective limit; otherwise a
 # 500-row response looks like the final page and leaves the dataset stale.
@@ -78,7 +80,9 @@ async def refresh_reversal_candles(
                                 "symbol": symbol,
                                 "interval": "5m",
                                 "startTime": cursor,
-                                "endTime": range_end - 1,
+                                "endTime": min(
+                                    range_end, cursor + PAGE_LIMIT * INTERVAL_MS
+                                ) - 1,
                                 "limit": PAGE_LIMIT,
                             },
                         )
@@ -148,5 +152,153 @@ async def refresh_reversal_candles(
         "data_start": minimum,
         "data_end": maximum,
         "completed_before": completed_before,
+        "failures": failures,
+    }
+
+
+async def refresh_short_term_hourly_candles(
+    conn: sqlite3.Connection,
+    *,
+    now: datetime | None = None,
+) -> dict:
+    """Incrementally maintain full hourly history for long-window backtests."""
+    now = now or datetime.now(UTC)
+    interval_ms = 60 * 60 * 1000
+    completed_before = int(now.timestamp() * 1000) // interval_ms * interval_ms
+    initial_start = int(
+        (now - timedelta(days=SHORT_TERM_HISTORY_DAYS)).timestamp() * 1000
+    )
+    coverage = {
+        str(row[0]): (int(row[1]), int(row[2]))
+        for row in conn.execute(
+            "SELECT ticker, MIN(open_time), MAX(open_time) "
+            "FROM short_term_hourly_candles GROUP BY ticker"
+        ).fetchall()
+        if row[1] is not None and row[2] is not None
+    }
+    inserted = 0
+    failures: list[str] = []
+    request_at = 0.0
+
+    def upsert(payload: list, ticker: str, range_end: int) -> int:
+        batch = []
+        for candle in payload:
+            if not isinstance(candle, list) or len(candle) < 6:
+                continue
+            open_time = int(candle[0])
+            values = [float(candle[index] or 0) for index in range(1, 6)]
+            if open_time >= range_end or not all(math.isfinite(value) for value in values):
+                continue
+            try:
+                quote_volume = float(candle[7] or 0) if len(candle) > 7 else 0.0
+            except (TypeError, ValueError):
+                quote_volume = 0.0
+            batch.append((
+                ticker, open_time, values[0], values[1], values[2], values[3],
+                values[4], quote_volume, "mexc-1h",
+            ))
+        if not batch:
+            return 0
+        before = conn.total_changes
+        conn.executemany(
+            """
+            INSERT INTO short_term_hourly_candles (
+                ticker, open_time, open, high, low, close,
+                volume, quote_volume, provider
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(ticker, open_time) DO UPDATE SET
+                open=excluded.open, high=excluded.high, low=excluded.low,
+                close=excluded.close, volume=excluded.volume,
+                quote_volume=excluded.quote_volume, provider=excluded.provider,
+                imported_at=datetime('now')
+            """,
+            batch,
+        )
+        changed = conn.total_changes - before
+        conn.commit()
+        return changed
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        available = await fetch_mexc_spot_symbols(client)
+        eligible_tickers = [
+            ticker for ticker in INTRADAY_TICKERS
+            if normalize_mexc_symbol(ticker) in available
+        ]
+        for ticker in eligible_tickers:
+            symbol = normalize_mexc_symbol(ticker)
+            try:
+                async def fetch_page(page_start: int, page_end: int) -> list:
+                    nonlocal request_at
+                    delay = 0.10 - (time.monotonic() - request_at)
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    response = await client.get(
+                        f"{MEXC_REST_URL}/klines",
+                        params={
+                            "symbol": symbol,
+                            "interval": "60m",
+                            "startTime": page_start,
+                            "endTime": page_end - 1,
+                            "limit": PAGE_LIMIT,
+                        },
+                    )
+                    request_at = time.monotonic()
+                    response.raise_for_status()
+                    payload = response.json()
+                    return payload if isinstance(payload, list) else []
+
+                if ticker in coverage:
+                    earliest, latest = coverage[ticker]
+                    cursor = max(initial_start, latest - interval_ms)
+                    while cursor < completed_before:
+                        page_end = min(
+                            completed_before, cursor + PAGE_LIMIT * interval_ms
+                        )
+                        payload = await fetch_page(cursor, page_end)
+                        inserted += upsert(payload, ticker, page_end)
+                        cursor = page_end
+                    backfill_end = earliest
+                else:
+                    backfill_end = completed_before
+
+                # Walk backwards in fixed-width pages. MEXC may return an empty
+                # array for one oversized historical request even when every
+                # individual page is available.
+                while backfill_end > initial_start:
+                    page_start = max(
+                        initial_start, backfill_end - PAGE_LIMIT * interval_ms
+                    )
+                    payload = await fetch_page(page_start, backfill_end)
+                    if not payload:
+                        break
+                    inserted += upsert(payload, ticker, backfill_end)
+                    backfill_end = page_start
+            except Exception as exc:
+                failures.append(f"{ticker}: {str(exc)[:120]}")
+
+    count, ticker_count, minimum, maximum = conn.execute(
+        "SELECT COUNT(*), COUNT(DISTINCT ticker), MIN(open_time), MAX(open_time) "
+        "FROM short_term_hourly_candles"
+    ).fetchone()
+    btc = conn.execute(
+        "SELECT MIN(open_time), MAX(open_time) FROM short_term_hourly_candles "
+        "WHERE ticker='BTC/USD'"
+    ).fetchone()
+    btc_start = int(btc[0]) if btc and btc[0] is not None else None
+    btc_end = int(btc[1]) if btc and btc[1] is not None else None
+    coverage_days = (
+        int((btc_end - btc_start) // (24 * interval_ms)) + 1
+        if btc_start is not None and btc_end is not None else 0
+    )
+    return {
+        "inserted": inserted,
+        "candle_count": int(count or 0),
+        "ticker_count": int(ticker_count or 0),
+        "eligible_ticker_count": len(eligible_tickers),
+        "data_start": minimum,
+        "data_end": maximum,
+        "btc_start": btc_start,
+        "btc_end": btc_end,
+        "coverage_days": coverage_days,
         "failures": failures,
     }

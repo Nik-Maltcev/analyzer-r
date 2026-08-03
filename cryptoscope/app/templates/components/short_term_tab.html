@@ -20,7 +20,7 @@
     {% if report.running %}
     <div class="stl-notice is-running">
         <strong>Синхронизируем завершённые свечи MEXC</strong>
-        <span>Первый расчёт догружает историю для проверки за 365 дней и займёт заметно больше времени обычного.</span>
+        <span>Первый расчёт догружает часовую историю для проверки за 365 дней и займёт несколько минут. Ниже пока показан предыдущий завершённый расчёт.</span>
     </div>
     {% elif report.latest and report.latest.status == 'failed' %}
     <div class="stl-notice is-error">
@@ -35,6 +35,7 @@
         <span>Проверка каждые 15 минут</span>
         <span>Расходы {{ '%.2f'|format(report.settings.cost_pct) }}% на сделку</span>
         <span>Вселенная до {{ report.settings.universe_size }} монет</span>
+        <span>История {{ report.completed.coverage_days|default(0) }} дн.</span>
         <span>Версия {{ report.version }}</span>
     </div>
 
@@ -46,12 +47,19 @@
                 <strong>{{ strategy.short_name }}</strong>
             </div>
             <p>{{ strategy.description }}</p>
+            {% if not strategy.is_complete|default(false) %}
+            <div class="stl-incomplete">
+                <strong>История ещё загружается</strong>
+                <span>{{ strategy.coverage_days|default(0) }} из {{ strategy.window_days }} дн.</span>
+            </div>
+            {% else %}
             <dl>
                 <div><dt>Сделок</dt><dd>{{ strategy.trades|default(0) }}</dd></div>
                 <div><dt>В плюсе</dt><dd>{{ '%.1f'|format(strategy.win_rate|default(0)) }}%</dd></div>
                 <div><dt>Итог</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
                 <div><dt>Profit factor</dt><dd>{{ '%.2f'|format(strategy.profit_factor|default(0)) }}</dd></div>
             </dl>
+            {% endif %}
         </article>
         {% endfor %}
     </section>

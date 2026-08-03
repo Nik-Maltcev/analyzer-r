@@ -43,13 +43,15 @@ def _start_refresh() -> None:
 async def short_term_tab(request: Request, refresh: bool = Query(False)):
     await _require_admin(request)
     report = await asyncio.to_thread(get_short_term_report, database.DB_PATH)
-    latest_status = (report.get("latest") or {}).get("status")
-    if refresh or (not report["is_ready"] and latest_status != "running"):
+    latest = report.get("latest") or {}
+    latest_status = latest.get("status")
+    persisted_run_active = latest_status == "running" and not latest.get("is_stale")
+    if refresh or (not report["is_ready"] and not persisted_run_active):
         _start_refresh()
         await asyncio.sleep(0)
     report["running"] = bool(
         (_REFRESH_TASK and not _REFRESH_TASK.done())
-        or (report.get("latest") or {}).get("status") == "running"
+        or persisted_run_active
     )
     return templates.TemplateResponse(
         request,
