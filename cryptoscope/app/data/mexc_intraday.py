@@ -11,15 +11,13 @@ from datetime import UTC, datetime, timedelta
 import httpx
 
 from app.data.mexc import MEXC_REST_URL, fetch_mexc_spot_symbols, normalize_mexc_symbol
+from app.data.tickers import CRYPTO_TICKERS
 
-REVERSAL_TICKERS = (
-    "BTC/USD", "ETH/USD", "BNB/USD", "SOL/USD", "XRP/USD",
-    "DOGE/USD", "ADA/USD", "LINK/USD", "AVAX/USD", "LTC/USD",
-    "SUI/USD", "BCH/USD", "TRX/USD", "DOT/USD", "UNI/USD",
-    "NEAR/USD", "AAVE/USD", "ETC/USD", "ATOM/USD", "FIL/USD",
-    "INJ/USD", "ICP/USD", "ARB/USD", "OP/USD", "TON/USD",
-    "XLM/USD", "HBAR/USD", "PEPE/USD", "SHIB/USD", "RENDER/USD",
-)
+# The intraday research universe follows the application's complete configured
+# crypto list. Unsupported MEXC pairs are reported and skipped by the collector.
+INTRADAY_TICKERS = tuple(CRYPTO_TICKERS[:100])
+# Backwards-compatible name for the retired Reversal Lab internals.
+REVERSAL_TICKERS = INTRADAY_TICKERS
 INTERVAL_MS = 5 * 60 * 1000
 HISTORY_DAYS = 90
 # MEXC documents 1000 as the maximum, but the live endpoint currently caps
@@ -50,11 +48,14 @@ async def refresh_reversal_candles(
 
     async with httpx.AsyncClient(timeout=30) as client:
         available = await fetch_mexc_spot_symbols(client)
-        for ticker in REVERSAL_TICKERS:
+        eligible_tickers = [
+            ticker for ticker in INTRADAY_TICKERS
+            if normalize_mexc_symbol(ticker) in available
+        ]
+        unavailable_tickers = sorted(set(INTRADAY_TICKERS) - set(eligible_tickers))
+        failures.extend(f"{ticker}: unavailable on MEXC spot" for ticker in unavailable_tickers)
+        for ticker in eligible_tickers:
             symbol = normalize_mexc_symbol(ticker)
-            if not symbol or symbol not in available:
-                failures.append(ticker)
-                continue
             cursor = max(initial_start, latest.get(ticker, initial_start) - INTERVAL_MS)
             try:
                 while cursor < completed_before:
@@ -132,6 +133,8 @@ async def refresh_reversal_candles(
         "inserted": inserted,
         "candle_count": int(count or 0),
         "ticker_count": int(ticker_count or 0),
+        "requested_ticker_count": len(INTRADAY_TICKERS),
+        "eligible_ticker_count": len(eligible_tickers),
         "data_start": minimum,
         "data_end": maximum,
         "completed_before": completed_before,

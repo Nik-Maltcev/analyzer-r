@@ -1,4 +1,4 @@
-"""Four isolated, point-in-time short-term crypto experiments."""
+"""Two isolated, point-in-time short-term crypto experiments."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from threading import Lock
 import numpy as np
 import pandas as pd
 
-from app.data.mexc_intraday import refresh_reversal_candles
+from app.data.mexc_intraday import INTRADAY_TICKERS, refresh_reversal_candles
 from app.db.schema import (
     CREATE_REVERSAL_CANDLES,
     CREATE_SHORT_TERM_BACKTEST_TRADES,
@@ -20,7 +20,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v7"
+CALCULATION_VERSION = "short-term-lab-v8"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -42,24 +42,6 @@ STRATEGIES = {
         "stop": 5.0,
         "target": 10.0,
         "description": "Совмещает собственный импульс монеты с её силой относительно остального рынка.",
-    },
-    "volume_acceleration": {
-        "name": "Volume Acceleration",
-        "short_name": "Ускорение объёма",
-        "timeframe": 60,
-        "hold": 12 * 60,
-        "stop": 3.5,
-        "target": 7.0,
-        "description": "Ищет ускорение денежного объёма, подтверждённое направлением цены и закрытием свечи.",
-    },
-    "beta_neutral_stat_arb": {
-        "name": "Beta-Neutral Stat Arb",
-        "short_name": "Beta-neutral арбитраж",
-        "timeframe": 60,
-        "hold": 12 * 60,
-        "stop": 3.0,
-        "target": 5.0,
-        "description": "Торгует возврат остаточного движения монеты с компенсирующей позицией по BTC.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -898,121 +880,11 @@ def _volume_flow_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("volume_flow_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
-def _volume_acceleration(hourly: pd.DataFrame) -> list[dict]:
-    rows: list[pd.DataFrame] = []
-    for ticker, group in hourly.groupby("ticker", sort=False):
-        frame = group.sort_values("open_time").copy()
-        baseline = (
-            frame["quote_volume"].rolling(24, min_periods=18).median().shift(1)
-            .replace(0, np.nan)
-        )
-        recent = (
-            frame["quote_volume"].rolling(3, min_periods=3).mean().shift(1)
-            .replace(0, np.nan)
-        )
-        volume_ratio = frame["quote_volume"] / baseline
-        acceleration = frame["quote_volume"] / recent
-        return_3h = frame["close"].pct_change(3, fill_method=None) * 100
-        candle_range = (frame["high"] - frame["low"]).replace(0, np.nan)
-        close_location = (
-            (frame["close"] - frame["low"]) - (frame["high"] - frame["close"])
-        ) / candle_range
-        long_condition = (
-            (volume_ratio >= 1.8) & (acceleration >= 1.5)
-            & (return_3h >= 1.2) & (frame["close"] > frame["open"])
-            & (close_location >= 0.45)
-        )
-        short_condition = (
-            (volume_ratio >= 1.8) & (acceleration >= 1.5)
-            & (return_3h <= -1.2) & (frame["close"] < frame["open"])
-            & (close_location <= -0.45)
-        )
-        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
-        score = (
-            1.5 + np.log1p(volume_ratio.clip(lower=0))
-            + np.log1p(acceleration.clip(lower=0)) + return_3h.abs() / 2
-        )
-        out = frame.loc[direction != "", ["open_time", "close"]].copy()
-        out["ticker"] = ticker
-        out["direction"] = direction[direction != ""]
-        out["score"] = score[direction != ""]
-        rows.append(out.rename(columns={"close": "signal_price"}))
-    selected = _cap_per_time(
-        pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=1
-    )
-    return [
-        _candidate("volume_acceleration", **row)
-        for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")
-    ]
-
-
-def _beta_neutral_stat_arb(hourly: pd.DataFrame) -> list[dict]:
-    close = hourly.pivot(index="open_time", columns="ticker", values="close")
-    returns = close.pct_change(fill_method=None)
-    btc = returns.get("BTC/USD")
-    if btc is None:
-        return []
-    btc_variance = btc.rolling(336, min_periods=168).var().shift(1).replace(0, np.nan)
-    rows: list[dict] = []
-    for ticker in close.columns:
-        if ticker == "BTC/USD":
-            continue
-        coin = returns[ticker]
-        beta = coin.rolling(336, min_periods=168).cov(btc).shift(1) / btc_variance
-        correlation = coin.rolling(336, min_periods=168).corr(btc).shift(1)
-        residual = coin - beta * btc
-        residual_move = residual.rolling(6, min_periods=6).sum()
-        residual_scale = (
-            residual_move.rolling(168, min_periods=96).std().shift(1)
-            .replace(0, np.nan)
-        )
-        zscore = residual_move / residual_scale
-        previous = zscore.shift(1)
-        valid_beta = beta.abs().between(0.20, 3.0)
-        long_condition = (
-            (previous <= -2.0) & (zscore > previous)
-            & (correlation.abs() >= 0.35) & valid_beta
-        )
-        short_condition = (
-            (previous >= 2.0) & (zscore < previous)
-            & (correlation.abs() >= 0.35) & valid_beta
-        )
-        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
-        selected = direction != ""
-        for timestamp in close.index[selected]:
-            price = close.at[timestamp, ticker]
-            zvalue = previous.loc[timestamp]
-            beta_value = beta.loc[timestamp]
-            if not all(math.isfinite(float(item)) for item in (price, zvalue, beta_value)):
-                continue
-            coin_direction = str(direction[close.index.get_loc(timestamp)])
-            hedge_direction = (
-                "short" if (coin_direction == "long") == (beta_value > 0) else "long"
-            )
-            rows.append({
-                "open_time": int(timestamp),
-                "ticker": ticker,
-                "direction": coin_direction,
-                "signal_price": float(price),
-                "score": float(abs(zvalue)),
-                "hedge_ticker": "BTC/USD",
-                "hedge_direction": hedge_direction,
-                "hedge_ratio": float(np.clip(abs(beta_value), 0.20, 3.0)),
-            })
-    selected = _cap_per_time(pd.DataFrame(rows), count=1)
-    return [
-        _candidate("beta_neutral_stat_arb", **row)
-        for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")
-    ]
-
-
 def generate_candidates(candles: pd.DataFrame) -> dict[str, list[dict]]:
     hourly = _aggregate(candles, 60)
     return {
         "trend_persistence": _trend_persistence(hourly),
         "dual_momentum": _dual_momentum(hourly),
-        "volume_acceleration": _volume_acceleration(hourly),
-        "beta_neutral_stat_arb": _beta_neutral_stat_arb(hourly),
     }
 
 
@@ -1391,10 +1263,14 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
             latest_by_ticker = candles.groupby("ticker")["open_time"].max()
             fresh_tickers = int((latest_by_ticker >= latest - 10 * 60_000).sum())
             btc_latest = int(latest_by_ticker.get("BTC/USD", 0))
-            if fresh_tickers < 24 or btc_latest < latest - 10 * 60_000:
+            eligible_tickers = int(refresh.get("eligible_ticker_count") or 0)
+            minimum_fresh = max(24, math.ceil(eligible_tickers * 0.80))
+            if fresh_tickers < minimum_fresh or btc_latest < latest - 10 * 60_000:
                 raise RuntimeError(
                     "MEXC coverage is incomplete: "
-                    f"{fresh_tickers}/30 fresh tickers, BTC fresh={btc_latest >= latest - 10 * 60_000}"
+                    f"{fresh_tickers}/{eligible_tickers} fresh tickers "
+                    f"(minimum {minimum_fresh}), "
+                    f"BTC fresh={btc_latest >= latest - 10 * 60_000}"
                 )
             forward = _advance_forward(conn, candles)
             live_cutoff = latest - 10 * 24 * 60 * 60 * 1000
@@ -1543,5 +1419,9 @@ def get_short_term_report(db_path: str) -> dict:
         "strategies": strategy_cards,
         "open": [trade_dict(row) for row in open_rows],
         "closed": [trade_dict(row) for row in closed_rows],
-        "settings": {"stake": STAKE_USD, "cost_pct": ROUND_TRIP_COST_PCT},
+        "settings": {
+            "stake": STAKE_USD,
+            "cost_pct": ROUND_TRIP_COST_PCT,
+            "universe_size": len(INTRADAY_TICKERS),
+        },
     }

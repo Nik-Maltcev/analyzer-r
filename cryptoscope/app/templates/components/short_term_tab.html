@@ -6,7 +6,7 @@
         <div>
             <span class="section-kicker">ADMIN · FORWARD RESEARCH</span>
             <h2>Short-Term Lab</h2>
-            <p>Четыре независимые гипотезы на горизонте от 12 до 24 часов.</p>
+            <p>Две отобранные гипотезы на горизонте 24 часа.</p>
         </div>
         <button class="btn btn-secondary" type="button"
                 hx-get="/tab/short-term?refresh=true"
@@ -34,6 +34,7 @@
         <span>Данные до {{ report.completed.data_label }} UTC</span>
         <span>Проверка каждые 15 минут</span>
         <span>Расходы {{ '%.2f'|format(report.settings.cost_pct) }}% на сделку</span>
+        <span>Вселенная до {{ report.settings.universe_size }} монет</span>
         <span>Версия {{ report.version }}</span>
     </div>
 
@@ -41,7 +42,7 @@
         {% for strategy in report.strategies %}
         <article class="stl-strategy">
             <div class="stl-strategy-head">
-                <span>{{ loop.index }} / 4</span>
+                <span>{{ loop.index }} / {{ report.strategies|length }}</span>
                 <strong>{{ strategy.short_name }}</strong>
             </div>
             <p>{{ strategy.description }}</p>
@@ -87,7 +88,7 @@
             </table>
         </div>
         {% else %}
-        <div class="stl-empty">Сейчас строгие условия четырёх стратегий не выполнены. Это нормальное состояние, а не ошибка.</div>
+        <div class="stl-empty">Сейчас строгие условия двух стратегий не выполнены. Это нормальное состояние, а не ошибка.</div>
         {% endif %}
     </section>
 

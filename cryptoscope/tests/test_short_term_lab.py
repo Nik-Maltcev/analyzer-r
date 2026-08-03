@@ -10,15 +10,14 @@ from app.core.short_term_lab import (
     STRATEGIES,
     _advance_forward,
     _aggregate,
-    _beta_neutral_stat_arb,
     _dual_momentum,
     _directional_return,
-    _portfolio_return,
     _simulate,
-    _volume_acceleration,
     ensure_short_term_schema,
     generate_candidates,
 )
+from app.data.mexc_intraday import INTRADAY_TICKERS
+from app.data.tickers import CRYPTO_TICKERS
 
 
 def _bars(rows):
@@ -52,7 +51,7 @@ def test_short_return_uses_entry_not_exit_as_denominator():
     assert _directional_return("long", 100, 110) == pytest.approx(10.0)
 
 
-def test_seventh_batch_candidate_generation_smoke():
+def test_eighth_batch_candidate_generation_smoke():
     rng = np.random.default_rng(42)
     rows = []
     times = np.arange(2_200, dtype=np.int64) * 300_000
@@ -72,12 +71,10 @@ def test_seventh_batch_candidate_generation_smoke():
 
     candidates = generate_candidates(_bars(rows))
 
-    assert CALCULATION_VERSION == "short-term-lab-v7"
+    assert CALCULATION_VERSION == "short-term-lab-v8"
     assert set(candidates) == {
         "trend_persistence",
         "dual_momentum",
-        "volume_acceleration",
-        "beta_neutral_stat_arb",
     }
     assert all(
         event["signal_time"] % (60 * 60_000) == 0
@@ -86,7 +83,7 @@ def test_seventh_batch_candidate_generation_smoke():
     )
 
 
-def test_preserved_strategy_settings_are_unchanged_in_seventh_batch():
+def test_preserved_strategy_settings_are_unchanged_in_eighth_batch():
     assert STRATEGIES["trend_persistence"] == {
         "name": "Trend Persistence",
         "short_name": "Устойчивый тренд",
@@ -107,31 +104,9 @@ def test_preserved_strategy_settings_are_unchanged_in_seventh_batch():
     }
 
 
-def test_volume_acceleration_requires_price_confirmation_and_enters_next_hour():
-    hour = 60 * 60_000
-    rows = []
-    for index in range(31):
-        close = 100.0
-        volume = 100.0
-        if index == 30:
-            close = 103.0
-            volume = 400.0
-        rows.append({
-            "ticker": "ETH/USD",
-            "open_time": index * hour,
-            "open": 100.0,
-            "high": max(close * 1.001, 101.0),
-            "low": 99.9,
-            "close": close,
-            "volume": volume,
-            "quote_volume": volume * close,
-        })
-
-    candidates = _volume_acceleration(pd.DataFrame(rows))
-
-    assert len(candidates) == 1
-    assert candidates[0]["direction"] == "long"
-    assert candidates[0]["signal_time"] == 31 * hour
+def test_intraday_universe_uses_all_100_configured_crypto_tickers():
+    assert len(INTRADAY_TICKERS) == 100
+    assert INTRADAY_TICKERS == tuple(CRYPTO_TICKERS)
 
 
 def test_momentum_strategies_require_directional_and_relative_agreement():
@@ -163,56 +138,6 @@ def test_momentum_strategies_require_directional_and_relative_agreement():
 
     assert any(item["ticker"] == "ETH/USD" and item["direction"] == "long" for item in dual)
     assert any(item["ticker"] == "XRP/USD" and item["direction"] == "short" for item in dual)
-
-
-def test_beta_neutral_return_combines_coin_and_btc_legs():
-    candidate = {
-        "direction": "long",
-        "hedge_ticker": "BTC/USD",
-        "hedge_direction": "short",
-        "hedge_ratio": 1.0,
-    }
-
-    result = _portfolio_return(candidate, 100, 110, 100, 105)
-
-    assert result == pytest.approx(2.5)
-
-
-def test_beta_neutral_simulation_persists_both_legs():
-    candidate = {
-        "strategy": "beta_neutral_stat_arb",
-        "ticker": "ETH/USD",
-        "direction": "long",
-        "signal_time": 0,
-        "signal_price": 100.0,
-        "score": 2.5,
-        "confidence": "high",
-        "timeframe_minutes": 60,
-        "hold_minutes": 10,
-        "stop_pct": 5.0,
-        "target_pct": 10.0,
-        "hedge_ticker": "BTC/USD",
-        "hedge_direction": "short",
-        "hedge_ratio": 1.0,
-    }
-    coin = _bars([
-        ("ETH/USD", 0, 100, 101, 99, 100, 1, 100),
-        ("ETH/USD", 300_000, 100, 108, 99, 106, 1, 106),
-        ("ETH/USD", 600_000, 110, 111, 109, 110, 1, 110),
-    ])
-    btc = _bars([
-        ("BTC/USD", 0, 100, 101, 99, 100, 1, 100),
-        ("BTC/USD", 300_000, 100, 104, 99, 103, 1, 103),
-        ("BTC/USD", 600_000, 105, 106, 104, 105, 1, 105),
-    ])
-
-    trade = _simulate(candidate, coin, btc)
-
-    assert trade is not None
-    assert trade["hedge_entry_price"] == 100
-    assert trade["hedge_exit_price"] == 105
-    assert trade["gross_return_pct"] == pytest.approx(2.5)
-    assert trade["net_return_pct"] == pytest.approx(2.5 - ROUND_TRIP_COST_PCT)
 
 
 def test_simulation_enters_at_decision_time_and_uses_stop_first():

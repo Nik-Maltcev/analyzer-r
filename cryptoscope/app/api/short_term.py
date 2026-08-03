@@ -1,4 +1,4 @@
-"""Admin-only routes for the four-strategy short-term research lab."""
+"""Admin-only routes for the short-term research lab."""
 
 from __future__ import annotations
 
