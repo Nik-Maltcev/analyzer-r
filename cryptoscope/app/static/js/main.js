@@ -180,8 +180,6 @@ function appLoadingMessage(source, target) {
         const tab = source?.dataset?.tab;
         if (tab === 'crypto') return 'Открываем раздел «Крипта»';
         if (tab === 'alpha') return 'Определяем режим крипторынка';
-        if (tab === 'crypto-v2') return 'Считаем независимую стратегию Crypto V2';
-        if (tab === 'reversal') return 'Открываем исследование 5-минутных разворотов';
         if (tab === 'favorites') return 'Открываем портфель';
         if (tab === 'data') return 'Открываем данные';
         return 'Открываем раздел';

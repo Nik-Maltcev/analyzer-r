@@ -14,7 +14,6 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.api.public_extension import refresh_extension_feed_snapshots
-from app.core.crypto_v2 import sync_crypto_v2_journal
 from app.core.market_regime import sync_market_regime_snapshots
 from app.core.scanner_history import sync_all_scanner_states
 from app.config import get_settings
@@ -293,12 +292,6 @@ def main() -> int:
         return 1
 
     if "crypto" in ENABLED_MARKETS:
-        try:
-            crypto_v2_result = asyncio.run(sync_crypto_v2_journal(DB_PATH))
-            print(f"Crypto V2 journal: {crypto_v2_result}")
-        except Exception as exc:
-            print(f"Crypto V2 journal update failed: {exc}")
-            return 1
         try:
             regime_result = asyncio.run(
                 sync_market_regime_snapshots(DB_PATH)

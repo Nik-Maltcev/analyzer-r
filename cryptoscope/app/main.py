@@ -14,7 +14,6 @@ from app.access import get_access_state, is_admin_user
 from app.api.auth import router as auth_router
 from app.api.charts import router as charts_router
 from app.api.crypto_picks import router as crypto_picks_router
-from app.api.crypto_v2 import router as crypto_v2_router
 from app.api.data_view import router as data_router
 from app.api.favorites import router as favorites_router
 from app.api.health import router as health_router
@@ -24,7 +23,6 @@ from app.api.payments import router as payments_router
 from app.api.portfolio import router as portfolio_router
 from app.api.public_content import router as public_content_router
 from app.api.public_extension import router as public_extension_router
-from app.api.reversal import router as reversal_router
 from app.api.scanners import router as scanners_router
 from app.api.signals import router as signals_router
 from app.api.ui_routes import router as ui_router
@@ -174,9 +172,7 @@ app.include_router(public_content_router, prefix="/api")
 app.include_router(payments_router)
 app.include_router(ui_router)
 app.include_router(crypto_picks_router)
-app.include_router(crypto_v2_router)
 app.include_router(market_regime_router)
-app.include_router(reversal_router)
 
 
 async def _get_dashboard_context(market: str = "crypto"):
