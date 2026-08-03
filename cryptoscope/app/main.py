@@ -24,6 +24,7 @@ from app.api.portfolio import router as portfolio_router
 from app.api.public_content import router as public_content_router
 from app.api.public_extension import router as public_extension_router
 from app.api.scanners import router as scanners_router
+from app.api.short_term import router as short_term_router
 from app.api.signals import router as signals_router
 from app.api.ui_routes import router as ui_router
 from app.auth import get_current_user
@@ -55,12 +56,36 @@ async def lifespan(app: FastAPI):
 
     # Keep MEXC public spot prices warm for user-triggered refreshes.
     ws_task = None
+    short_term_task = None
     try:
         from app.data.mexc_market import connect_mexc_market
         ws_task = asyncio.create_task(connect_mexc_market())
         print("[MEXC] Public spot price poller started in background")
     except ImportError:
         print("[MEXC] Live prices unavailable")
+
+    if (
+        os.getenv("SHORT_TERM_LAB_ENABLED", "true").lower() == "true"
+        and os.getenv("APP_VARIANT", "global") not in {"br", "id"}
+    ):
+        async def monitor_short_term_lab():
+            from app.core.short_term_lab import refresh_short_term_lab
+
+            await asyncio.sleep(30)
+            full_backtest_due = True
+            while True:
+                try:
+                    await refresh_short_term_lab(
+                        settings.db_path,
+                        include_backtest=full_backtest_due,
+                    )
+                    full_backtest_due = False
+                except Exception as exc:
+                    print(f"Short-Term Lab monitor failed: {exc!r}")
+                await asyncio.sleep(15 * 60)
+
+        short_term_task = asyncio.create_task(monitor_short_term_lab())
+        print("[Short-Term Lab] 15-minute monitor started")
 
     yield
     # Shutdown
@@ -69,6 +94,10 @@ async def lifespan(app: FastAPI):
         ws_task.cancel()
         with suppress(asyncio.CancelledError):
             await ws_task
+    if short_term_task:
+        short_term_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await short_term_task
 
 
 app = FastAPI(
@@ -173,6 +202,7 @@ app.include_router(payments_router)
 app.include_router(ui_router)
 app.include_router(crypto_picks_router)
 app.include_router(market_regime_router)
+app.include_router(short_term_router)
 
 
 async def _get_dashboard_context(market: str = "crypto"):

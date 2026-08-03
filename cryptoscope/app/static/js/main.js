@@ -179,6 +179,7 @@ function appLoadingMessage(source, target) {
     if (targetId === 'main-content') {
         const tab = source?.dataset?.tab;
         if (tab === 'crypto') return 'Открываем раздел «Крипта»';
+        if (tab === 'short-term') return 'Проверяем краткосрочные стратегии';
         if (tab === 'alpha') return 'Определяем режим крипторынка';
         if (tab === 'favorites') return 'Открываем портфель';
         if (tab === 'data') return 'Открываем данные';

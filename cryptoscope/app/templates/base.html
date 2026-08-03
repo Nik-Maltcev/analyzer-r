@@ -18,7 +18,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/main.css?v=20260729-ui-cleanup1">
-    <link rel="stylesheet" href="/static/css/workbench.css?v=20260731-reversal3">
+    <link rel="stylesheet" href="/static/css/workbench.css?v=20260803-shortterm1">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org/dist/ext/json-enc.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -38,7 +38,7 @@
             displayCurrencyAtCheckout: {{ pricing.checkout_uses_display_currency|tojson }}
         };
     </script>
-    <script src="/static/js/main.js?v=20260731-reversal1" defer></script>
+    <script src="/static/js/main.js?v=20260803-shortterm1" defer></script>
 </head>
 <body>
     <div class="app-request-progress" id="app-request-progress" aria-hidden="true">
@@ -72,6 +72,9 @@
             {% if is_admin %}
             <a href="#" class="nav-tab" data-tab="crypto" hx-get="/tab/crypto" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-sync="#main-content:replace">
                 <i class="tab-icon" data-lucide="coins"></i><span>Крипта</span>
+            </a>
+            <a href="#" class="nav-tab" data-tab="short-term" hx-get="/tab/short-term" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-sync="#main-content:replace">
+                <i class="tab-icon" data-lucide="timer-reset"></i><span>Short-Term</span>
             </a>
             {% endif %}
             <a href="#" class="nav-tab" data-tab="favorites" hx-get="/tab/favorites" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-sync="#main-content:replace">

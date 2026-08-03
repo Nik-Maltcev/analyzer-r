@@ -737,6 +737,82 @@ CREATE TABLE IF NOT EXISTS reversal_forward_notifications (
 )
 """
 
+CREATE_SHORT_TERM_RUNS = """
+CREATE TABLE IF NOT EXISTS short_term_runs (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    calculation_version TEXT NOT NULL,
+    status           TEXT NOT NULL,
+    started_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at     TEXT,
+    data_start       INTEGER,
+    data_end         INTEGER,
+    candle_count     INTEGER NOT NULL DEFAULT 0,
+    metrics_json     TEXT,
+    error            TEXT
+)
+"""
+
+CREATE_SHORT_TERM_BACKTEST_TRADES = """
+CREATE TABLE IF NOT EXISTS short_term_backtest_trades (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id           INTEGER NOT NULL,
+    strategy         TEXT NOT NULL,
+    ticker           TEXT NOT NULL,
+    direction        TEXT NOT NULL,
+    signal_time      INTEGER NOT NULL,
+    entry_time       INTEGER NOT NULL,
+    entry_price      REAL NOT NULL,
+    exit_time        INTEGER NOT NULL,
+    exit_price       REAL NOT NULL,
+    exit_reason      TEXT NOT NULL,
+    score            REAL NOT NULL,
+    confidence       TEXT NOT NULL,
+    gross_return_pct REAL NOT NULL,
+    cost_pct         REAL NOT NULL,
+    net_return_pct   REAL NOT NULL,
+    cash_result      REAL NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES short_term_runs(id),
+    UNIQUE (run_id, strategy, ticker, signal_time, direction)
+)
+"""
+
+CREATE_SHORT_TERM_FORWARD_TRADES = """
+CREATE TABLE IF NOT EXISTS short_term_forward_trades (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    calculation_version TEXT NOT NULL,
+    strategy           TEXT NOT NULL,
+    ticker             TEXT NOT NULL,
+    direction          TEXT NOT NULL,
+    signal_time        INTEGER NOT NULL,
+    signal_price       REAL NOT NULL,
+    score              REAL NOT NULL,
+    confidence         TEXT NOT NULL,
+    timeframe_minutes  INTEGER NOT NULL,
+    hold_minutes       INTEGER NOT NULL,
+    stop_pct           REAL NOT NULL,
+    target_pct         REAL NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'pending'
+                       CHECK (status IN ('pending', 'active', 'closed')),
+    entry_time         INTEGER,
+    entry_price        REAL,
+    planned_exit_time  INTEGER,
+    last_evaluated_time INTEGER,
+    last_price         REAL,
+    current_net_return_pct REAL NOT NULL DEFAULT 0,
+    current_cash_result REAL NOT NULL DEFAULT 0,
+    exit_time          INTEGER,
+    exit_price         REAL,
+    exit_reason        TEXT,
+    gross_return_pct   REAL,
+    cost_pct           REAL,
+    net_return_pct     REAL,
+    cash_result        REAL,
+    created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (calculation_version, strategy, ticker, signal_time, direction)
+)
+"""
+
 ALPHA_TRADE_COLUMN_MIGRATIONS = {
     "episode_canonical": "INTEGER NOT NULL DEFAULT 1",
 }
@@ -845,6 +921,30 @@ CREATE_REVERSAL_INDICES = [
     """,
 ]
 
+CREATE_SHORT_TERM_INDICES = [
+    """
+    CREATE INDEX IF NOT EXISTS idx_short_term_runs_latest
+    ON short_term_runs(status, completed_at DESC, id DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_short_term_backtest_run
+    ON short_term_backtest_trades(run_id, strategy, exit_time DESC)
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_short_term_forward_open
+    ON short_term_forward_trades(calculation_version, strategy, ticker)
+    WHERE status IN ('pending', 'active')
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_short_term_forward_episode
+    ON short_term_forward_trades(calculation_version, strategy, ticker, signal_time)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_short_term_forward_history
+    ON short_term_forward_trades(calculation_version, status, exit_time DESC)
+    """,
+]
+
 CREATE_CONTENT_PUBLICATION_INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_content_status ON content_publications(status, data_date)",
     "CREATE INDEX IF NOT EXISTS idx_content_ticker ON content_publications(market, ticker, created_at)",
@@ -893,6 +993,9 @@ ALL_TABLES_SQL = [
     CREATE_REVERSAL_FORWARD_STATE,
     CREATE_REVERSAL_FORWARD_TRADES,
     CREATE_REVERSAL_FORWARD_NOTIFICATIONS,
+    CREATE_SHORT_TERM_RUNS,
+    CREATE_SHORT_TERM_BACKTEST_TRADES,
+    CREATE_SHORT_TERM_FORWARD_TRADES,
 ]
 
 ALL_INDICES_SQL = (
@@ -907,4 +1010,5 @@ ALL_INDICES_SQL = (
     + CREATE_CRYPTO_V2_INDICES
     + CREATE_MARKET_REGIME_INDICES
     + CREATE_REVERSAL_INDICES
+    + CREATE_SHORT_TERM_INDICES
 )

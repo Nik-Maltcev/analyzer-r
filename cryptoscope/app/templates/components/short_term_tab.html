@@ -1,0 +1,129 @@
+<section class="stl-shell"
+         hx-get="/tab/short-term"
+         hx-trigger="{% if report.running %}every 5s{% else %}every 60s{% endif %}"
+         hx-target="this" hx-swap="outerHTML">
+    <header class="stl-header">
+        <div>
+            <span class="section-kicker">ADMIN · FORWARD RESEARCH</span>
+            <h2>Short-Term Lab</h2>
+            <p>Четыре независимые гипотезы на горизонте от 12 до 24 часов.</p>
+        </div>
+        <button class="btn btn-secondary" type="button"
+                hx-get="/tab/short-term?refresh=true"
+                hx-target="#main-content" hx-swap="innerHTML"
+                {% if report.running %}disabled{% endif %}>
+            <i data-lucide="refresh-cw"></i>
+            {% if report.running %}Идёт расчёт{% else %}Обновить расчёт{% endif %}
+        </button>
+    </header>
+
+    {% if report.running %}
+    <div class="stl-notice is-running">
+        <strong>Синхронизируем завершённые свечи MEXC</strong>
+        <span>Первый расчёт включает 90-дневную проверку и может занять несколько минут.</span>
+    </div>
+    {% elif report.latest and report.latest.status == 'failed' %}
+    <div class="stl-notice is-error">
+        <strong>Последний расчёт не завершён</strong>
+        <span>{{ report.latest.error }}</span>
+    </div>
+    {% endif %}
+
+    {% if report.is_ready %}
+    <div class="stl-meta">
+        <span>Данные до {{ report.completed.data_label }} UTC</span>
+        <span>Проверка каждые 15 минут</span>
+        <span>Расходы {{ '%.2f'|format(report.settings.cost_pct) }}% на сделку</span>
+        <span>Версия {{ report.version }}</span>
+    </div>
+
+    <section class="stl-strategies" aria-label="Сравнение стратегий">
+        {% for strategy in report.strategies %}
+        <article class="stl-strategy">
+            <div class="stl-strategy-head">
+                <span>{{ loop.index }} / 4</span>
+                <strong>{{ strategy.short_name }}</strong>
+            </div>
+            <p>{{ strategy.description }}</p>
+            <dl>
+                <div><dt>Сделок</dt><dd>{{ strategy.trades|default(0) }}</dd></div>
+                <div><dt>В плюсе</dt><dd>{{ '%.1f'|format(strategy.win_rate|default(0)) }}%</dd></div>
+                <div><dt>Итог</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
+                <div><dt>Profit factor</dt><dd>{{ '%.2f'|format(strategy.profit_factor|default(0)) }}</dd></div>
+            </dl>
+        </article>
+        {% endfor %}
+    </section>
+
+    <section class="stl-panel">
+        <header>
+            <div><span class="section-kicker">FORWARD TEST</span><h3>Что происходит сейчас</h3></div>
+            <span>{{ report.open|length }} наблюдений</span>
+        </header>
+        {% if report.open %}
+        <div class="stl-table-wrap">
+            <table class="stl-table">
+                <thead>
+                    <tr><th>Действие</th><th>Стратегия</th><th>Сигнал</th><th>Вход</th><th>План закрытия</th><th>Результат</th></tr>
+                </thead>
+                <tbody>
+                {% for trade in report.open %}
+                <tr>
+                    <td><strong class="{% if trade.direction == 'long' %}positive{% else %}negative{% endif %}">{{ 'Купить' if trade.direction == 'long' else 'Шорт' }} {{ trade.ticker.split('/')[0] }}</strong><span>{{ trade.ticker }}</span></td>
+                    <td>{{ trade.strategy_name }}<span>{{ 'Высокая' if trade.confidence == 'high' else 'Средняя' }} уверенность</span></td>
+                    <td>{{ trade.signal_label }} UTC<span>score {{ '%+.2f'|format(trade.score) }}</span></td>
+                    {% if trade.status == 'pending' %}
+                    <td><strong>Ожидает свечу</strong><span>вход только по следующему open</span></td>
+                    <td>После входа<span>{{ trade.hold_minutes // 60 }} ч.</span></td>
+                    <td>—</td>
+                    {% else %}
+                    <td>${{ '%.7g'|format(trade.entry_price) }}<span>{{ trade.entry_label }} UTC</span></td>
+                    <td>{{ trade.planned_exit_label }} UTC<span>раньше по цели или стопу</span></td>
+                    <td class="{% if trade.current_net_return_pct >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(trade.current_net_return_pct) }}%</strong><span>{{ '%+.2f'|format(trade.current_cash_result) }} $ при $100</span></td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="stl-empty">Сейчас строгие условия четырёх стратегий не выполнены. Это нормальное состояние, а не ошибка.</div>
+        {% endif %}
+    </section>
+
+    <section class="stl-panel">
+        <header>
+            <div><span class="section-kicker">НЕИЗМЕНЯЕМЫЙ ЖУРНАЛ</span><h3>Завершённые forward-сделки</h3></div>
+            <span>{{ report.closed|length }} последних</span>
+        </header>
+        {% if report.closed %}
+        <div class="stl-table-wrap">
+            <table class="stl-table">
+                <thead><tr><th>Монета</th><th>Стратегия</th><th>Сторона</th><th>Вход → выход</th><th>Причина</th><th>После расходов</th></tr></thead>
+                <tbody>
+                {% for trade in report.closed %}
+                <tr>
+                    <td><strong>{{ trade.ticker }}</strong></td>
+                    <td>{{ trade.strategy_name }}</td>
+                    <td class="{% if trade.direction == 'long' %}positive{% else %}negative{% endif %}">{{ trade.direction|upper }}</td>
+                    <td>${{ '%.7g'|format(trade.entry_price) }} → ${{ '%.7g'|format(trade.exit_price) }}<span>{{ trade.entry_label }} → {{ trade.exit_label }} UTC</span></td>
+                    <td>{{ {'target':'цель','stop':'стоп','time':'срок'}.get(trade.exit_reason, trade.exit_reason) }}</td>
+                    <td class="{% if trade.net_return_pct >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(trade.net_return_pct) }}%</strong><span>{{ '%+.2f'|format(trade.cash_result) }} $ при $100</span></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="stl-empty">Forward-журнал начался сейчас. Сделки задним числом сюда не добавляются.</div>
+        {% endif %}
+    </section>
+    {% elif not report.running %}
+    <div class="stl-empty">Истории ещё нет. Нажмите «Обновить расчёт», чтобы начать честный forward-тест.</div>
+    {% endif %}
+
+    <footer class="stl-disclaimer">
+        Исследовательский раздел, не индивидуальная рекомендация. Исторический тест и forward-журнал
+        используют только завершённые свечи; вход происходит на следующей свече. Закрытые результаты не переписываются.
+    </footer>
+</section>

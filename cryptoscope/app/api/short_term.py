@@ -1,0 +1,58 @@
+"""Admin-only routes for the four-strategy short-term research lab."""
+
+from __future__ import annotations
+
+import asyncio
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
+
+from app.access import is_admin_user
+from app.auth import get_current_user
+from app.core.short_term_lab import get_short_term_report, refresh_short_term_lab
+from app.db import database
+from app.ui.templates import templates
+
+router = APIRouter(prefix="/tab/short-term", tags=["short-term"])
+_REFRESH_TASK: asyncio.Task | None = None
+
+
+async def _require_admin(request: Request) -> None:
+    user = getattr(request.state, "current_user", None)
+    if user is None:
+        user = await get_current_user(request)
+    if not is_admin_user(user):
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+async def _run_refresh() -> None:
+    try:
+        result = await refresh_short_term_lab(database.DB_PATH)
+        print(f"Short-Term Lab refresh complete: run={result.get('run_id')}")
+    except Exception as exc:
+        print(f"Short-Term Lab refresh failed: {exc!r}")
+
+
+def _start_refresh() -> None:
+    global _REFRESH_TASK
+    if _REFRESH_TASK is None or _REFRESH_TASK.done():
+        _REFRESH_TASK = asyncio.create_task(_run_refresh())
+
+
+@router.get("", response_class=HTMLResponse)
+async def short_term_tab(request: Request, refresh: bool = Query(False)):
+    await _require_admin(request)
+    report = await asyncio.to_thread(get_short_term_report, database.DB_PATH)
+    latest_status = (report.get("latest") or {}).get("status")
+    if refresh or (not report["is_ready"] and latest_status != "running"):
+        _start_refresh()
+        await asyncio.sleep(0)
+    report["running"] = bool(
+        (_REFRESH_TASK and not _REFRESH_TASK.done())
+        or (report.get("latest") or {}).get("status") == "running"
+    )
+    return templates.TemplateResponse(
+        request,
+        "components/short_term_tab.html",
+        {"report": report},
+    )
