@@ -20,7 +20,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v4"
+CALCULATION_VERSION = "short-term-lab-v5"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -43,23 +43,23 @@ STRATEGIES = {
         "target": 10.0,
         "description": "Совмещает собственный импульс монеты с её силой относительно остального рынка.",
     },
-    "relative_strength_btc": {
-        "name": "Relative Strength vs BTC",
-        "short_name": "Сила против BTC",
+    "atr_breakout": {
+        "name": "ATR Breakout",
+        "short_name": "Пробой ATR",
+        "timeframe": 60,
+        "hold": 12 * 60,
+        "stop": 3.5,
+        "target": 7.0,
+        "description": "Ищет сильный часовой выход цены за обычный диапазон, измеренный через ATR.",
+    },
+    "ema_pullback": {
+        "name": "EMA Pullback",
+        "short_name": "Откат к EMA",
         "timeframe": 60,
         "hold": 18 * 60,
         "stop": 4.0,
         "target": 8.0,
-        "description": "Отбирает монеты, которые устойчиво усиливаются или слабеют относительно BTC.",
-    },
-    "donchian_breakout": {
-        "name": "Donchian Breakout",
-        "short_name": "Пробой Дончиана",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 5.0,
-        "target": 10.0,
-        "description": "Входит при первом подтверждённом выходе цены за границу предыдущего 24-часового канала.",
+        "description": "Входит после возврата цены выше или ниже быстрой EMA внутри подтверждённого тренда.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -645,6 +645,86 @@ def _donchian_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("donchian_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
+def _atr_breakout(hourly: pd.DataFrame) -> list[dict]:
+    rows: list[pd.DataFrame] = []
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        previous_close = frame["close"].shift(1)
+        true_range = pd.concat([
+            frame["high"] - frame["low"],
+            (frame["high"] - previous_close).abs(),
+            (frame["low"] - previous_close).abs(),
+        ], axis=1).max(axis=1)
+        # ATR is shifted so the current breakout candle cannot widen its own threshold.
+        atr = true_range.rolling(14, min_periods=14).mean().shift(1).replace(0, np.nan)
+        ema24 = frame["close"].ewm(span=24, adjust=False, min_periods=24).mean().shift(1)
+        candle_range = (frame["high"] - frame["low"]).replace(0, np.nan)
+        close_location = (frame["close"] - frame["low"]) / candle_range
+        move_in_atr = (frame["close"] - previous_close) / atr
+        long_condition = (
+            (move_in_atr >= 1.25)
+            & (close_location >= 0.75)
+            & (frame["close"] > ema24)
+        )
+        short_condition = (
+            (move_in_atr <= -1.25)
+            & (close_location <= 0.25)
+            & (frame["close"] < ema24)
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        score = move_in_atr.abs()
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = score[direction != ""]
+        rows.append(out.rename(columns={"close": "signal_price"}))
+    selected = _cap_per_time(
+        pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=1
+    )
+    return [_candidate("atr_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
+def _ema_pullback(hourly: pd.DataFrame) -> list[dict]:
+    rows: list[pd.DataFrame] = []
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        ema24 = frame["close"].ewm(span=24, adjust=False, min_periods=24).mean()
+        ema72 = frame["close"].ewm(span=72, adjust=False, min_periods=72).mean()
+        previous_close = frame["close"].shift(1)
+        previous_ema24 = ema24.shift(1)
+        return_72h = frame["close"].pct_change(72, fill_method=None) * 100
+        trend_strength = (ema24 / ema72 - 1.0) * 100
+        ema_slope = ema24.pct_change(6, fill_method=None) * 100
+        long_condition = (
+            (ema24 > ema72 * 1.005)
+            & (ema_slope > 0)
+            & (return_72h >= 2.0)
+            & (previous_close <= previous_ema24)
+            & (frame["close"] > ema24)
+            & (frame["close"] > frame["open"])
+        )
+        short_condition = (
+            (ema24 < ema72 * 0.995)
+            & (ema_slope < 0)
+            & (return_72h <= -2.0)
+            & (previous_close >= previous_ema24)
+            & (frame["close"] < ema24)
+            & (frame["close"] < frame["open"])
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        reclaim_distance = ((frame["close"] - ema24) / ema24).abs() * 100
+        score = 1.5 + trend_strength.abs() + reclaim_distance
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = score[direction != ""]
+        rows.append(out.rename(columns={"close": "signal_price"}))
+    selected = _cap_per_time(
+        pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=1
+    )
+    return [_candidate("ema_pullback", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
 def _trend_rsi_pullback(hourly: pd.DataFrame) -> list[dict]:
     rows: list[pd.DataFrame] = []
     for ticker, group in hourly.groupby("ticker", sort=False):
@@ -776,8 +856,8 @@ def generate_candidates(candles: pd.DataFrame) -> dict[str, list[dict]]:
     return {
         "trend_persistence": _trend_persistence(hourly),
         "dual_momentum": _dual_momentum(hourly),
-        "relative_strength_btc": _relative_strength_btc(hourly),
-        "donchian_breakout": _donchian_breakout(hourly),
+        "atr_breakout": _atr_breakout(hourly),
+        "ema_pullback": _ema_pullback(hourly),
     }
 
 

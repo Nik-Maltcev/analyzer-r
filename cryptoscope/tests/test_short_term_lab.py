@@ -10,10 +10,10 @@ from app.core.short_term_lab import (
     STRATEGIES,
     _advance_forward,
     _aggregate,
-    _donchian_breakout,
+    _atr_breakout,
     _dual_momentum,
     _directional_return,
-    _relative_strength_btc,
+    _ema_pullback,
     _simulate,
     ensure_short_term_schema,
     generate_candidates,
@@ -51,7 +51,7 @@ def test_short_return_uses_entry_not_exit_as_denominator():
     assert _directional_return("long", 100, 110) == pytest.approx(10.0)
 
 
-def test_fourth_batch_candidate_generation_smoke():
+def test_fifth_batch_candidate_generation_smoke():
     rng = np.random.default_rng(42)
     rows = []
     times = np.arange(2_200, dtype=np.int64) * 300_000
@@ -71,12 +71,12 @@ def test_fourth_batch_candidate_generation_smoke():
 
     candidates = generate_candidates(_bars(rows))
 
-    assert CALCULATION_VERSION == "short-term-lab-v4"
+    assert CALCULATION_VERSION == "short-term-lab-v5"
     assert set(candidates) == {
         "trend_persistence",
         "dual_momentum",
-        "relative_strength_btc",
-        "donchian_breakout",
+        "atr_breakout",
+        "ema_pullback",
     }
     assert all(
         event["signal_time"] % (60 * 60_000) == 0
@@ -85,7 +85,7 @@ def test_fourth_batch_candidate_generation_smoke():
     )
 
 
-def test_trend_persistence_settings_are_unchanged_in_fourth_batch():
+def test_preserved_strategy_settings_are_unchanged_in_fifth_batch():
     assert STRATEGIES["trend_persistence"] == {
         "name": "Trend Persistence",
         "short_name": "Устойчивый тренд",
@@ -95,9 +95,18 @@ def test_trend_persistence_settings_are_unchanged_in_fourth_batch():
         "target": 10.0,
         "description": "Торгует только сильный согласованный тренд цены и объёма на часовом горизонте.",
     }
+    assert STRATEGIES["dual_momentum"] == {
+        "name": "Dual Momentum",
+        "short_name": "Двойной импульс",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 5.0,
+        "target": 10.0,
+        "description": "Совмещает собственный импульс монеты с её силой относительно остального рынка.",
+    }
 
 
-def test_donchian_breakout_uses_previous_channel_and_next_hour_entry():
+def test_atr_breakout_uses_previous_atr_and_next_hour_entry():
     hour = 60 * 60_000
     rows = []
     for index in range(30):
@@ -115,7 +124,7 @@ def test_donchian_breakout_uses_previous_channel_and_next_hour_entry():
             "quote_volume": 10_000.0,
         })
 
-    candidates = _donchian_breakout(pd.DataFrame(rows))
+    candidates = _atr_breakout(pd.DataFrame(rows))
 
     assert len(candidates) == 1
     assert candidates[0]["direction"] == "long"
@@ -148,12 +157,34 @@ def test_momentum_strategies_require_directional_and_relative_agreement():
     hourly = pd.DataFrame(rows)
 
     dual = _dual_momentum(hourly)
-    relative = _relative_strength_btc(hourly)
 
     assert any(item["ticker"] == "ETH/USD" and item["direction"] == "long" for item in dual)
     assert any(item["ticker"] == "XRP/USD" and item["direction"] == "short" for item in dual)
-    assert any(item["ticker"] == "ETH/USD" and item["direction"] == "long" for item in relative)
-    assert any(item["ticker"] == "XRP/USD" and item["direction"] == "short" for item in relative)
+
+
+def test_ema_pullback_waits_for_reclaim_inside_established_trend():
+    hour = 60 * 60_000
+    prices = 100 * np.power(1.001, np.arange(100))
+    prices[90] = 107.8
+    rows = []
+    for index, close in enumerate(prices):
+        previous = prices[max(index - 1, 0)]
+        rows.append({
+            "ticker": "ETH/USD",
+            "open_time": index * hour,
+            "open": float(previous),
+            "high": float(max(previous, close) * 1.001),
+            "low": float(min(previous, close) * 0.999),
+            "close": float(close),
+            "volume": 100.0,
+            "quote_volume": float(close * 100),
+        })
+
+    candidates = _ema_pullback(pd.DataFrame(rows))
+
+    assert len(candidates) == 1
+    assert candidates[0]["direction"] == "long"
+    assert candidates[0]["signal_time"] == 92 * hour
 
 
 def test_simulation_enters_at_decision_time_and_uses_stop_first():
