@@ -1,15 +1,18 @@
 import sqlite3
 
+import numpy as np
 import pandas as pd
 import pytest
 
 from app.core.short_term_lab import (
+    CALCULATION_VERSION,
     ROUND_TRIP_COST_PCT,
     _advance_forward,
     _aggregate,
     _directional_return,
     _simulate,
     ensure_short_term_schema,
+    generate_candidates,
 )
 
 
@@ -42,6 +45,40 @@ def test_aggregate_uses_only_fully_closed_bars():
 def test_short_return_uses_entry_not_exit_as_denominator():
     assert _directional_return("short", 100, 90) == pytest.approx(10.0)
     assert _directional_return("long", 100, 110) == pytest.approx(10.0)
+
+
+def test_second_batch_candidate_generation_smoke():
+    rng = np.random.default_rng(42)
+    rows = []
+    times = np.arange(2_200, dtype=np.int64) * 300_000
+    for offset, ticker in enumerate(("BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD")):
+        close = (100 + offset * 10) * np.exp(np.cumsum(rng.normal(0, 0.003, len(times))))
+        open_price = np.r_[close[0], close[:-1]]
+        high = np.maximum(open_price, close) * (1 + rng.uniform(0, 0.002, len(times)))
+        low = np.minimum(open_price, close) * (1 - rng.uniform(0, 0.002, len(times)))
+        volume = rng.uniform(100, 1_000, len(times))
+        rows.extend(
+            (ticker, int(timestamp), float(open_value), float(high_value),
+             float(low_value), float(close_value), float(volume_value),
+             float(volume_value * close_value))
+            for timestamp, open_value, high_value, low_value, close_value, volume_value
+            in zip(times, open_price, high, low, close, volume, strict=True)
+        )
+
+    candidates = generate_candidates(_bars(rows))
+
+    assert CALCULATION_VERSION == "short-term-lab-v2"
+    assert set(candidates) == {
+        "vwap_reversion",
+        "liquidity_sweep",
+        "volatility_squeeze",
+        "btc_lead_lag",
+    }
+    assert all(
+        event["signal_time"] % (15 * 60_000) == 0
+        for events in candidates.values()
+        for event in events
+    )
 
 
 def test_simulation_enters_at_decision_time_and_uses_stop_first():
@@ -116,10 +153,11 @@ def test_closed_forward_trade_is_not_rewritten(tmp_path):
             signal_price, score, confidence, timeframe_minutes, hold_minutes,
             stop_pct, target_pct, status, entry_time, entry_price,
             planned_exit_time, last_evaluated_time
-        ) VALUES ('short-term-lab-v1', 'volatility_breakout', 'BTC/USD',
+        ) VALUES (?, 'volatility_breakout', 'BTC/USD',
                   'short', 0, 100, 2.5, 'high', 15, 15, 6, 10,
                   'active', 300000, 100, 1200000, 299999)
-        """
+        """,
+        (CALCULATION_VERSION,),
     )
     conn.commit()
     first = _bars([

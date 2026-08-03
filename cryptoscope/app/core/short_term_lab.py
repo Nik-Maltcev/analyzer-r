@@ -20,46 +20,46 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v1"
+CALCULATION_VERSION = "short-term-lab-v2"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 STRATEGIES = {
-    "cross_momentum": {
-        "name": "Cross-sectional Momentum",
-        "short_name": "Лидеры рынка",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 6.0,
-        "target": 10.0,
-        "description": "Покупает сильнейшие и шортит слабейшие монеты относительно рынка.",
+    "vwap_reversion": {
+        "name": "VWAP Mean Reversion",
+        "short_name": "Возврат к VWAP",
+        "timeframe": 15,
+        "hold": 4 * 60,
+        "stop": 3.0,
+        "target": 4.0,
+        "description": "Входит после подтверждённого возврата от экстремального отклонения к объёмной средней.",
     },
-    "volatility_breakout": {
-        "name": "Volatility Breakout",
-        "short_name": "Пробой волатильности",
+    "liquidity_sweep": {
+        "name": "Liquidity Sweep Reversal",
+        "short_name": "Ложный пробой",
+        "timeframe": 15,
+        "hold": 4 * 60,
+        "stop": 3.0,
+        "target": 5.0,
+        "description": "Ищет прокол локального экстремума с длинной тенью и возвратом цены внутрь диапазона.",
+    },
+    "volatility_squeeze": {
+        "name": "Volatility Squeeze",
+        "short_name": "Выход из сжатия",
         "timeframe": 15,
         "hold": 12 * 60,
-        "stop": 3.0,
-        "target": 6.0,
-        "description": "Входит после пробоя локального диапазона с подтверждением объёмом.",
-    },
-    "trend_pullback": {
-        "name": "Trend Pullback",
-        "short_name": "Откат по тренду",
-        "timeframe": 15,
-        "hold": 24 * 60,
         "stop": 4.0,
-        "target": 8.0,
-        "description": "Ищет возврат к средней внутри уже подтверждённого часового тренда.",
+        "target": 7.0,
+        "description": "Торгует выход из аномально узкого диапазона только при подтверждении объёмом.",
     },
-    "residual_momentum": {
-        "name": "Residual Momentum",
-        "short_name": "Сила против BTC",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 5.0,
-        "target": 8.0,
-        "description": "Отбирает движение монеты, которое не объясняется движением BTC.",
+    "btc_lead_lag": {
+        "name": "BTC Lead-Lag",
+        "short_name": "Запаздывание за BTC",
+        "timeframe": 15,
+        "hold": 3 * 60,
+        "stop": 3.0,
+        "target": 4.5,
+        "description": "Ищет ликвидные монеты, которые запаздывают после сильного движения BTC.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -312,14 +312,161 @@ def _residual_momentum(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("residual_momentum", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
+def _vwap_reversion(fifteen: pd.DataFrame) -> list[dict]:
+    rows: list[pd.DataFrame] = []
+    for ticker, group in fifteen.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        typical = (frame["high"] + frame["low"] + frame["close"]) / 3
+        weight = frame["volume"].replace(0, np.nan)
+        weighted = typical * weight
+        rolling_weight = weight.rolling(96, min_periods=48).sum().shift(1)
+        vwap = weighted.rolling(96, min_periods=48).sum().shift(1) / rolling_weight
+        deviation = (frame["close"] / vwap - 1.0) * 100
+        scale = deviation.rolling(96, min_periods=48).std().shift(1).replace(0, np.nan)
+        zscore = deviation / scale
+        previous = zscore.shift(1)
+        long_condition = (previous <= -2.0) & (zscore > -1.5) & (frame["close"] > frame["open"])
+        short_condition = (previous >= 2.0) & (zscore < 1.5) & (frame["close"] < frame["open"])
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = previous[direction != ""].abs()
+        rows.append(out.rename(columns={"close": "signal_price"}))
+    selected = _cap_per_time(pd.concat(rows, ignore_index=True) if rows else pd.DataFrame())
+    return [_candidate("vwap_reversion", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
+def _liquidity_sweep(fifteen: pd.DataFrame) -> list[dict]:
+    rows: list[pd.DataFrame] = []
+    for ticker, group in fifteen.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        previous_close = frame["close"].shift(1)
+        true_range = pd.concat([
+            frame["high"] - frame["low"],
+            (frame["high"] - previous_close).abs(),
+            (frame["low"] - previous_close).abs(),
+        ], axis=1).max(axis=1)
+        atr = true_range.rolling(14, min_periods=14).mean().shift(1).replace(0, np.nan)
+        range_high = frame["high"].rolling(48, min_periods=32).max().shift(1)
+        range_low = frame["low"].rolling(48, min_periods=32).min().shift(1)
+        body = (frame["close"] - frame["open"]).abs().clip(lower=atr * 0.05)
+        lower_wick = np.minimum(frame["open"], frame["close"]) - frame["low"]
+        upper_wick = frame["high"] - np.maximum(frame["open"], frame["close"])
+        volume_base = frame["quote_volume"].rolling(48, min_periods=32).median().shift(1).replace(0, np.nan)
+        volume_ratio = frame["quote_volume"] / volume_base
+        long_condition = (
+            (frame["low"] < range_low - atr * 0.10)
+            & (frame["close"] > range_low)
+            & (lower_wick >= body * 1.5)
+            & (volume_ratio >= 1.2)
+        )
+        short_condition = (
+            (frame["high"] > range_high + atr * 0.10)
+            & (frame["close"] < range_high)
+            & (upper_wick >= body * 1.5)
+            & (volume_ratio >= 1.2)
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        sweep_distance = np.where(
+            direction == "long",
+            (range_low - frame["low"]) / atr,
+            (frame["high"] - range_high) / atr,
+        )
+        wick_ratio = np.where(direction == "long", lower_wick / body, upper_wick / body)
+        score = sweep_distance + np.log1p(volume_ratio) + np.minimum(wick_ratio, 5) / 5
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = score[direction != ""]
+        rows.append(out.rename(columns={"close": "signal_price"}))
+    selected = _cap_per_time(pd.concat(rows, ignore_index=True) if rows else pd.DataFrame())
+    return [_candidate("liquidity_sweep", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
+def _volatility_squeeze(fifteen: pd.DataFrame) -> list[dict]:
+    rows: list[pd.DataFrame] = []
+    for ticker, group in fifteen.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        middle = frame["close"].rolling(20, min_periods=20).mean()
+        deviation = frame["close"].rolling(20, min_periods=20).std()
+        width = (4 * deviation / middle.replace(0, np.nan)).abs()
+        squeeze_limit = width.rolling(192, min_periods=96).quantile(0.20).shift(1)
+        was_squeezed = width.shift(1) <= squeeze_limit
+        range_high = frame["high"].rolling(20, min_periods=20).max().shift(1)
+        range_low = frame["low"].rolling(20, min_periods=20).min().shift(1)
+        previous_close = frame["close"].shift(1)
+        true_range = pd.concat([
+            frame["high"] - frame["low"],
+            (frame["high"] - previous_close).abs(),
+            (frame["low"] - previous_close).abs(),
+        ], axis=1).max(axis=1)
+        atr = true_range.rolling(14, min_periods=14).mean().shift(1).replace(0, np.nan)
+        volume_base = frame["quote_volume"].rolling(20, min_periods=20).median().shift(1).replace(0, np.nan)
+        volume_ratio = frame["quote_volume"] / volume_base
+        long_condition = was_squeezed & (frame["close"] > range_high) & (volume_ratio >= 1.3)
+        short_condition = was_squeezed & (frame["close"] < range_low) & (volume_ratio >= 1.3)
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        distance = np.where(
+            direction == "long",
+            (frame["close"] - range_high) / atr,
+            (range_low - frame["close"]) / atr,
+        )
+        score = distance + np.log1p(volume_ratio)
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = score[direction != ""]
+        rows.append(out.rename(columns={"close": "signal_price"}))
+    selected = _cap_per_time(pd.concat(rows, ignore_index=True) if rows else pd.DataFrame())
+    return [_candidate("volatility_squeeze", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
+def _btc_lead_lag(fifteen: pd.DataFrame) -> list[dict]:
+    close = fifteen.pivot(index="open_time", columns="ticker", values="close")
+    returns = close.pct_change(fill_method=None)
+    btc = returns.get("BTC/USD")
+    if btc is None:
+        return []
+    btc_variance = btc.rolling(672, min_periods=192).var().shift(1).replace(0, np.nan)
+    rows: list[dict] = []
+    for ticker in close.columns:
+        if ticker == "BTC/USD":
+            continue
+        coin = returns[ticker]
+        beta = coin.rolling(672, min_periods=192).cov(btc).shift(1) / btc_variance
+        correlation = coin.rolling(672, min_periods=192).corr(btc).shift(1)
+        residual = coin - beta * btc
+        residual_scale = residual.rolling(672, min_periods=192).std().shift(1).replace(0, np.nan)
+        gap = beta * btc - coin
+        score = gap.abs() / residual_scale
+        long_condition = (btc >= 0.008) & (gap >= 0.004) & (correlation >= 0.50) & (score >= 1.0)
+        short_condition = (btc <= -0.008) & (gap <= -0.004) & (correlation >= 0.50) & (score >= 1.0)
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        selected = direction != ""
+        for timestamp in close.index[selected]:
+            price = close.at[timestamp, ticker]
+            value = score.loc[timestamp]
+            if pd.isna(price) or pd.isna(value):
+                continue
+            rows.append({
+                "open_time": int(timestamp),
+                "ticker": ticker,
+                "direction": str(direction[close.index.get_loc(timestamp)]),
+                "signal_price": float(price),
+                "score": float(value),
+            })
+    selected = _cap_per_time(pd.DataFrame(rows))
+    return [_candidate("btc_lead_lag", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
 def generate_candidates(candles: pd.DataFrame) -> dict[str, list[dict]]:
     fifteen = _aggregate(candles, 15)
-    hourly = _aggregate(candles, 60)
     return {
-        "cross_momentum": _cross_momentum(hourly),
-        "volatility_breakout": _volatility_breakout(fifteen),
-        "trend_pullback": _trend_pullback(fifteen, hourly),
-        "residual_momentum": _residual_momentum(hourly),
+        "vwap_reversion": _vwap_reversion(fifteen),
+        "liquidity_sweep": _liquidity_sweep(fifteen),
+        "volatility_squeeze": _volatility_squeeze(fifteen),
+        "btc_lead_lag": _btc_lead_lag(fifteen),
     }
 
 
