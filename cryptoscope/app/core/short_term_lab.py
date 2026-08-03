@@ -20,7 +20,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v6"
+CALCULATION_VERSION = "short-term-lab-v7"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -43,23 +43,23 @@ STRATEGIES = {
         "target": 10.0,
         "description": "Совмещает собственный импульс монеты с её силой относительно остального рынка.",
     },
-    "opening_range_breakout": {
-        "name": "Opening Range Breakout",
-        "short_name": "Пробой стартового диапазона",
+    "volume_acceleration": {
+        "name": "Volume Acceleration",
+        "short_name": "Ускорение объёма",
         "timeframe": 60,
         "hold": 12 * 60,
         "stop": 3.5,
         "target": 7.0,
-        "description": "Торгует подтверждённый выход из диапазона первых четырёх часов UTC при повышенном объёме.",
+        "description": "Ищет ускорение денежного объёма, подтверждённое направлением цены и закрытием свечи.",
     },
-    "range_mean_reversion": {
-        "name": "Range Mean Reversion",
-        "short_name": "Возврат внутрь диапазона",
+    "beta_neutral_stat_arb": {
+        "name": "Beta-Neutral Stat Arb",
+        "short_name": "Beta-neutral арбитраж",
         "timeframe": 60,
         "hold": 12 * 60,
         "stop": 3.0,
         "target": 5.0,
-        "description": "Ищет возврат цены внутрь обычного диапазона после статистического выброса на нетрендовом рынке.",
+        "description": "Торгует возврат остаточного движения монеты с компенсирующей позицией по BTC.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -73,6 +73,30 @@ def ensure_short_term_schema(conn: sqlite3.Connection) -> None:
         CREATE_SHORT_TERM_FORWARD_TRADES,
     ):
         conn.execute(statement)
+    migrations = {
+        "short_term_backtest_trades": {
+            "hedge_ticker": "TEXT",
+            "hedge_direction": "TEXT",
+            "hedge_ratio": "REAL",
+            "hedge_entry_price": "REAL",
+            "hedge_exit_price": "REAL",
+        },
+        "short_term_forward_trades": {
+            "hedge_ticker": "TEXT",
+            "hedge_direction": "TEXT",
+            "hedge_ratio": "REAL",
+            "hedge_entry_price": "REAL",
+            "hedge_last_price": "REAL",
+            "hedge_exit_price": "REAL",
+        },
+    }
+    for table, columns in migrations.items():
+        existing = {
+            row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        for column, declaration in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
     conn.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_short_term_forward_open
@@ -137,6 +161,7 @@ def _candidate(
     signal_time: int,
     signal_price: float,
     score: float,
+    **extra,
 ) -> dict:
     settings = STRATEGIES[strategy]
     decision_time = int(signal_time + int(settings["timeframe"]) * 60_000)
@@ -153,6 +178,7 @@ def _candidate(
         "hold_minutes": int(settings["hold"]),
         "stop_pct": float(settings["stop"]),
         "target_pct": float(settings["target"]),
+        **extra,
     }
 
 
@@ -872,13 +898,121 @@ def _volume_flow_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("volume_flow_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
+def _volume_acceleration(hourly: pd.DataFrame) -> list[dict]:
+    rows: list[pd.DataFrame] = []
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        baseline = (
+            frame["quote_volume"].rolling(24, min_periods=18).median().shift(1)
+            .replace(0, np.nan)
+        )
+        recent = (
+            frame["quote_volume"].rolling(3, min_periods=3).mean().shift(1)
+            .replace(0, np.nan)
+        )
+        volume_ratio = frame["quote_volume"] / baseline
+        acceleration = frame["quote_volume"] / recent
+        return_3h = frame["close"].pct_change(3, fill_method=None) * 100
+        candle_range = (frame["high"] - frame["low"]).replace(0, np.nan)
+        close_location = (
+            (frame["close"] - frame["low"]) - (frame["high"] - frame["close"])
+        ) / candle_range
+        long_condition = (
+            (volume_ratio >= 1.8) & (acceleration >= 1.5)
+            & (return_3h >= 1.2) & (frame["close"] > frame["open"])
+            & (close_location >= 0.45)
+        )
+        short_condition = (
+            (volume_ratio >= 1.8) & (acceleration >= 1.5)
+            & (return_3h <= -1.2) & (frame["close"] < frame["open"])
+            & (close_location <= -0.45)
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        score = (
+            1.5 + np.log1p(volume_ratio.clip(lower=0))
+            + np.log1p(acceleration.clip(lower=0)) + return_3h.abs() / 2
+        )
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = score[direction != ""]
+        rows.append(out.rename(columns={"close": "signal_price"}))
+    selected = _cap_per_time(
+        pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=1
+    )
+    return [
+        _candidate("volume_acceleration", **row)
+        for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")
+    ]
+
+
+def _beta_neutral_stat_arb(hourly: pd.DataFrame) -> list[dict]:
+    close = hourly.pivot(index="open_time", columns="ticker", values="close")
+    returns = close.pct_change(fill_method=None)
+    btc = returns.get("BTC/USD")
+    if btc is None:
+        return []
+    btc_variance = btc.rolling(336, min_periods=168).var().shift(1).replace(0, np.nan)
+    rows: list[dict] = []
+    for ticker in close.columns:
+        if ticker == "BTC/USD":
+            continue
+        coin = returns[ticker]
+        beta = coin.rolling(336, min_periods=168).cov(btc).shift(1) / btc_variance
+        correlation = coin.rolling(336, min_periods=168).corr(btc).shift(1)
+        residual = coin - beta * btc
+        residual_move = residual.rolling(6, min_periods=6).sum()
+        residual_scale = (
+            residual_move.rolling(168, min_periods=96).std().shift(1)
+            .replace(0, np.nan)
+        )
+        zscore = residual_move / residual_scale
+        previous = zscore.shift(1)
+        valid_beta = beta.abs().between(0.20, 3.0)
+        long_condition = (
+            (previous <= -2.0) & (zscore > previous)
+            & (correlation.abs() >= 0.35) & valid_beta
+        )
+        short_condition = (
+            (previous >= 2.0) & (zscore < previous)
+            & (correlation.abs() >= 0.35) & valid_beta
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        selected = direction != ""
+        for timestamp in close.index[selected]:
+            price = close.at[timestamp, ticker]
+            zvalue = previous.loc[timestamp]
+            beta_value = beta.loc[timestamp]
+            if not all(math.isfinite(float(item)) for item in (price, zvalue, beta_value)):
+                continue
+            coin_direction = str(direction[close.index.get_loc(timestamp)])
+            hedge_direction = (
+                "short" if (coin_direction == "long") == (beta_value > 0) else "long"
+            )
+            rows.append({
+                "open_time": int(timestamp),
+                "ticker": ticker,
+                "direction": coin_direction,
+                "signal_price": float(price),
+                "score": float(abs(zvalue)),
+                "hedge_ticker": "BTC/USD",
+                "hedge_direction": hedge_direction,
+                "hedge_ratio": float(np.clip(abs(beta_value), 0.20, 3.0)),
+            })
+    selected = _cap_per_time(pd.DataFrame(rows), count=1)
+    return [
+        _candidate("beta_neutral_stat_arb", **row)
+        for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")
+    ]
+
+
 def generate_candidates(candles: pd.DataFrame) -> dict[str, list[dict]]:
     hourly = _aggregate(candles, 60)
     return {
         "trend_persistence": _trend_persistence(hourly),
         "dual_momentum": _dual_momentum(hourly),
-        "opening_range_breakout": _opening_range_breakout(hourly),
-        "range_mean_reversion": _range_mean_reversion(hourly),
+        "volume_acceleration": _volume_acceleration(hourly),
+        "beta_neutral_stat_arb": _beta_neutral_stat_arb(hourly),
     }
 
 
@@ -888,7 +1022,87 @@ def _directional_return(direction: str, entry: float, price: float) -> float:
     return ((entry - price) / entry) * 100
 
 
-def _simulate(candidate: dict, ticker_bars: pd.DataFrame) -> dict | None:
+def _portfolio_return(
+    candidate: dict,
+    entry_price: float,
+    price: float,
+    hedge_entry_price: float | None = None,
+    hedge_price: float | None = None,
+) -> float:
+    primary = _directional_return(candidate["direction"], entry_price, price)
+    if not candidate.get("hedge_ticker"):
+        return primary
+    if hedge_entry_price is None or hedge_price is None:
+        raise ValueError("Hedged strategy requires both BTC prices")
+    ratio = max(float(candidate.get("hedge_ratio") or 0), 0.0)
+    primary_weight = 1.0 / (1.0 + ratio)
+    hedge_weight = ratio / (1.0 + ratio)
+    hedge = _directional_return(
+        candidate["hedge_direction"], hedge_entry_price, hedge_price
+    )
+    return primary * primary_weight + hedge * hedge_weight
+
+
+def _simulate(
+    candidate: dict,
+    ticker_bars: pd.DataFrame,
+    hedge_bars: pd.DataFrame | None = None,
+) -> dict | None:
+    if candidate.get("hedge_ticker"):
+        if hedge_bars is None or hedge_bars.empty:
+            return None
+        bars = ticker_bars.merge(
+            hedge_bars,
+            on="open_time",
+            how="inner",
+            suffixes=("", "_hedge"),
+        ).sort_values("open_time")
+        times = bars["open_time"].to_numpy(dtype=np.int64)
+        entry_index = int(np.searchsorted(times, candidate["signal_time"], side="left"))
+        if entry_index >= len(bars):
+            return None
+        entry = bars.iloc[entry_index]
+        entry_price = float(entry["open"])
+        hedge_entry_price = float(entry["open_hedge"])
+        horizon = int(times[entry_index] + candidate["hold_minutes"] * 60_000)
+        exit_index = int(np.searchsorted(times, horizon, side="left"))
+        if exit_index <= entry_index or exit_index >= len(bars):
+            return None
+        chosen = exit_index
+        reason = "time"
+        exit_price = float(bars.iloc[chosen]["open"])
+        hedge_exit_price = float(bars.iloc[chosen]["open_hedge"])
+        for index in range(entry_index, exit_index):
+            bar = bars.iloc[index]
+            current_price = float(bar["close"])
+            current_hedge = float(bar["close_hedge"])
+            gross = _portfolio_return(
+                candidate, entry_price, current_price,
+                hedge_entry_price, current_hedge,
+            )
+            if gross <= -float(candidate["stop_pct"]):
+                chosen, reason = index, "stop"
+                exit_price, hedge_exit_price = current_price, current_hedge
+                break
+            if gross >= float(candidate["target_pct"]):
+                chosen, reason = index, "target"
+                exit_price, hedge_exit_price = current_price, current_hedge
+                break
+        gross = _portfolio_return(
+            candidate, entry_price, exit_price,
+            hedge_entry_price, hedge_exit_price,
+        )
+        net = gross - ROUND_TRIP_COST_PCT
+        return {
+            **candidate,
+            "entry_time": int(times[entry_index]), "entry_price": entry_price,
+            "hedge_entry_price": hedge_entry_price,
+            "exit_time": int(times[chosen]), "exit_price": exit_price,
+            "hedge_exit_price": hedge_exit_price,
+            "exit_reason": reason, "gross_return_pct": gross,
+            "cost_pct": ROUND_TRIP_COST_PCT, "net_return_pct": net,
+            "cash_result": STAKE_USD * net / 100,
+        }
     bars = ticker_bars.sort_values("open_time")
     times = bars["open_time"].to_numpy(dtype=np.int64)
     entry_index = int(np.searchsorted(times, candidate["signal_time"], side="left"))
@@ -947,7 +1161,8 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
             ticker_bars = by_ticker.get(event["ticker"])
             if ticker_bars is None:
                 continue
-            trade = _simulate(event, ticker_bars)
+            hedge_bars = by_ticker.get(event.get("hedge_ticker"))
+            trade = _simulate(event, ticker_bars, hedge_bars)
             if trade is None:
                 continue
             trades.append(trade)
@@ -986,35 +1201,73 @@ def _advance_forward(conn: sqlite3.Connection, candles: pd.DataFrame) -> dict:
         bars = by_ticker.get(trade["ticker"])
         if bars is None or bars.empty:
             continue
+        hedge_bars = by_ticker.get(trade.get("hedge_ticker"))
+        is_hedged = bool(trade.get("hedge_ticker"))
+        if is_hedged and (hedge_bars is None or hedge_bars.empty):
+            continue
+        evaluation_bars = (
+            bars.merge(
+                hedge_bars,
+                on="open_time",
+                how="inner",
+                suffixes=("", "_hedge"),
+            ).sort_values("open_time")
+            if is_hedged else bars
+        )
         if trade["status"] == "pending":
-            candidates = bars[bars["open_time"] >= int(trade["signal_time"])]
+            candidates = evaluation_bars[
+                evaluation_bars["open_time"] >= int(trade["signal_time"])
+            ]
             if candidates.empty:
                 continue
             entry = candidates.iloc[0]
             entry_time = int(entry["open_time"])
             entry_price = float(entry["open"])
+            hedge_entry_price = float(entry["open_hedge"]) if is_hedged else None
             conn.execute(
                 """
                 UPDATE short_term_forward_trades
                 SET status='active', entry_time=?, entry_price=?, planned_exit_time=?,
-                    last_evaluated_time=?, last_price=?, updated_at=datetime('now')
+                    last_evaluated_time=?, last_price=?, hedge_entry_price=?,
+                    hedge_last_price=?, updated_at=datetime('now')
                 WHERE id=? AND status='pending'
                 """,
                 (entry_time, entry_price, entry_time + int(trade["hold_minutes"]) * 60_000,
-                 entry_time - 1, entry_price, trade["id"]),
+                 entry_time - 1, entry_price, hedge_entry_price,
+                 hedge_entry_price, trade["id"]),
             )
             trade.update({"status": "active", "entry_time": entry_time, "entry_price": entry_price,
                           "planned_exit_time": entry_time + int(trade["hold_minutes"]) * 60_000,
-                          "last_evaluated_time": entry_time - 1})
+                          "last_evaluated_time": entry_time - 1,
+                          "hedge_entry_price": hedge_entry_price})
             opened += 1
-        unseen = bars[bars["open_time"] > int(trade["last_evaluated_time"] or trade["entry_time"] - 1)]
+        unseen = evaluation_bars[
+            evaluation_bars["open_time"]
+            > int(trade["last_evaluated_time"] or trade["entry_time"] - 1)
+        ]
         for _, bar in unseen.iterrows():
             timestamp = int(bar["open_time"])
             entry_price = float(trade["entry_price"])
             stop = float(trade["stop_pct"])
             target = float(trade["target_pct"])
             direction = trade["direction"]
-            if timestamp >= int(trade["planned_exit_time"]):
+            hedge_price = None
+            if is_hedged:
+                timed_exit = timestamp >= int(trade["planned_exit_time"])
+                price = float(bar["open"] if timed_exit else bar["close"])
+                hedge_price = float(
+                    bar["open_hedge"] if timed_exit else bar["close_hedge"]
+                )
+                gross = _portfolio_return(
+                    trade, entry_price, price,
+                    float(trade["hedge_entry_price"]), hedge_price,
+                )
+                reason = "time" if timed_exit else None
+                if not reason and gross <= -stop:
+                    reason = "stop"
+                elif not reason and gross >= target:
+                    reason = "target"
+            elif timestamp >= int(trade["planned_exit_time"]):
                 reason = "time"
                 price = float(bar["open"])
                 stop_hit = target_hit = False
@@ -1029,16 +1282,17 @@ def _advance_forward(conn: sqlite3.Connection, candles: pd.DataFrame) -> dict:
                 target_hit = float(bar["low"]) <= entry_price * (1 - target / 100)
                 stop_price = entry_price * (1 + stop / 100)
                 target_price = entry_price * (1 - target / 100)
-            if timestamp < int(trade["planned_exit_time"]):
+            if not is_hedged and timestamp < int(trade["planned_exit_time"]):
                 reason = None
                 price = float(bar["close"])
-            if reason == "time":
-                pass
-            elif stop_hit:
-                reason, price = "stop", stop_price
-            elif target_hit:
-                reason, price = "target", target_price
-            gross = _directional_return(direction, entry_price, price)
+            if not is_hedged:
+                if reason == "time":
+                    pass
+                elif stop_hit:
+                    reason, price = "stop", stop_price
+                elif target_hit:
+                    reason, price = "target", target_price
+                gross = _directional_return(direction, entry_price, price)
             net = gross - ROUND_TRIP_COST_PCT
             if reason:
                 conn.execute(
@@ -1047,12 +1301,13 @@ def _advance_forward(conn: sqlite3.Connection, candles: pd.DataFrame) -> dict:
                     SET status='closed', last_evaluated_time=?, last_price=?,
                         current_net_return_pct=?, current_cash_result=?, exit_time=?,
                         exit_price=?, exit_reason=?, gross_return_pct=?, cost_pct=?,
-                        net_return_pct=?, cash_result=?, updated_at=datetime('now')
+                        net_return_pct=?, cash_result=?, hedge_last_price=?,
+                        hedge_exit_price=?, updated_at=datetime('now')
                     WHERE id=? AND status='active'
                     """,
                     (timestamp, price, net, STAKE_USD * net / 100, timestamp, price,
                      reason, gross, ROUND_TRIP_COST_PCT, net, STAKE_USD * net / 100,
-                     trade["id"]),
+                     hedge_price, hedge_price, trade["id"]),
                 )
                 closed += 1
                 break
@@ -1060,10 +1315,11 @@ def _advance_forward(conn: sqlite3.Connection, candles: pd.DataFrame) -> dict:
                 """
                 UPDATE short_term_forward_trades
                 SET last_evaluated_time=?, last_price=?, current_net_return_pct=?,
-                    current_cash_result=?, updated_at=datetime('now')
+                    current_cash_result=?, hedge_last_price=?, updated_at=datetime('now')
                 WHERE id=? AND status='active'
                 """,
-                (timestamp, price, net, STAKE_USD * net / 100, trade["id"]),
+                (timestamp, price, net, STAKE_USD * net / 100,
+                 hedge_price, trade["id"]),
             )
     conn.commit()
     return {"opened": opened, "closed": closed}
@@ -1089,13 +1345,15 @@ def _insert_latest_candidates(
                 INSERT OR IGNORE INTO short_term_forward_trades (
                     calculation_version, strategy, ticker, direction, signal_time,
                     signal_price, score, confidence, timeframe_minutes,
-                    hold_minutes, stop_pct, target_pct
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    hold_minutes, stop_pct, target_pct, hedge_ticker,
+                    hedge_direction, hedge_ratio
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (CALCULATION_VERSION, event["strategy"], event["ticker"], event["direction"],
                  event["signal_time"], event["signal_price"], event["score"],
                  event["confidence"], event["timeframe_minutes"], event["hold_minutes"],
-                 event["stop_pct"], event["target_pct"]),
+                 event["stop_pct"], event["target_pct"], event.get("hedge_ticker"),
+                 event.get("hedge_direction"), event.get("hedge_ratio")),
             )
             inserted += conn.total_changes - before
     conn.commit()
@@ -1168,14 +1426,19 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 INSERT OR IGNORE INTO short_term_backtest_trades (
                     run_id, strategy, ticker, direction, signal_time, entry_time,
                     entry_price, exit_time, exit_price, exit_reason, score, confidence,
-                    gross_return_pct, cost_pct, net_return_pct, cash_result
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    gross_return_pct, cost_pct, net_return_pct, cash_result,
+                    hedge_ticker, hedge_direction, hedge_ratio, hedge_entry_price,
+                    hedge_exit_price
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [(run_id, trade["strategy"], trade["ticker"], trade["direction"],
                   trade["signal_time"], trade["entry_time"], trade["entry_price"],
                   trade["exit_time"], trade["exit_price"], trade["exit_reason"],
                   trade["score"], trade["confidence"], trade["gross_return_pct"],
-                  trade["cost_pct"], trade["net_return_pct"], trade["cash_result"])
+                  trade["cost_pct"], trade["net_return_pct"], trade["cash_result"],
+                  trade.get("hedge_ticker"), trade.get("hedge_direction"),
+                  trade.get("hedge_ratio"), trade.get("hedge_entry_price"),
+                  trade.get("hedge_exit_price"))
                  for trade in trades],
             )
             payload = {"strategies": metrics, "forward": {**forward, "pending": inserted}}
