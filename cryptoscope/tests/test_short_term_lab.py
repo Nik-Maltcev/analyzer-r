@@ -10,10 +10,10 @@ from app.core.short_term_lab import (
     STRATEGIES,
     _advance_forward,
     _aggregate,
-    _atr_breakout,
     _dual_momentum,
     _directional_return,
-    _ema_pullback,
+    _opening_range_breakout,
+    _range_mean_reversion,
     _simulate,
     ensure_short_term_schema,
     generate_candidates,
@@ -51,7 +51,7 @@ def test_short_return_uses_entry_not_exit_as_denominator():
     assert _directional_return("long", 100, 110) == pytest.approx(10.0)
 
 
-def test_fifth_batch_candidate_generation_smoke():
+def test_sixth_batch_candidate_generation_smoke():
     rng = np.random.default_rng(42)
     rows = []
     times = np.arange(2_200, dtype=np.int64) * 300_000
@@ -71,12 +71,12 @@ def test_fifth_batch_candidate_generation_smoke():
 
     candidates = generate_candidates(_bars(rows))
 
-    assert CALCULATION_VERSION == "short-term-lab-v5"
+    assert CALCULATION_VERSION == "short-term-lab-v6"
     assert set(candidates) == {
         "trend_persistence",
         "dual_momentum",
-        "atr_breakout",
-        "ema_pullback",
+        "opening_range_breakout",
+        "range_mean_reversion",
     }
     assert all(
         event["signal_time"] % (60 * 60_000) == 0
@@ -85,7 +85,7 @@ def test_fifth_batch_candidate_generation_smoke():
     )
 
 
-def test_preserved_strategy_settings_are_unchanged_in_fifth_batch():
+def test_preserved_strategy_settings_are_unchanged_in_sixth_batch():
     assert STRATEGIES["trend_persistence"] == {
         "name": "Trend Persistence",
         "short_name": "Устойчивый тренд",
@@ -106,29 +106,31 @@ def test_preserved_strategy_settings_are_unchanged_in_fifth_batch():
     }
 
 
-def test_atr_breakout_uses_previous_atr_and_next_hour_entry():
+def test_opening_range_breakout_waits_for_four_hour_range_and_enters_next_hour():
     hour = 60 * 60_000
     rows = []
-    for index in range(30):
-        close = 100.0 if index < 25 else 100.2
-        if index == 25:
-            close = 103.0
+    for index in range(36):
+        close = 100.0
+        volume = 100.0
+        if index == 30:
+            close = 102.0
+            volume = 300.0
         rows.append({
             "ticker": "ETH/USD",
             "open_time": index * hour,
             "open": 100.0,
-            "high": 101.0 if index < 25 else max(close, 103.0),
+            "high": max(close, 101.0),
             "low": 99.0,
             "close": close,
-            "volume": 100.0,
-            "quote_volume": 10_000.0,
+            "volume": volume,
+            "quote_volume": volume * close,
         })
 
-    candidates = _atr_breakout(pd.DataFrame(rows))
+    candidates = _opening_range_breakout(pd.DataFrame(rows))
 
     assert len(candidates) == 1
     assert candidates[0]["direction"] == "long"
-    assert candidates[0]["signal_time"] == 26 * hour
+    assert candidates[0]["signal_time"] == 31 * hour
 
 
 def test_momentum_strategies_require_directional_and_relative_agreement():
@@ -162,10 +164,11 @@ def test_momentum_strategies_require_directional_and_relative_agreement():
     assert any(item["ticker"] == "XRP/USD" and item["direction"] == "short" for item in dual)
 
 
-def test_ema_pullback_waits_for_reclaim_inside_established_trend():
+def test_range_mean_reversion_waits_for_reentry_after_extreme():
     hour = 60 * 60_000
-    prices = 100 * np.power(1.001, np.arange(100))
-    prices[90] = 107.8
+    prices = 100 + 0.15 * np.sin(np.arange(110) / 2)
+    prices[100] = 95.0
+    prices[101] = 98.5
     rows = []
     for index, close in enumerate(prices):
         previous = prices[max(index - 1, 0)]
@@ -180,11 +183,11 @@ def test_ema_pullback_waits_for_reclaim_inside_established_trend():
             "quote_volume": float(close * 100),
         })
 
-    candidates = _ema_pullback(pd.DataFrame(rows))
+    candidates = _range_mean_reversion(pd.DataFrame(rows))
 
     assert len(candidates) == 1
     assert candidates[0]["direction"] == "long"
-    assert candidates[0]["signal_time"] == 92 * hour
+    assert candidates[0]["signal_time"] == 102 * hour
 
 
 def test_simulation_enters_at_decision_time_and_uses_stop_first():
