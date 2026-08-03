@@ -6,7 +6,7 @@
         <div>
             <span class="section-kicker">ADMIN · FORWARD RESEARCH</span>
             <h2>Short-Term Lab</h2>
-            <p>Две отобранные гипотезы на горизонте 24 часа.</p>
+            <p>Один трендовый подход на исторических окнах 30, 90, 180 и 365 дней.</p>
         </div>
         <button class="btn btn-secondary" type="button"
                 hx-get="/tab/short-term?refresh=true"
@@ -20,7 +20,7 @@
     {% if report.running %}
     <div class="stl-notice is-running">
         <strong>Синхронизируем завершённые свечи MEXC</strong>
-        <span>Первый расчёт включает 90-дневную проверку и может занять несколько минут.</span>
+        <span>Первый расчёт догружает историю для проверки за 365 дней и займёт заметно больше времени обычного.</span>
     </div>
     {% elif report.latest and report.latest.status == 'failed' %}
     <div class="stl-notice is-error">
@@ -38,7 +38,7 @@
         <span>Версия {{ report.version }}</span>
     </div>
 
-    <section class="stl-strategies" aria-label="Сравнение стратегий">
+    <section class="stl-strategies" aria-label="Сравнение исторических периодов">
         {% for strategy in report.strategies %}
         <article class="stl-strategy">
             <div class="stl-strategy-head">
@@ -88,7 +88,7 @@
             </table>
         </div>
         {% else %}
-        <div class="stl-empty">Сейчас строгие условия двух стратегий не выполнены. Это нормальное состояние, а не ошибка.</div>
+        <div class="stl-empty">Сейчас строгие условия стратегии не выполнены. Это нормальное состояние, а не ошибка.</div>
         {% endif %}
     </section>
 

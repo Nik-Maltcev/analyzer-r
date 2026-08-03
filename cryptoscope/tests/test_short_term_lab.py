@@ -5,14 +5,15 @@ import pandas as pd
 import pytest
 
 from app.core.short_term_lab import (
+    BACKTEST_WINDOWS_DAYS,
     CALCULATION_VERSION,
     ROUND_TRIP_COST_PCT,
     STRATEGIES,
     _advance_forward,
     _aggregate,
-    _dual_momentum,
     _directional_return,
     _simulate,
+    backtest,
     ensure_short_term_schema,
     generate_candidates,
 )
@@ -51,7 +52,7 @@ def test_short_return_uses_entry_not_exit_as_denominator():
     assert _directional_return("long", 100, 110) == pytest.approx(10.0)
 
 
-def test_eighth_batch_candidate_generation_smoke():
+def test_ninth_batch_candidate_generation_smoke():
     rng = np.random.default_rng(42)
     rows = []
     times = np.arange(2_200, dtype=np.int64) * 300_000
@@ -71,73 +72,45 @@ def test_eighth_batch_candidate_generation_smoke():
 
     candidates = generate_candidates(_bars(rows))
 
-    assert CALCULATION_VERSION == "short-term-lab-v8"
-    assert set(candidates) == {
-        "trend_persistence",
-        "dual_momentum",
-    }
+    assert CALCULATION_VERSION == "short-term-lab-v9"
+    assert set(candidates) == {"trend_persistence"}
     assert all(
-        event["signal_time"] % (60 * 60_000) == 0
+        event["signal_time"] % (6 * 60 * 60_000) == 0
         for events in candidates.values()
         for event in events
     )
 
 
-def test_preserved_strategy_settings_are_unchanged_in_eighth_batch():
-    assert STRATEGIES["trend_persistence"] == {
-        "name": "Trend Persistence",
-        "short_name": "Устойчивый тренд",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 5.0,
-        "target": 10.0,
-        "description": "Торгует только сильный согласованный тренд цены и объёма на часовом горизонте.",
+def test_trend_strategy_keeps_hourly_signals_and_shared_risk_rules():
+    assert set(STRATEGIES) == {"trend_persistence"}
+    settings = STRATEGIES["trend_persistence"]
+    assert settings["timeframe"] == 60
+    assert settings["hold"] == 24 * 60
+    assert settings["stop"] == 5.0
+    assert settings["target"] == 10.0
+
+
+def test_trend_backtest_has_30_90_180_and_365_day_windows():
+    candles = _bars([
+        ("BTC/USD", 0, 100, 101, 99, 100, 1, 100),
+        ("BTC/USD", 300_000, 100, 101, 99, 100, 1, 100),
+    ])
+
+    _, metrics = backtest(candles, {"trend_persistence": []})
+
+    assert BACKTEST_WINDOWS_DAYS == (30, 90, 180, 365)
+    assert set(metrics) == {
+        "trend_persistence_30d",
+        "trend_persistence_90d",
+        "trend_persistence_180d",
+        "trend_persistence_365d",
     }
-    assert STRATEGIES["dual_momentum"] == {
-        "name": "Dual Momentum",
-        "short_name": "Двойной импульс",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 5.0,
-        "target": 10.0,
-        "description": "Совмещает собственный импульс монеты с её силой относительно остального рынка.",
-    }
+    assert [metrics[key]["window_days"] for key in metrics] == [30, 90, 180, 365]
 
 
 def test_intraday_universe_uses_all_100_configured_crypto_tickers():
     assert len(INTRADAY_TICKERS) == 100
     assert INTRADAY_TICKERS == tuple(CRYPTO_TICKERS)
-
-
-def test_momentum_strategies_require_directional_and_relative_agreement():
-    hour = 60 * 60_000
-    rows = []
-    growth = {
-        "BTC/USD": 1.0002,
-        "ETH/USD": 1.0030,
-        "SOL/USD": 1.0010,
-        "XRP/USD": 0.9970,
-    }
-    for ticker, rate in growth.items():
-        prices = 100 * np.power(rate, np.arange(60))
-        for index, close in enumerate(prices):
-            previous = prices[max(index - 1, 0)]
-            rows.append({
-                "ticker": ticker,
-                "open_time": index * hour,
-                "open": float(previous),
-                "high": float(max(previous, close) * 1.001),
-                "low": float(min(previous, close) * 0.999),
-                "close": float(close),
-                "volume": 100.0,
-                "quote_volume": float(close * 100),
-            })
-    hourly = pd.DataFrame(rows)
-
-    dual = _dual_momentum(hourly)
-
-    assert any(item["ticker"] == "ETH/USD" and item["direction"] == "long" for item in dual)
-    assert any(item["ticker"] == "XRP/USD" and item["direction"] == "short" for item in dual)
 
 
 def test_simulation_enters_at_decision_time_and_uses_stop_first():

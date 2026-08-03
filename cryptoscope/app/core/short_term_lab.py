@@ -1,4 +1,4 @@
-"""Two isolated, point-in-time short-term crypto experiments."""
+"""Isolated, point-in-time short-term crypto experiments."""
 
 from __future__ import annotations
 
@@ -20,10 +20,11 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v8"
+CALCULATION_VERSION = "short-term-lab-v9"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
+BACKTEST_WINDOWS_DAYS = (30, 90, 180, 365)
 STRATEGIES = {
     "trend_persistence": {
         "name": "Trend Persistence",
@@ -32,17 +33,8 @@ STRATEGIES = {
         "hold": 24 * 60,
         "stop": 5.0,
         "target": 10.0,
-        "description": "Торгует только сильный согласованный тренд цены и объёма на часовом горизонте.",
-    },
-    "dual_momentum": {
-        "name": "Dual Momentum",
-        "short_name": "Двойной импульс",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 5.0,
-        "target": 10.0,
-        "description": "Совмещает собственный импульс монеты с её силой относительно остального рынка.",
-    },
+        "description": "Сильный согласованный тренд цены и объёма на часовых свечах; удержание до 24 часов.",
+    }
 }
 _REFRESH_LOCK = Lock()
 
@@ -471,31 +463,32 @@ def _btc_lead_lag(fifteen: pd.DataFrame) -> list[dict]:
 def _trend_persistence(hourly: pd.DataFrame) -> list[dict]:
     rows: list[pd.DataFrame] = []
     btc = hourly[hourly["ticker"] == "BTC/USD"].set_index("open_time")["close"]
-    btc_return_24h = btc.pct_change(24, fill_method=None) * 100
+    btc_return_24 = btc.pct_change(24, fill_method=None) * 100
     for ticker, group in hourly.groupby("ticker", sort=False):
         frame = group.sort_values("open_time").copy()
         ema24 = frame["close"].ewm(span=24, adjust=False, min_periods=24).mean()
         ema72 = frame["close"].ewm(span=72, adjust=False, min_periods=72).mean()
-        return_6h = frame["close"].pct_change(6, fill_method=None) * 100
-        return_24h = frame["close"].pct_change(24, fill_method=None) * 100
-        return_72h = frame["close"].pct_change(72, fill_method=None) * 100
+        return_6 = frame["close"].pct_change(6, fill_method=None) * 100
+        return_24 = frame["close"].pct_change(24, fill_method=None) * 100
+        return_72 = frame["close"].pct_change(72, fill_method=None) * 100
         volume_base = frame["quote_volume"].rolling(24, min_periods=18).median().shift(1).replace(0, np.nan)
         volume_ratio = frame["quote_volume"] / volume_base
-        btc_context = frame["open_time"].map(btc_return_24h).fillna(0.0)
-        cadence = pd.Series(np.arange(len(frame)) % 6 == 0, index=frame.index)
+        btc_context = frame["open_time"].map(btc_return_24).fillna(0.0)
+        decision_time = frame["open_time"] + 60 * 60_000
+        cadence = decision_time.mod(6 * 60 * 60_000).eq(0)
         long_condition = (
             cadence & (ema24 > ema72 * 1.015) & (frame["close"] > ema24)
-            & (return_6h >= 0.6) & (return_24h >= 3.0) & (return_72h >= 5.0)
+            & (return_6 >= 0.6) & (return_24 >= 3.0) & (return_72 >= 5.0)
             & (volume_ratio >= 1.10) & (btc_context >= -3.0)
         )
         short_condition = (
             cadence & (ema24 < ema72 * 0.985) & (frame["close"] < ema24)
-            & (return_6h <= -0.6) & (return_24h <= -3.0) & (return_72h <= -5.0)
+            & (return_6 <= -0.6) & (return_24 <= -3.0) & (return_72 <= -5.0)
             & (volume_ratio >= 1.10) & (btc_context <= 3.0)
         )
         direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
         trend_strength = (ema24 / ema72 - 1.0).abs() * 100
-        score = trend_strength + return_24h.abs() / 3 + np.log1p(volume_ratio)
+        score = trend_strength + return_24.abs() / 3 + np.log1p(volume_ratio)
         out = frame.loc[direction != "", ["open_time", "close"]].copy()
         out["ticker"] = ticker
         out["direction"] = direction[direction != ""]
@@ -505,54 +498,6 @@ def _trend_persistence(hourly: pd.DataFrame) -> list[dict]:
         pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=1
     )
     return [_candidate("trend_persistence", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
-
-
-def _dual_momentum(hourly: pd.DataFrame) -> list[dict]:
-    close = hourly.pivot(index="open_time", columns="ticker", values="close").sort_index()
-    if close.empty:
-        return []
-    momentum_12h = close.pct_change(12, fill_method=None) * 100
-    momentum_48h = close.pct_change(48, fill_method=None) * 100
-    absolute_momentum = momentum_12h * 0.4 + momentum_48h * 0.6
-    cross_mean = absolute_momentum.mean(axis=1)
-    cross_std = absolute_momentum.std(axis=1).replace(0, np.nan)
-    relative_momentum = absolute_momentum.sub(cross_mean, axis=0).div(cross_std, axis=0)
-    # Evaluate once every four UTC hours instead of repeatedly opening the same move.
-    cadence = pd.Series(
-        (close.index.to_numpy(dtype=np.int64) // (60 * 60_000)) % 4 == 0,
-        index=close.index,
-    )
-    rows: list[dict] = []
-    for ticker in close.columns:
-        long_condition = (
-            cadence
-            & (momentum_12h[ticker] >= 0.75)
-            & (momentum_48h[ticker] >= 2.5)
-            & (relative_momentum[ticker] >= 0.75)
-        )
-        short_condition = (
-            cadence
-            & (momentum_12h[ticker] <= -0.75)
-            & (momentum_48h[ticker] <= -2.5)
-            & (relative_momentum[ticker] <= -0.75)
-        )
-        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
-        selected = direction != ""
-        score = relative_momentum[ticker].abs() + absolute_momentum[ticker].abs() / 4
-        for timestamp in close.index[selected]:
-            price = close.at[timestamp, ticker]
-            value = score.loc[timestamp]
-            if pd.isna(price) or pd.isna(value):
-                continue
-            rows.append({
-                "open_time": int(timestamp),
-                "ticker": ticker,
-                "direction": str(direction[close.index.get_loc(timestamp)]),
-                "signal_price": float(price),
-                "score": float(value),
-            })
-    selected = _cap_per_time(pd.DataFrame(rows), count=1)
-    return [_candidate("dual_momentum", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
 def _relative_strength_btc(hourly: pd.DataFrame) -> list[dict]:
@@ -882,10 +827,7 @@ def _volume_flow_breakout(hourly: pd.DataFrame) -> list[dict]:
 
 def generate_candidates(candles: pd.DataFrame) -> dict[str, list[dict]]:
     hourly = _aggregate(candles, 60)
-    return {
-        "trend_persistence": _trend_persistence(hourly),
-        "dual_momentum": _dual_momentum(hourly),
-    }
+    return {"trend_persistence": _trend_persistence(hourly)}
 
 
 def _directional_return(direction: str, entry: float, price: float) -> float:
@@ -1040,12 +982,19 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
             trades.append(trade)
             next_free[event["ticker"]] = int(trade["exit_time"] + FIVE_MINUTES_MS)
     metrics: dict[str, dict] = {}
-    for strategy in STRATEGIES:
-        subset = [trade for trade in trades if trade["strategy"] == strategy]
+    latest_time = int(candles["open_time"].max()) if not candles.empty else 0
+    for days in BACKTEST_WINDOWS_DAYS:
+        cutoff = latest_time - days * 24 * 60 * 60 * 1000
+        subset = [
+            trade for trade in trades
+            if trade["strategy"] == "trend_persistence"
+            and int(trade["entry_time"]) >= cutoff
+        ]
         values = [float(trade["cash_result"]) for trade in subset]
         wins = [value for value in values if value > 0]
         losses = [value for value in values if value < 0]
-        metrics[strategy] = {
+        metrics[f"trend_persistence_{days}d"] = {
+            "window_days": days,
             "trades": len(subset),
             "wins": len(wins),
             "win_rate": len(wins) / len(subset) * 100 if subset else 0.0,
@@ -1409,8 +1358,16 @@ def get_short_term_report(db_path: str) -> dict:
         completed_dict["data_label"] = _format_time(completed_dict.get("data_end"))
     strategy_metrics = metrics.get("strategies", {})
     strategy_cards = []
-    for key, settings in STRATEGIES.items():
-        strategy_cards.append({"key": key, **settings, **strategy_metrics.get(key, {})})
+    settings = STRATEGIES["trend_persistence"]
+    for days in BACKTEST_WINDOWS_DAYS:
+        key = f"trend_persistence_{days}d"
+        strategy_cards.append({
+            "key": key,
+            **settings,
+            "short_name": f"Устойчивый тренд · {days} дней",
+            "description": f"Результат одной методики за последние {days} дней.",
+            **strategy_metrics.get(key, {}),
+        })
     return {
         "version": CALCULATION_VERSION,
         "latest": latest_dict,
