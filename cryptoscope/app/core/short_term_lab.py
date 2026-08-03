@@ -20,7 +20,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v3"
+CALCULATION_VERSION = "short-term-lab-v4"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -34,32 +34,32 @@ STRATEGIES = {
         "target": 10.0,
         "description": "Торгует только сильный согласованный тренд цены и объёма на часовом горизонте.",
     },
-    "trend_rsi_pullback": {
-        "name": "Trend RSI Pullback",
-        "short_name": "Откат в тренде",
+    "dual_momentum": {
+        "name": "Dual Momentum",
+        "short_name": "Двойной импульс",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 5.0,
+        "target": 10.0,
+        "description": "Совмещает собственный импульс монеты с её силой относительно остального рынка.",
+    },
+    "relative_strength_btc": {
+        "name": "Relative Strength vs BTC",
+        "short_name": "Сила против BTC",
         "timeframe": 60,
         "hold": 18 * 60,
         "stop": 4.0,
         "target": 8.0,
-        "description": "Входит после восстановления импульса из умеренного отката внутри сильного тренда.",
+        "description": "Отбирает монеты, которые устойчиво усиливаются или слабеют относительно BTC.",
     },
-    "residual_reversion": {
-        "name": "BTC Residual Reversion",
-        "short_name": "Возврат к BTC-бете",
+    "donchian_breakout": {
+        "name": "Donchian Breakout",
+        "short_name": "Пробой Дончиана",
         "timeframe": 60,
-        "hold": 12 * 60,
-        "stop": 4.0,
-        "target": 7.0,
-        "description": "Ищет подтверждённый возврат аномального движения монеты к зависимости от BTC.",
-    },
-    "volume_flow_breakout": {
-        "name": "Volume Flow Breakout",
-        "short_name": "Импульс денежного потока",
-        "timeframe": 60,
-        "hold": 18 * 60,
+        "hold": 24 * 60,
         "stop": 5.0,
-        "target": 9.0,
-        "description": "Принимает пробой только при устойчивом направленном денежном потоке и всплеске объёма.",
+        "target": 10.0,
+        "description": "Входит при первом подтверждённом выходе цены за границу предыдущего 24-часового канала.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -499,6 +499,152 @@ def _trend_persistence(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("trend_persistence", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
+def _dual_momentum(hourly: pd.DataFrame) -> list[dict]:
+    close = hourly.pivot(index="open_time", columns="ticker", values="close").sort_index()
+    if close.empty:
+        return []
+    momentum_12h = close.pct_change(12, fill_method=None) * 100
+    momentum_48h = close.pct_change(48, fill_method=None) * 100
+    absolute_momentum = momentum_12h * 0.4 + momentum_48h * 0.6
+    cross_mean = absolute_momentum.mean(axis=1)
+    cross_std = absolute_momentum.std(axis=1).replace(0, np.nan)
+    relative_momentum = absolute_momentum.sub(cross_mean, axis=0).div(cross_std, axis=0)
+    # Evaluate once every four UTC hours instead of repeatedly opening the same move.
+    cadence = pd.Series(
+        (close.index.to_numpy(dtype=np.int64) // (60 * 60_000)) % 4 == 0,
+        index=close.index,
+    )
+    rows: list[dict] = []
+    for ticker in close.columns:
+        long_condition = (
+            cadence
+            & (momentum_12h[ticker] >= 0.75)
+            & (momentum_48h[ticker] >= 2.5)
+            & (relative_momentum[ticker] >= 0.75)
+        )
+        short_condition = (
+            cadence
+            & (momentum_12h[ticker] <= -0.75)
+            & (momentum_48h[ticker] <= -2.5)
+            & (relative_momentum[ticker] <= -0.75)
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        selected = direction != ""
+        score = relative_momentum[ticker].abs() + absolute_momentum[ticker].abs() / 4
+        for timestamp in close.index[selected]:
+            price = close.at[timestamp, ticker]
+            value = score.loc[timestamp]
+            if pd.isna(price) or pd.isna(value):
+                continue
+            rows.append({
+                "open_time": int(timestamp),
+                "ticker": ticker,
+                "direction": str(direction[close.index.get_loc(timestamp)]),
+                "signal_price": float(price),
+                "score": float(value),
+            })
+    selected = _cap_per_time(pd.DataFrame(rows), count=1)
+    return [_candidate("dual_momentum", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
+def _relative_strength_btc(hourly: pd.DataFrame) -> list[dict]:
+    close = hourly.pivot(index="open_time", columns="ticker", values="close").sort_index()
+    if "BTC/USD" not in close.columns:
+        return []
+    return_6h = close.pct_change(6, fill_method=None) * 100
+    return_24h = close.pct_change(24, fill_method=None) * 100
+    relative_6h = return_6h.sub(return_6h["BTC/USD"], axis=0)
+    relative_24h = return_24h.sub(return_24h["BTC/USD"], axis=0)
+    relative_mean = relative_24h.mean(axis=1)
+    relative_std = relative_24h.std(axis=1).replace(0, np.nan)
+    relative_z = relative_24h.sub(relative_mean, axis=0).div(relative_std, axis=0)
+    cadence = pd.Series(
+        (close.index.to_numpy(dtype=np.int64) // (60 * 60_000)) % 4 == 0,
+        index=close.index,
+    )
+    rows: list[dict] = []
+    for ticker in close.columns:
+        if ticker == "BTC/USD":
+            continue
+        long_condition = (
+            cadence
+            & (return_6h[ticker] >= 0.4)
+            & (return_24h[ticker] >= 1.5)
+            & (relative_6h[ticker] >= 0.3)
+            & (relative_24h[ticker] >= 1.0)
+            & (relative_z[ticker] >= 0.5)
+        )
+        short_condition = (
+            cadence
+            & (return_6h[ticker] <= -0.4)
+            & (return_24h[ticker] <= -1.5)
+            & (relative_6h[ticker] <= -0.3)
+            & (relative_24h[ticker] <= -1.0)
+            & (relative_z[ticker] <= -0.5)
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        selected = direction != ""
+        score = relative_z[ticker].abs() + relative_24h[ticker].abs() / 3
+        for timestamp in close.index[selected]:
+            price = close.at[timestamp, ticker]
+            value = score.loc[timestamp]
+            if pd.isna(price) or pd.isna(value):
+                continue
+            rows.append({
+                "open_time": int(timestamp),
+                "ticker": ticker,
+                "direction": str(direction[close.index.get_loc(timestamp)]),
+                "signal_price": float(price),
+                "score": float(value),
+            })
+    selected = _cap_per_time(pd.DataFrame(rows), count=1)
+    return [_candidate("relative_strength_btc", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
+def _donchian_breakout(hourly: pd.DataFrame) -> list[dict]:
+    rows: list[pd.DataFrame] = []
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        channel_high = frame["high"].rolling(24, min_periods=24).max().shift(1)
+        channel_low = frame["low"].rolling(24, min_periods=24).min().shift(1)
+        previous_close = frame["close"].shift(1)
+        previous_channel_high = channel_high.shift(1)
+        previous_channel_low = channel_low.shift(1)
+        true_range = pd.concat([
+            frame["high"] - frame["low"],
+            (frame["high"] - previous_close).abs(),
+            (frame["low"] - previous_close).abs(),
+        ], axis=1).max(axis=1)
+        atr = true_range.rolling(14, min_periods=14).mean().shift(1).replace(0, np.nan)
+        long_condition = (
+            (frame["close"] > channel_high)
+            & (previous_close <= previous_channel_high)
+            & (frame["close"] > frame["open"])
+        )
+        short_condition = (
+            (frame["close"] < channel_low)
+            & (previous_close >= previous_channel_low)
+            & (frame["close"] < frame["open"])
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        breakout_distance = np.where(
+            direction == "long",
+            (frame["close"] - channel_high) / atr,
+            (channel_low - frame["close"]) / atr,
+        )
+        candle_body = (frame["close"] - frame["open"]).abs() / atr
+        score = 1.5 + np.maximum(breakout_distance, 0) + candle_body
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = score[direction != ""]
+        rows.append(out.rename(columns={"close": "signal_price"}))
+    selected = _cap_per_time(
+        pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=1
+    )
+    return [_candidate("donchian_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
 def _trend_rsi_pullback(hourly: pd.DataFrame) -> list[dict]:
     rows: list[pd.DataFrame] = []
     for ticker, group in hourly.groupby("ticker", sort=False):
@@ -629,9 +775,9 @@ def generate_candidates(candles: pd.DataFrame) -> dict[str, list[dict]]:
     hourly = _aggregate(candles, 60)
     return {
         "trend_persistence": _trend_persistence(hourly),
-        "trend_rsi_pullback": _trend_rsi_pullback(hourly),
-        "residual_reversion": _residual_reversion(hourly),
-        "volume_flow_breakout": _volume_flow_breakout(hourly),
+        "dual_momentum": _dual_momentum(hourly),
+        "relative_strength_btc": _relative_strength_btc(hourly),
+        "donchian_breakout": _donchian_breakout(hourly),
     }
 
 
