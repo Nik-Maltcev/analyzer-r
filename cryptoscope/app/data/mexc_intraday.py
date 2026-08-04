@@ -156,6 +156,145 @@ async def refresh_reversal_candles(
     }
 
 
+async def refresh_short_term_execution_candles(
+    conn: sqlite3.Connection,
+    candidates: list[dict],
+    *,
+    now: datetime | None = None,
+) -> dict:
+    """Cache exact 5-minute execution windows required by a backtest.
+
+    The hourly store is sufficient for signal generation. Downloading complete
+    5-minute history for the whole universe is wasteful, so this collector only
+    fetches the entry-to-exit windows of candidates that can actually be traded.
+    """
+    now = now or datetime.now(UTC)
+    completed_before = int(now.timestamp() * 1000) // INTERVAL_MS * INTERVAL_MS
+    windows_by_ticker: dict[str, list[tuple[int, int]]] = {}
+    for candidate in candidates:
+        start = int(candidate["signal_time"])
+        horizon = start + int(candidate["hold_minutes"]) * 60_000
+        if horizon >= completed_before:
+            continue
+        windows_by_ticker.setdefault(str(candidate["ticker"]), []).append(
+            (start, horizon + INTERVAL_MS)
+        )
+
+    merged_by_ticker: dict[str, list[tuple[int, int]]] = {}
+    for ticker, windows in windows_by_ticker.items():
+        merged: list[list[int]] = []
+        for start, end in sorted(windows):
+            if merged and start <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        merged_by_ticker[ticker] = [(start, end) for start, end in merged]
+
+    inserted = 0
+    requested_windows = 0
+    request_at = 0.0
+    failures: list[str] = []
+    async with httpx.AsyncClient(timeout=30) as client:
+        for ticker, windows in merged_by_ticker.items():
+            symbol = normalize_mexc_symbol(ticker)
+            for range_start, range_end in windows:
+                expected = (range_end - range_start) // INTERVAL_MS
+                existing = conn.execute(
+                    "SELECT COUNT(*) FROM reversal_candles "
+                    "WHERE ticker=? AND open_time>=? AND open_time<?",
+                    (ticker, range_start, range_end),
+                ).fetchone()[0]
+                if int(existing or 0) >= expected:
+                    continue
+                requested_windows += 1
+                cursor = range_start
+                try:
+                    while cursor < range_end:
+                        page_end = min(range_end, cursor + PAGE_LIMIT * INTERVAL_MS)
+                        delay = 0.10 - (time.monotonic() - request_at)
+                        if delay > 0:
+                            await asyncio.sleep(delay)
+                        response = await client.get(
+                            f"{MEXC_REST_URL}/klines",
+                            params={
+                                "symbol": symbol,
+                                "interval": "5m",
+                                "startTime": cursor,
+                                "endTime": page_end - 1,
+                                "limit": PAGE_LIMIT,
+                            },
+                        )
+                        request_at = time.monotonic()
+                        response.raise_for_status()
+                        payload = response.json()
+                        if not isinstance(payload, list) or not payload:
+                            break
+                        batch = []
+                        for candle in payload:
+                            if not isinstance(candle, list) or len(candle) < 6:
+                                continue
+                            open_time = int(candle[0])
+                            if not range_start <= open_time < range_end:
+                                continue
+                            values = [float(candle[index] or 0) for index in range(1, 6)]
+                            if not all(math.isfinite(value) for value in values):
+                                continue
+                            try:
+                                quote_volume = float(candle[7] or 0) if len(candle) > 7 else 0.0
+                            except (TypeError, ValueError):
+                                quote_volume = 0.0
+                            batch.append((
+                                ticker, open_time, values[0], values[1], values[2],
+                                values[3], values[4], quote_volume, "mexc-execution",
+                            ))
+                        if batch:
+                            before = conn.total_changes
+                            conn.executemany(
+                                """
+                                INSERT INTO reversal_candles (
+                                    ticker, open_time, open, high, low, close,
+                                    volume, quote_volume, provider
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ON CONFLICT(ticker, open_time) DO UPDATE SET
+                                    open=excluded.open, high=excluded.high,
+                                    low=excluded.low, close=excluded.close,
+                                    volume=excluded.volume,
+                                    quote_volume=excluded.quote_volume,
+                                    provider=excluded.provider,
+                                    imported_at=datetime('now')
+                                """,
+                                batch,
+                            )
+                            inserted += conn.total_changes - before
+                            conn.commit()
+                        cursor = page_end
+                except Exception as exc:
+                    failures.append(f"{ticker} {range_start}: {str(exc)[:120]}")
+
+    missing_windows: list[str] = []
+    for ticker, windows in merged_by_ticker.items():
+        for range_start, range_end in windows:
+            expected = (range_end - range_start) // INTERVAL_MS
+            existing = conn.execute(
+                "SELECT COUNT(*) FROM reversal_candles "
+                "WHERE ticker=? AND open_time>=? AND open_time<?",
+                (ticker, range_start, range_end),
+            ).fetchone()[0]
+            if int(existing or 0) != expected:
+                missing_windows.append(
+                    f"{ticker}:{range_start}-{range_end} ({existing}/{expected})"
+                )
+    return {
+        "candidate_count": len(candidates),
+        "merged_window_count": sum(len(items) for items in merged_by_ticker.values()),
+        "requested_window_count": requested_windows,
+        "inserted": inserted,
+        "missing_window_count": len(missing_windows),
+        "missing_windows": missing_windows[:20],
+        "failures": failures,
+    }
+
+
 async def refresh_short_term_hourly_candles(
     conn: sqlite3.Connection,
     *,

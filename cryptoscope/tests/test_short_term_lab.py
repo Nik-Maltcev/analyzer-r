@@ -11,7 +11,9 @@ from app.core.short_term_lab import (
     STRATEGIES,
     _advance_forward,
     _aggregate,
+    _cross_momentum,
     _directional_return,
+    _select_non_overlapping_candidates,
     _simulate,
     backtest,
     ensure_short_term_schema,
@@ -52,60 +54,49 @@ def test_short_return_uses_entry_not_exit_as_denominator():
     assert _directional_return("long", 100, 110) == pytest.approx(10.0)
 
 
-def test_ninth_batch_candidate_generation_smoke():
-    rng = np.random.default_rng(42)
+def test_cross_momentum_uses_synchronised_deciles_without_two_coin_cap():
     rows = []
-    times = np.arange(2_200, dtype=np.int64) * 300_000
-    for offset, ticker in enumerate(("BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD")):
-        close = (100 + offset * 10) * np.exp(np.cumsum(rng.normal(0, 0.003, len(times))))
-        open_price = np.r_[close[0], close[:-1]]
-        high = np.maximum(open_price, close) * (1 + rng.uniform(0, 0.002, len(times)))
-        low = np.minimum(open_price, close) * (1 - rng.uniform(0, 0.002, len(times)))
-        volume = rng.uniform(100, 1_000, len(times))
-        rows.extend(
-            (ticker, int(timestamp), float(open_value), float(high_value),
-             float(low_value), float(close_value), float(volume_value),
-             float(volume_value * close_value))
-            for timestamp, open_value, high_value, low_value, close_value, volume_value
-            in zip(times, open_price, high, low, close, volume, strict=True)
-        )
+    hour = 60 * 60_000
+    for rank in range(20):
+        ticker = f"C{rank:02d}/USD"
+        hourly_rate = (rank - 9.5) / 1_000
+        for index in range(31):
+            price = 100 * (1 + hourly_rate) ** index
+            rows.append((ticker, index * hour, price, price, price, price, 1, price))
 
-    candidates = generate_candidates(_bars(rows))
+    events = _cross_momentum(_bars(rows))
+    final = [event for event in events if event["signal_time"] == 30 * hour]
 
-    assert CALCULATION_VERSION == "short-term-lab-v10"
-    assert set(candidates) == {"trend_persistence"}
-    assert all(
-        event["signal_time"] % (6 * 60 * 60_000) == 0
-        for events in candidates.values()
-        for event in events
-    )
+    assert CALCULATION_VERSION == "short-term-lab-v11"
+    assert len(final) == 4
+    assert {event["direction"] for event in final} == {"long", "short"}
+    assert all(event["universe_size"] == 20 for event in final)
+    assert all(event["signal_time"] % (6 * hour) == 0 for event in events)
+    strongest = next(event for event in final if event["ticker"] == "C19/USD")
+    expected_last_completed_close = 100 * (1 + 9.5 / 1_000) ** 29
+    assert strongest["signal_price"] == pytest.approx(expected_last_completed_close)
 
 
-def test_trend_strategy_keeps_hourly_signals_and_shared_risk_rules():
-    assert set(STRATEGIES) == {"trend_persistence"}
-    settings = STRATEGIES["trend_persistence"]
+def test_cross_momentum_strategy_has_one_fixed_90_day_specification():
+    assert set(STRATEGIES) == {"cross_momentum"}
+    settings = STRATEGIES["cross_momentum"]
     assert settings["timeframe"] == 60
     assert settings["hold"] == 24 * 60
-    assert settings["stop"] == 5.0
-    assert settings["target"] == 10.0
+    assert settings["stop"] == 0.0
+    assert settings["target"] == 0.0
 
 
-def test_trend_backtest_has_30_90_180_and_365_day_windows():
+def test_cross_momentum_backtest_has_only_90_day_window():
     candles = _bars([
         ("BTC/USD", 0, 100, 101, 99, 100, 1, 100),
         ("BTC/USD", 300_000, 100, 101, 99, 100, 1, 100),
     ])
 
-    _, metrics = backtest(candles, {"trend_persistence": []})
+    _, metrics = backtest(candles, {"cross_momentum": []})
 
-    assert BACKTEST_WINDOWS_DAYS == (30, 90, 180, 365)
-    assert set(metrics) == {
-        "trend_persistence_30d",
-        "trend_persistence_90d",
-        "trend_persistence_180d",
-        "trend_persistence_365d",
-    }
-    assert [metrics[key]["window_days"] for key in metrics] == [30, 90, 180, 365]
+    assert BACKTEST_WINDOWS_DAYS == (90,)
+    assert set(metrics) == {"cross_momentum_90d"}
+    assert metrics["cross_momentum_90d"]["window_days"] == 90
     assert all(not metrics[key]["is_complete"] for key in metrics)
 
 
@@ -157,8 +148,8 @@ def test_simulation_exits_at_horizon_open_without_extra_bar():
         "confidence": "high",
         "timeframe_minutes": 60,
         "hold_minutes": 10,
-        "stop_pct": 6.0,
-        "target_pct": 10.0,
+        "stop_pct": 0.0,
+        "target_pct": 0.0,
     }
     candles = _bars([
         ("BTC/USD", 0, 100, 101, 99, 100, 1, 100),
@@ -173,6 +164,46 @@ def test_simulation_exits_at_horizon_open_without_extra_bar():
     assert trade["exit_time"] == 600_000
     assert trade["exit_price"] == 103
     assert trade["net_return_pct"] == pytest.approx(3 - ROUND_TRIP_COST_PCT)
+
+
+def test_simulation_rejects_missing_entry_or_interior_five_minute_bar():
+    candidate = {
+        "strategy": "cross_momentum", "ticker": "BTC/USD", "direction": "long",
+        "signal_time": 0, "signal_price": 100.0, "score": 2.5,
+        "confidence": "high", "timeframe_minutes": 60, "hold_minutes": 15,
+        "stop_pct": 0.0, "target_pct": 0.0,
+    }
+    missing_entry = _bars([
+        ("BTC/USD", 300_000, 100, 100, 100, 100, 1, 100),
+        ("BTC/USD", 600_000, 100, 100, 100, 100, 1, 100),
+        ("BTC/USD", 900_000, 100, 100, 100, 100, 1, 100),
+    ])
+    missing_middle = _bars([
+        ("BTC/USD", 0, 100, 100, 100, 100, 1, 100),
+        ("BTC/USD", 300_000, 100, 100, 100, 100, 1, 100),
+        ("BTC/USD", 900_000, 100, 100, 100, 100, 1, 100),
+    ])
+
+    assert _simulate(candidate, missing_entry) is None
+    assert _simulate(candidate, missing_middle) is None
+
+
+def test_non_overlapping_selection_uses_full_24_hour_holding_period():
+    base = {
+        "strategy": "cross_momentum", "ticker": "BTC/USD", "direction": "long",
+        "signal_price": 100.0, "score": 2.0, "confidence": "high",
+        "timeframe_minutes": 60, "hold_minutes": 24 * 60,
+        "stop_pct": 0.0, "target_pct": 0.0,
+    }
+    events = [
+        {**base, "signal_time": 0},
+        {**base, "signal_time": 6 * 60 * 60_000},
+        {**base, "signal_time": 24 * 60 * 60_000},
+    ]
+
+    selected = _select_non_overlapping_candidates(events)
+
+    assert [event["signal_time"] for event in selected] == [0, 24 * 60 * 60_000]
 
 
 def test_closed_forward_trade_is_not_rewritten(tmp_path):

@@ -15,6 +15,7 @@ import pandas as pd
 from app.data.mexc_intraday import (
     INTRADAY_TICKERS,
     refresh_reversal_candles,
+    refresh_short_term_execution_candles,
     refresh_short_term_hourly_candles,
 )
 from app.db.schema import (
@@ -25,20 +26,20 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v10"
+CALCULATION_VERSION = "short-term-lab-v11"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
-BACKTEST_WINDOWS_DAYS = (30, 90, 180, 365)
+BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "trend_persistence": {
-        "name": "Trend Persistence",
-        "short_name": "Устойчивый тренд",
+    "cross_momentum": {
+        "name": "Cross-sectional Momentum",
+        "short_name": "Поперечный momentum",
         "timeframe": 60,
         "hold": 24 * 60,
-        "stop": 5.0,
-        "target": 10.0,
-        "description": "Сильный согласованный тренд цены и объёма на часовых свечах; удержание до 24 часов.",
+        "stop": 0.0,
+        "target": 0.0,
+        "description": "Каждые 6 часов: LONG верхний дециль и SHORT нижний дециль по доходности за 24 часа.",
     }
 }
 _REFRESH_LOCK = Lock()
@@ -191,43 +192,50 @@ def _cap_per_time(frame: pd.DataFrame, count: int = 2) -> pd.DataFrame:
 
 
 def _cross_momentum(hourly: pd.DataFrame) -> list[dict]:
-    close = hourly.pivot(index="open_time", columns="ticker", values="close")
+    close = (
+        hourly.pivot(index="open_time", columns="ticker", values="close")
+        .sort_index()
+    )
     if close.empty:
         return []
-    score = (
-        close.pct_change(6, fill_method=None) * 0.20
-        + close.pct_change(12, fill_method=None) * 0.30
-        + close.pct_change(24, fill_method=None) * 0.50
-    ) * 100
-    mean = score.mean(axis=1)
-    std = score.std(axis=1).replace(0, np.nan)
-    zscore = score.sub(mean, axis=0).div(std, axis=0)
-    btc = close.get("BTC/USD")
-    btc_sma = btc.rolling(50, min_periods=50).mean() if btc is not None else None
+    returns_24h = close.pct_change(24, fill_method=None) * 100
     rows: list[dict] = []
-    for position, timestamp in enumerate(score.index):
-        if position % 4 != 0:
+    for timestamp in returns_24h.index:
+        decision_time = int(timestamp) + 60 * 60 * 1000
+        if decision_time % (6 * 60 * 60 * 1000) != 0:
             continue
-        for ticker, value in score.loc[timestamp].dropna().items():
-            zvalue = zscore.at[timestamp, ticker]
-            price = close.at[timestamp, ticker]
-            if not all(math.isfinite(float(item)) for item in (value, zvalue, price)):
+        snapshot = returns_24h.loc[timestamp].dropna()
+        snapshot = snapshot[np.isfinite(snapshot)]
+        if len(snapshot) < 20:
+            continue
+        count = max(1, math.ceil(len(snapshot) * 0.10))
+        mean = float(snapshot.mean())
+        std = float(snapshot.std())
+        if not math.isfinite(std) or std <= 0:
+            continue
+        selected = [
+            ("short", ticker, float(value))
+            for ticker, value in snapshot.nsmallest(count).items()
+            if float(value) < 0
+        ] + [
+            ("long", ticker, float(value))
+            for ticker, value in snapshot.nlargest(count).items()
+            if float(value) > 0
+        ]
+        for direction, ticker, value in selected:
+            price = float(close.at[timestamp, ticker])
+            if not math.isfinite(price) or price <= 0:
                 continue
-            long_allowed = btc is None or btc_sma is None or pd.isna(btc_sma.loc[timestamp]) or btc.loc[timestamp] >= btc_sma.loc[timestamp] * 0.99
-            short_allowed = btc is None or btc_sma is None or pd.isna(btc_sma.loc[timestamp]) or btc.loc[timestamp] <= btc_sma.loc[timestamp] * 1.01
-            direction = None
-            if value >= 1.5 and zvalue >= 0.8 and long_allowed:
-                direction = "long"
-            elif value <= -1.5 and zvalue <= -0.8 and short_allowed:
-                direction = "short"
-            if direction:
-                rows.append({
-                    "open_time": int(timestamp), "ticker": ticker,
-                    "direction": direction, "signal_price": float(price),
-                    "score": float(zvalue),
-                })
-    selected = _cap_per_time(pd.DataFrame(rows))
-    return [_candidate("cross_momentum", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+            rows.append({
+                "ticker": ticker,
+                "direction": direction,
+                "signal_time": int(timestamp),
+                "signal_price": price,
+                "score": abs((value - mean) / std),
+                "momentum_24h_pct": value,
+                "universe_size": len(snapshot),
+            })
+    return [_candidate("cross_momentum", **row) for row in rows]
 
 
 def _volatility_breakout(fifteen: pd.DataFrame) -> list[dict]:
@@ -853,7 +861,7 @@ def generate_candidates(
     already_hourly: bool = False,
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
-    return {"trend_persistence": _trend_persistence(hourly)}
+    return {"cross_momentum": _cross_momentum(hourly)}
 
 
 def _directional_return(direction: str, entry: float, price: float) -> float:
@@ -899,14 +907,19 @@ def _simulate(
         ).sort_values("open_time")
         times = bars["open_time"].to_numpy(dtype=np.int64)
         entry_index = int(np.searchsorted(times, candidate["signal_time"], side="left"))
-        if entry_index >= len(bars):
+        if entry_index >= len(bars) or int(times[entry_index]) != int(candidate["signal_time"]):
             return None
         entry = bars.iloc[entry_index]
         entry_price = float(entry["open"])
         hedge_entry_price = float(entry["open_hedge"])
         horizon = int(times[entry_index] + candidate["hold_minutes"] * 60_000)
         exit_index = int(np.searchsorted(times, horizon, side="left"))
-        if exit_index <= entry_index or exit_index >= len(bars):
+        if (
+            exit_index <= entry_index
+            or exit_index >= len(bars)
+            or int(times[exit_index]) != horizon
+            or np.any(np.diff(times[entry_index:exit_index + 1]) != FIVE_MINUTES_MS)
+        ):
             return None
         chosen = exit_index
         reason = "time"
@@ -920,11 +933,11 @@ def _simulate(
                 candidate, entry_price, current_price,
                 hedge_entry_price, current_hedge,
             )
-            if gross <= -float(candidate["stop_pct"]):
+            if float(candidate["stop_pct"]) > 0 and gross <= -float(candidate["stop_pct"]):
                 chosen, reason = index, "stop"
                 exit_price, hedge_exit_price = current_price, current_hedge
                 break
-            if gross >= float(candidate["target_pct"]):
+            if float(candidate["target_pct"]) > 0 and gross >= float(candidate["target_pct"]):
                 chosen, reason = index, "target"
                 exit_price, hedge_exit_price = current_price, current_hedge
                 break
@@ -946,13 +959,18 @@ def _simulate(
     bars = ticker_bars.sort_values("open_time")
     times = bars["open_time"].to_numpy(dtype=np.int64)
     entry_index = int(np.searchsorted(times, candidate["signal_time"], side="left"))
-    if entry_index >= len(bars):
+    if entry_index >= len(bars) or int(times[entry_index]) != int(candidate["signal_time"]):
         return None
     entry = bars.iloc[entry_index]
     entry_price = float(entry["open"])
     horizon = int(times[entry_index] + candidate["hold_minutes"] * 60_000)
     exit_index = int(np.searchsorted(times, horizon, side="left"))
-    if exit_index <= entry_index or exit_index >= len(bars):
+    if (
+        exit_index <= entry_index
+        or exit_index >= len(bars)
+        or int(times[exit_index]) != horizon
+        or np.any(np.diff(times[entry_index:exit_index + 1]) != FIVE_MINUTES_MS)
+    ):
         return None
     stop = float(candidate["stop_pct"])
     target = float(candidate["target_pct"])
@@ -972,10 +990,10 @@ def _simulate(
             target_hit = float(bar["low"]) <= entry_price * (1 - target / 100)
             stop_price = entry_price * (1 + stop / 100)
             target_price = entry_price * (1 - target / 100)
-        if stop_hit:
+        if stop > 0 and stop_hit:
             chosen, reason, exit_price = index, "stop", stop_price
             break
-        if target_hit:
+        if target > 0 and target_hit:
             chosen, reason, exit_price = index, "target", target_price
             break
     gross = _directional_return(candidate["direction"], entry_price, exit_price)
@@ -990,23 +1008,40 @@ def _simulate(
     }
 
 
+def _select_non_overlapping_candidates(events: list[dict]) -> list[dict]:
+    selected: list[dict] = []
+    next_free: dict[str, int] = {}
+    for event in sorted(events, key=lambda item: (item["signal_time"], item["ticker"])):
+        if int(event["signal_time"]) < next_free.get(event["ticker"], 0):
+            continue
+        selected.append(event)
+        next_free[event["ticker"]] = (
+            int(event["signal_time"])
+            + int(event["hold_minutes"]) * 60_000
+        )
+    return selected
+
+
 def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[list[dict], dict]:
     by_ticker = {ticker: group for ticker, group in candles.groupby("ticker", sort=False)}
     trades: list[dict] = []
+    eligible_counts: dict[str, int] = {}
+    missing_counts: dict[str, int] = {}
     for strategy, events in candidates.items():
-        next_free: dict[str, int] = {}
-        for event in sorted(events, key=lambda item: item["signal_time"]):
-            if event["signal_time"] < next_free.get(event["ticker"], 0):
-                continue
+        selected = _select_non_overlapping_candidates(events)
+        eligible_counts[strategy] = len(selected)
+        missing_counts[strategy] = 0
+        for event in selected:
             ticker_bars = by_ticker.get(event["ticker"])
             if ticker_bars is None:
+                missing_counts[strategy] += 1
                 continue
             hedge_bars = by_ticker.get(event.get("hedge_ticker"))
             trade = _simulate(event, ticker_bars, hedge_bars)
             if trade is None:
+                missing_counts[strategy] += 1
                 continue
             trades.append(trade)
-            next_free[event["ticker"]] = int(trade["exit_time"] + FIVE_MINUTES_MS)
     metrics: dict[str, dict] = {}
     latest_time = int(candles["open_time"].max()) if not candles.empty else 0
     earliest_time = int(candles["open_time"].min()) if not candles.empty else 0
@@ -1018,16 +1053,18 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
         cutoff = latest_time - days * 24 * 60 * 60 * 1000
         subset = [
             trade for trade in trades
-            if trade["strategy"] == "trend_persistence"
+            if trade["strategy"] == "cross_momentum"
             and int(trade["entry_time"]) >= cutoff
         ]
         values = [float(trade["cash_result"]) for trade in subset]
         wins = [value for value in values if value > 0]
         losses = [value for value in values if value < 0]
-        metrics[f"trend_persistence_{days}d"] = {
+        metrics[f"cross_momentum_{days}d"] = {
             "window_days": days,
             "coverage_days": coverage_days,
-            "is_complete": coverage_days >= days,
+            "is_complete": coverage_days >= days and missing_counts.get("cross_momentum", 0) == 0,
+            "eligible_candidates": eligible_counts.get("cross_momentum", 0),
+            "missing_executions": missing_counts.get("cross_momentum", 0),
             "trades": len(subset),
             "wins": len(wins),
             "win_rate": len(wins) / len(subset) * 100 if subset else 0.0,
@@ -1188,9 +1225,19 @@ def _insert_latest_candidates(
     for strategy, events in candidates.items():
         if not events:
             continue
+        eligible_times = [
+            int(event["signal_time"])
+            for event in events
+            if int(event["signal_time"]) <= int(data_available_until)
+        ]
+        if not eligible_times:
+            continue
+        latest_signal_time = max(eligible_times)
+        if int(data_available_until) - latest_signal_time > 6 * 60 * 60 * 1000:
+            continue
         latest_events = [
             event for event in events
-            if int(event["signal_time"]) == int(data_available_until)
+            if int(event["signal_time"]) == latest_signal_time
         ]
         for event in latest_events:
             before = conn.total_changes
@@ -1272,12 +1319,45 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 historical_candidates = generate_candidates(
                     historical_candles, already_hourly=True
                 )
-                trades, metrics = backtest(historical_candles, historical_candidates)
                 coverage_days = int(historical_refresh.get("coverage_days") or 0)
+                if coverage_days < 91:
+                    raise RuntimeError(
+                        f"Hourly history is incomplete: {coverage_days}/91 days"
+                    )
+                completed_before = (
+                    int(datetime.now(UTC).timestamp() * 1000)
+                    // FIVE_MINUTES_MS * FIVE_MINUTES_MS
+                )
+                cutoff = completed_before - 90 * 24 * 60 * 60 * 1000
+                eligible = [
+                    event
+                    for event in historical_candidates.get("cross_momentum", [])
+                    if int(event["signal_time"]) >= cutoff
+                    and int(event["signal_time"])
+                    + int(event["hold_minutes"]) * 60_000 < completed_before
+                ]
+                execution_candidates = _select_non_overlapping_candidates(eligible)
+                execution_refresh = await refresh_short_term_execution_candles(
+                    conn, execution_candidates
+                )
+                if (
+                    int(execution_refresh.get("missing_window_count") or 0) > 0
+                    or execution_refresh.get("failures")
+                ):
+                    raise RuntimeError(
+                        "Exact 5-minute execution data is incomplete: "
+                        f"{execution_refresh.get('missing_window_count', 0)} missing windows, "
+                        f"{len(execution_refresh.get('failures') or [])} download failures"
+                    )
+                candles = _load_candles(conn)
+                trades, metrics = backtest(
+                    candles, {"cross_momentum": execution_candidates}
+                )
                 for metric in metrics.values():
                     metric["coverage_days"] = coverage_days
-                    metric["is_complete"] = coverage_days >= int(
-                        metric.get("window_days") or 0
+                    metric["is_complete"] = (
+                        coverage_days >= int(metric.get("window_days") or 0) + 1
+                        and int(metric.get("missing_executions") or 0) == 0
                     )
             else:
                 previous = conn.execute(
@@ -1316,6 +1396,7 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 "forward": {**forward, "pending": inserted},
                 "coverage_days": int(historical_refresh.get("coverage_days") or 0),
                 "historical_refresh": historical_refresh,
+                "execution_refresh": execution_refresh if include_backtest else None,
             }
             conn.execute(
                 """
@@ -1420,14 +1501,17 @@ def get_short_term_report(db_path: str) -> dict:
         completed_dict["coverage_days"] = int(metrics.get("coverage_days") or 0)
     strategy_metrics = metrics.get("strategies", {})
     strategy_cards = []
-    settings = STRATEGIES["trend_persistence"]
+    settings = STRATEGIES["cross_momentum"]
     for days in BACKTEST_WINDOWS_DAYS:
-        key = f"trend_persistence_{days}d"
+        key = f"cross_momentum_{days}d"
         strategy_cards.append({
             "key": key,
             **settings,
-            "short_name": f"Устойчивый тренд · {days} дней",
-            "description": f"Результат одной методики за последние {days} дней.",
+            "short_name": f"Поперечный momentum · {days} дней",
+            "description": (
+                "Каждые 6 часов: LONG верхние 10% и SHORT нижние 10% "
+                "монет по доходности за предыдущие 24 часа."
+            ),
             **strategy_metrics.get(key, {}),
         })
     return {
