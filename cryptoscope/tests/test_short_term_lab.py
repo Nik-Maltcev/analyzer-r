@@ -11,7 +11,7 @@ from app.core.short_term_lab import (
     STRATEGIES,
     _advance_forward,
     _aggregate,
-    _cross_momentum,
+    _time_series_momentum,
     _directional_return,
     _select_non_overlapping_candidates,
     _simulate,
@@ -54,49 +54,69 @@ def test_short_return_uses_entry_not_exit_as_denominator():
     assert _directional_return("long", 100, 110) == pytest.approx(10.0)
 
 
-def test_cross_momentum_uses_synchronised_deciles_without_two_coin_cap():
+def test_time_series_momentum_uses_only_closed_hourly_history():
     rows = []
     hour = 60 * 60_000
-    for rank in range(20):
-        ticker = f"C{rank:02d}/USD"
-        hourly_rate = (rank - 9.5) / 1_000
-        for index in range(31):
-            price = 100 * (1 + hourly_rate) ** index
+    prices = {"UP/USD": 100.0, "DOWN/USD": 100.0}
+    for index in range(193):
+        for ticker, sign in (("UP/USD", 1), ("DOWN/USD", -1)):
+            if index:
+                rate = sign * (0.001 if index % 2 else 0.003)
+                prices[ticker] *= 1 + rate
+            price = prices[ticker]
             rows.append((ticker, index * hour, price, price, price, price, 1, price))
 
-    events = _cross_momentum(_bars(rows))
-    final = [event for event in events if event["signal_time"] == 30 * hour]
+    events = _time_series_momentum(_bars(rows))
+    final = [event for event in events if event["signal_time"] == 192 * hour]
 
-    assert CALCULATION_VERSION == "short-term-lab-v11"
-    assert len(final) == 4
+    assert CALCULATION_VERSION == "short-term-lab-v12"
+    assert len(final) == 2
     assert {event["direction"] for event in final} == {"long", "short"}
-    assert all(event["universe_size"] == 20 for event in final)
     assert all(event["signal_time"] % (6 * hour) == 0 for event in events)
-    strongest = next(event for event in final if event["ticker"] == "C19/USD")
-    expected_last_completed_close = 100 * (1 + 9.5 / 1_000) ** 29
-    assert strongest["signal_price"] == pytest.approx(expected_last_completed_close)
+    long_event = next(event for event in final if event["ticker"] == "UP/USD")
+    expected_last_completed_close = next(
+        row[5] for row in rows
+        if row[0] == "UP/USD" and row[1] == 191 * hour
+    )
+    assert long_event["signal_price"] == pytest.approx(expected_last_completed_close)
+    assert long_event["momentum_24h_pct"] > 0
+    assert long_event["score"] >= 1
 
 
-def test_cross_momentum_strategy_has_one_fixed_90_day_specification():
-    assert set(STRATEGIES) == {"cross_momentum"}
-    settings = STRATEGIES["cross_momentum"]
+def test_time_series_momentum_rejects_a_gap_in_lookback_history():
+    hour = 60 * 60_000
+    rows = []
+    price = 100.0
+    for index in range(193):
+        price *= 1 + (0.001 if index % 2 else 0.003)
+        if index != 180:
+            rows.append(("UP/USD", index * hour, price, price, price, price, 1, price))
+
+    events = _time_series_momentum(_bars(rows))
+
+    assert not any(event["signal_time"] == 192 * hour for event in events)
+
+
+def test_time_series_momentum_strategy_has_one_fixed_90_day_specification():
+    assert set(STRATEGIES) == {"time_series_momentum"}
+    settings = STRATEGIES["time_series_momentum"]
     assert settings["timeframe"] == 60
     assert settings["hold"] == 24 * 60
     assert settings["stop"] == 0.0
     assert settings["target"] == 0.0
 
 
-def test_cross_momentum_backtest_has_only_90_day_window():
+def test_time_series_momentum_backtest_has_only_90_day_window():
     candles = _bars([
         ("BTC/USD", 0, 100, 101, 99, 100, 1, 100),
         ("BTC/USD", 300_000, 100, 101, 99, 100, 1, 100),
     ])
 
-    _, metrics = backtest(candles, {"cross_momentum": []})
+    _, metrics = backtest(candles, {"time_series_momentum": []})
 
     assert BACKTEST_WINDOWS_DAYS == (90,)
-    assert set(metrics) == {"cross_momentum_90d"}
-    assert metrics["cross_momentum_90d"]["window_days"] == 90
+    assert set(metrics) == {"time_series_momentum_90d"}
+    assert metrics["time_series_momentum_90d"]["window_days"] == 90
     assert all(not metrics[key]["is_complete"] for key in metrics)
 
 
@@ -139,7 +159,7 @@ def test_simulation_enters_at_decision_time_and_uses_stop_first():
 
 def test_simulation_exits_at_horizon_open_without_extra_bar():
     candidate = {
-        "strategy": "cross_momentum",
+        "strategy": "time_series_momentum",
         "ticker": "BTC/USD",
         "direction": "long",
         "signal_time": 0,
@@ -168,7 +188,7 @@ def test_simulation_exits_at_horizon_open_without_extra_bar():
 
 def test_simulation_rejects_missing_entry_or_interior_five_minute_bar():
     candidate = {
-        "strategy": "cross_momentum", "ticker": "BTC/USD", "direction": "long",
+        "strategy": "time_series_momentum", "ticker": "BTC/USD", "direction": "long",
         "signal_time": 0, "signal_price": 100.0, "score": 2.5,
         "confidence": "high", "timeframe_minutes": 60, "hold_minutes": 15,
         "stop_pct": 0.0, "target_pct": 0.0,
@@ -190,7 +210,7 @@ def test_simulation_rejects_missing_entry_or_interior_five_minute_bar():
 
 def test_non_overlapping_selection_uses_full_24_hour_holding_period():
     base = {
-        "strategy": "cross_momentum", "ticker": "BTC/USD", "direction": "long",
+        "strategy": "time_series_momentum", "ticker": "BTC/USD", "direction": "long",
         "signal_price": 100.0, "score": 2.0, "confidence": "high",
         "timeframe_minutes": 60, "hold_minutes": 24 * 60,
         "stop_pct": 0.0, "target_pct": 0.0,

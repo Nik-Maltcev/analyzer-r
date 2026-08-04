@@ -26,20 +26,21 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v11"
+CALCULATION_VERSION = "short-term-lab-v12"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
+HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "cross_momentum": {
-        "name": "Cross-sectional Momentum",
-        "short_name": "Поперечный momentum",
+    "time_series_momentum": {
+        "name": "Time-series Momentum",
+        "short_name": "Momentum временного ряда",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Каждые 6 часов: LONG верхний дециль и SHORT нижний дециль по доходности за 24 часа.",
+        "description": "Каждые 6 часов: направление 24-часового импульса монеты, нормализованного её собственной 7-дневной волатильностью.",
     }
 }
 _REFRESH_LOCK = Lock()
@@ -191,51 +192,57 @@ def _cap_per_time(frame: pd.DataFrame, count: int = 2) -> pd.DataFrame:
     )
 
 
-def _cross_momentum(hourly: pd.DataFrame) -> list[dict]:
-    close = (
-        hourly.pivot(index="open_time", columns="ticker", values="close")
-        .sort_index()
-    )
-    if close.empty:
-        return []
-    returns_24h = close.pct_change(24, fill_method=None) * 100
+def _time_series_momentum(hourly: pd.DataFrame) -> list[dict]:
+    """Trade each coin's own 24h trend, scaled by its trailing volatility."""
     rows: list[dict] = []
-    for timestamp in returns_24h.index:
-        decision_time = int(timestamp) + 60 * 60 * 1000
-        if decision_time % (6 * 60 * 60 * 1000) != 0:
+    volatility_window = 7 * 24
+    for ticker, source in hourly.groupby("ticker", sort=False):
+        frame = (
+            source.sort_values("open_time")
+            .drop_duplicates("open_time", keep="last")
+            .set_index("open_time")
+        )
+        if len(frame) < volatility_window + 1:
             continue
-        snapshot = returns_24h.loc[timestamp].dropna()
-        snapshot = snapshot[np.isfinite(snapshot)]
-        if len(snapshot) < 20:
-            continue
-        count = max(1, math.ceil(len(snapshot) * 0.10))
-        mean = float(snapshot.mean())
-        std = float(snapshot.std())
-        if not math.isfinite(std) or std <= 0:
-            continue
-        selected = [
-            ("short", ticker, float(value))
-            for ticker, value in snapshot.nsmallest(count).items()
-            if float(value) < 0
-        ] + [
-            ("long", ticker, float(value))
-            for ticker, value in snapshot.nlargest(count).items()
-            if float(value) > 0
-        ]
-        for direction, ticker, value in selected:
-            price = float(close.at[timestamp, ticker])
-            if not math.isfinite(price) or price <= 0:
+
+        # Reindexing makes every missing clock hour explicit. The rolling
+        # volatility remains NaN until 168 consecutive hourly returns exist.
+        full_index = pd.RangeIndex(
+            int(frame.index.min()), int(frame.index.max()) + HOUR_MS, HOUR_MS
+        )
+        close = pd.to_numeric(frame["close"], errors="coerce").reindex(full_index)
+        hourly_return = close.pct_change(fill_method=None)
+        momentum_24h = close.pct_change(24, fill_method=None)
+        volatility_24h = (
+            hourly_return.rolling(
+                volatility_window, min_periods=volatility_window
+            ).std(ddof=1) * math.sqrt(24)
+        )
+        score = momentum_24h / volatility_24h.replace(0, np.nan)
+
+        for timestamp in full_index:
+            decision_time = int(timestamp) + HOUR_MS
+            if decision_time % (6 * HOUR_MS) != 0:
                 continue
+            z_score = float(score.loc[timestamp])
+            price = float(close.loc[timestamp])
+            momentum_pct = float(momentum_24h.loc[timestamp] * 100)
+            volatility_pct = float(volatility_24h.loc[timestamp] * 100)
+            if not all(math.isfinite(value) for value in (
+                z_score, price, momentum_pct, volatility_pct
+            )) or price <= 0 or abs(z_score) < 1.0:
+                continue
+            direction = "long" if z_score > 0 else "short"
             rows.append({
                 "ticker": ticker,
                 "direction": direction,
                 "signal_time": int(timestamp),
                 "signal_price": price,
-                "score": abs((value - mean) / std),
-                "momentum_24h_pct": value,
-                "universe_size": len(snapshot),
+                "score": z_score,
+                "momentum_24h_pct": momentum_pct,
+                "volatility_24h_pct": volatility_pct,
             })
-    return [_candidate("cross_momentum", **row) for row in rows]
+    return [_candidate("time_series_momentum", **row) for row in rows]
 
 
 def _volatility_breakout(fifteen: pd.DataFrame) -> list[dict]:
@@ -861,7 +868,7 @@ def generate_candidates(
     already_hourly: bool = False,
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
-    return {"cross_momentum": _cross_momentum(hourly)}
+    return {"time_series_momentum": _time_series_momentum(hourly)}
 
 
 def _directional_return(direction: str, entry: float, price: float) -> float:
@@ -1053,18 +1060,18 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
         cutoff = latest_time - days * 24 * 60 * 60 * 1000
         subset = [
             trade for trade in trades
-            if trade["strategy"] == "cross_momentum"
+            if trade["strategy"] == "time_series_momentum"
             and int(trade["entry_time"]) >= cutoff
         ]
         values = [float(trade["cash_result"]) for trade in subset]
         wins = [value for value in values if value > 0]
         losses = [value for value in values if value < 0]
-        metrics[f"cross_momentum_{days}d"] = {
+        metrics[f"time_series_momentum_{days}d"] = {
             "window_days": days,
             "coverage_days": coverage_days,
-            "is_complete": coverage_days >= days and missing_counts.get("cross_momentum", 0) == 0,
-            "eligible_candidates": eligible_counts.get("cross_momentum", 0),
-            "missing_executions": missing_counts.get("cross_momentum", 0),
+            "is_complete": coverage_days >= days and missing_counts.get("time_series_momentum", 0) == 0,
+            "eligible_candidates": eligible_counts.get("time_series_momentum", 0),
+            "missing_executions": missing_counts.get("time_series_momentum", 0),
             "trades": len(subset),
             "wins": len(wins),
             "win_rate": len(wins) / len(subset) * 100 if subset else 0.0,
@@ -1320,9 +1327,9 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                     historical_candles, already_hourly=True
                 )
                 coverage_days = int(historical_refresh.get("coverage_days") or 0)
-                if coverage_days < 91:
+                if coverage_days < 98:
                     raise RuntimeError(
-                        f"Hourly history is incomplete: {coverage_days}/91 days"
+                        f"Hourly history is incomplete: {coverage_days}/98 days"
                     )
                 completed_before = (
                     int(datetime.now(UTC).timestamp() * 1000)
@@ -1331,7 +1338,7 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 cutoff = completed_before - 90 * 24 * 60 * 60 * 1000
                 eligible = [
                     event
-                    for event in historical_candidates.get("cross_momentum", [])
+                    for event in historical_candidates.get("time_series_momentum", [])
                     if int(event["signal_time"]) >= cutoff
                     and int(event["signal_time"])
                     + int(event["hold_minutes"]) * 60_000 < completed_before
@@ -1351,7 +1358,7 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                     )
                 candles = _load_candles(conn)
                 trades, metrics = backtest(
-                    candles, {"cross_momentum": execution_candidates}
+                    candles, {"time_series_momentum": execution_candidates}
                 )
                 for metric in metrics.values():
                     metric["coverage_days"] = coverage_days
@@ -1501,16 +1508,17 @@ def get_short_term_report(db_path: str) -> dict:
         completed_dict["coverage_days"] = int(metrics.get("coverage_days") or 0)
     strategy_metrics = metrics.get("strategies", {})
     strategy_cards = []
-    settings = STRATEGIES["cross_momentum"]
+    settings = STRATEGIES["time_series_momentum"]
     for days in BACKTEST_WINDOWS_DAYS:
-        key = f"cross_momentum_{days}d"
+        key = f"time_series_momentum_{days}d"
         strategy_cards.append({
             "key": key,
             **settings,
-            "short_name": f"Поперечный momentum · {days} дней",
+            "short_name": f"Momentum временного ряда · {days} дней",
             "description": (
-                "Каждые 6 часов: LONG верхние 10% и SHORT нижние 10% "
-                "монет по доходности за предыдущие 24 часа."
+                "Каждые 6 часов: LONG при z ≥ +1 и SHORT при z ≤ -1. "
+                "Сигнал: закрытые свечи 60 мин; исполнение: свечи 5 мин; "
+                "импульс 24 ч.; волатильность 7 дн.; удержание 24 ч."
             ),
             **strategy_metrics.get(key, {}),
         })
