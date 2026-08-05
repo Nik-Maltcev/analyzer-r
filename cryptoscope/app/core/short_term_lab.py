@@ -26,21 +26,21 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v26"
+CALCULATION_VERSION = "short-term-lab-v27"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "false_breakout": {
-        "name": "False Breakout",
-        "short_name": "False Breakout",
+    "vwap_reclaim_deviation": {
+        "name": "VWAP Reclaim / Deviation",
+        "short_name": "VWAP Reclaim",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Ложный пробой 48-часового диапазона: цена выходит за уровень, но закрывается обратно. Фейдим пробой.",
+        "description": "Цена отклоняется от 48-часового VWAP, затем возвращается через него. LONG — reclaim снизу, SHORT — reclaim сверху.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -983,6 +983,64 @@ def _false_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("false_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
+def _vwap_reclaim_deviation(hourly: pd.DataFrame) -> list[dict]:
+    """Fade VWAP deviations after price reclaims the anchored VWAP.
+
+    LONG: price was below 48h VWAP with significant downward deviation,
+          then closes back above VWAP on a bullish candle.
+    SHORT: price was above 48h VWAP with significant upward deviation,
+           then closes back below VWAP on a bearish candle.
+    """
+    rows: list[pd.DataFrame] = []
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        typical = (frame["high"] + frame["low"] + frame["close"]) / 3
+        weight = frame["volume"].replace(0, np.nan)
+        weighted = typical * weight
+
+        # Anchored 48h VWAP known only after the prior candle closes.
+        rolling_weight = weight.rolling(48, min_periods=36).sum().shift(1)
+        vwap = weighted.rolling(48, min_periods=36).sum().shift(1) / rolling_weight
+
+        deviation_pct = (frame["close"] / vwap - 1.0) * 100
+        deviation_std = deviation_pct.rolling(48, min_periods=36).std().shift(1).replace(0, np.nan)
+        zscore = deviation_pct / deviation_std
+        previous_zscore = zscore.shift(1)
+        previous_close = frame["close"].shift(1)
+
+        volume_base = frame["quote_volume"].rolling(24, min_periods=18).median().shift(1).replace(0, np.nan)
+        volume_ratio = frame["quote_volume"] / volume_base
+
+        long_condition = (
+            (previous_close < vwap)
+            & (frame["close"] > vwap)
+            & (previous_zscore < -1.5)
+            & (frame["close"] > frame["open"])
+            & (volume_ratio >= 1.0)
+        )
+        short_condition = (
+            (previous_close > vwap)
+            & (frame["close"] < vwap)
+            & (previous_zscore > 1.5)
+            & (frame["close"] < frame["open"])
+            & (volume_ratio >= 1.0)
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+
+        score = 1.5 + previous_zscore.abs().fillna(0) + np.log1p(volume_ratio.fillna(1))
+
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = score[direction != ""]
+        rows.append(out.rename(columns={"close": "signal_price"}))
+
+    selected = _cap_per_time(
+        pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=1
+    )
+    return [_candidate("vwap_reclaim_deviation", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
 def generate_candidates(
     candles: pd.DataFrame,
     *,
@@ -990,7 +1048,7 @@ def generate_candidates(
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
     return {
-        "false_breakout": _false_breakout(hourly),
+        "vwap_reclaim_deviation": _vwap_reclaim_deviation(hourly),
     }
 
 
