@@ -69,7 +69,7 @@ def test_time_series_momentum_uses_only_closed_hourly_history():
     events = _time_series_momentum(_bars(rows))
     final = [event for event in events if event["signal_time"] == 192 * hour]
 
-    assert CALCULATION_VERSION == "short-term-lab-v12"
+    assert CALCULATION_VERSION == "short-term-lab-v13"
     assert len(final) == 2
     assert {event["direction"] for event in final} == {"long", "short"}
     assert all(event["signal_time"] % (6 * hour) == 0 for event in events)
@@ -224,6 +224,57 @@ def test_non_overlapping_selection_uses_full_24_hour_holding_period():
     selected = _select_non_overlapping_candidates(events)
 
     assert [event["signal_time"] for event in selected] == [0, 24 * 60 * 60_000]
+
+
+def test_forward_trade_with_disabled_levels_closes_only_at_horizon(tmp_path):
+    db_path = tmp_path / "short-term.db"
+    conn = sqlite3.connect(db_path)
+    ensure_short_term_schema(conn)
+    conn.execute(
+        """
+        INSERT INTO short_term_forward_trades (
+            calculation_version, strategy, ticker, direction, signal_time,
+            signal_price, score, confidence, timeframe_minutes, hold_minutes,
+            stop_pct, target_pct, status, entry_time, entry_price,
+            planned_exit_time, last_evaluated_time
+        ) VALUES (?, 'time_series_momentum', 'BTC/USD',
+                  'long', 0, 100, 2.5, 'high', 60, 10, 0, 0,
+                  'active', 0, 100, 600000, -1)
+        """,
+        (CALCULATION_VERSION,),
+    )
+    conn.commit()
+
+    first = _bars([
+        ("BTC/USD", 0, 100, 110, 90, 105, 1, 105),
+        ("BTC/USD", 300_000, 105, 111, 95, 108, 1, 108),
+    ])
+    _advance_forward(conn, first)
+    active = conn.execute(
+        "SELECT status, exit_time, current_net_return_pct "
+        "FROM short_term_forward_trades"
+    ).fetchone()
+
+    assert active[0] == "active"
+    assert active[1] is None
+    assert active[2] == pytest.approx(8 - ROUND_TRIP_COST_PCT)
+
+    complete = pd.concat([
+        first,
+        _bars([("BTC/USD", 600_000, 103, 104, 102, 103, 1, 103)]),
+    ], ignore_index=True)
+    _advance_forward(conn, complete)
+    closed = conn.execute(
+        "SELECT status, exit_reason, exit_time, exit_price, net_return_pct "
+        "FROM short_term_forward_trades"
+    ).fetchone()
+    conn.close()
+
+    assert closed[0] == "closed"
+    assert closed[1] == "time"
+    assert closed[2] == 600_000
+    assert closed[3] == pytest.approx(103)
+    assert closed[4] == pytest.approx(3 - ROUND_TRIP_COST_PCT)
 
 
 def test_closed_forward_trade_is_not_rewritten(tmp_path):

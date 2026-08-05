@@ -26,7 +26,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v12"
+CALCULATION_VERSION = "short-term-lab-v13"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -1186,9 +1186,9 @@ def _advance_forward(conn: sqlite3.Connection, candles: pd.DataFrame) -> dict:
             if not is_hedged:
                 if reason == "time":
                     pass
-                elif stop_hit:
+                elif stop > 0 and stop_hit:
                     reason, price = "stop", stop_price
-                elif target_hit:
+                elif target > 0 and target_hit:
                     reason, price = "target", target_price
                 gross = _directional_return(direction, entry_price, price)
             net = gross - ROUND_TRIP_COST_PCT
