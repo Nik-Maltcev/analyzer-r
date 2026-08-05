@@ -26,7 +26,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v16"
+CALCULATION_VERSION = "short-term-lab-v17"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -42,14 +42,14 @@ STRATEGIES = {
         "target": 0.0,
         "description": "Каждые 6 часов: LONG верхнего дециля рынка только при положительном импульсе, SHORT нижнего дециля только при отрицательном импульсе.",
     },
-    "residual_momentum": {
-        "name": "Residual Momentum vs BTC",
-        "short_name": "Residual Momentum",
+    "volatility_breakout": {
+        "name": "Volatility Breakout",
+        "short_name": "Vol Breakout",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Каждые 4 часа: β-нейтральный моментум через OLS на BTC. LONG при z ≥ +1.3, SHORT при z ≤ −1.3.",
+        "description": "Пробой 20-часового high/low с подтверждением объёмом 1.4× от медианы. ATR(14) для нормализации.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -902,7 +902,7 @@ def generate_candidates(
     hourly = candles if already_hourly else _aggregate(candles, 60)
     return {
         "dual_momentum": _dual_momentum(hourly),
-        "residual_momentum": _residual_momentum(hourly),
+        "volatility_breakout": _volatility_breakout(hourly),
     }
 
 
