@@ -26,21 +26,21 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v18"
+CALCULATION_VERSION = "short-term-lab-v19"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "bollinger_squeeze": {
-        "name": "Bollinger Squeeze",
-        "short_name": "Bollinger Squeeze",
+    "donchian_breakout": {
+        "name": "Donchian Breakout",
+        "short_name": "Donchian",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Сжатие полос Боллинджера (20, 2σ): пробой верхней/нижней полосы после периода низкой волатильности.",
+        "description": "Пробой 20-часового high (LONG) или low (SHORT). Канал Дончиана, классика Turtle Trading.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -885,32 +885,22 @@ def _volume_flow_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("volume_flow_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
-def _bollinger_squeeze(hourly: pd.DataFrame) -> list[dict]:
-    """Bollinger squeeze breakout: trade breakouts after volatility compression."""
+def _donchian_breakout(hourly: pd.DataFrame) -> list[dict]:
+    """Donchian channel breakout: long above 20h high, short below 20h low."""
     rows: list[pd.DataFrame] = []
     for ticker, group in hourly.groupby("ticker", sort=False):
         frame = group.sort_values("open_time").copy()
-        close = frame["close"]
-        # Bollinger Bands(20, 2σ) — all shifted so the signal bar sees only past data.
-        ma = close.rolling(20, min_periods=20).mean().shift(1)
-        std = close.rolling(20, min_periods=20).std().shift(1)
-        upper = ma + 2 * std
-        lower = ma - 2 * std
-        bandwidth = (upper - lower) / ma.replace(0, np.nan)
-        # Squeeze: current bandwidth below its own 50-period median (low-vol regime).
-        bw_median = bandwidth.rolling(50, min_periods=30).median().shift(1)
-        is_squeezed = bandwidth < bw_median
+        # Channel from past 20 bars only (.shift(1) excludes the current bar).
+        upper = frame["high"].rolling(20, min_periods=20).max().shift(1)
+        lower = frame["low"].rolling(20, min_periods=20).min().shift(1)
+        channel_width = (upper - lower).replace(0, np.nan)
 
-        # Volume confirmation: current quote_volume > 1× its 20-period median.
-        vol_base = frame["quote_volume"].rolling(20, min_periods=20).median().shift(1).replace(0, np.nan)
-        vol_ok = frame["quote_volume"] > vol_base
-
-        long_break = (frame["close"] > upper) & is_squeezed & vol_ok
-        short_break = (frame["close"] < lower) & is_squeezed & vol_ok
+        long_break = frame["close"] > upper
+        short_break = frame["close"] < lower
         direction = np.where(long_break, "long", np.where(short_break, "short", ""))
 
-        # Score: how far past the band, normalised by std (stronger = larger).
-        score = (frame["close"] - upper).abs() / std.replace(0, np.nan)
+        # Score: how far past the band, normalised by channel width.
+        score = ((frame["close"] - upper).abs() / channel_width).replace([np.inf, -np.inf], np.nan)
 
         out = frame.loc[direction != "", ["open_time", "close"]].copy()
         out["ticker"] = ticker
@@ -919,7 +909,7 @@ def _bollinger_squeeze(hourly: pd.DataFrame) -> list[dict]:
         rows.append(out.rename(columns={"close": "signal_price"}))
 
     selected = _cap_per_time(pd.concat(rows, ignore_index=True) if rows else pd.DataFrame())
-    return [_candidate("bollinger_squeeze", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+    return [_candidate("donchian_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
 def generate_candidates(
@@ -929,7 +919,7 @@ def generate_candidates(
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
     return {
-        "bollinger_squeeze": _bollinger_squeeze(hourly),
+        "donchian_breakout": _donchian_breakout(hourly),
     }
 
 
