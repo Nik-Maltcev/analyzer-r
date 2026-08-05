@@ -26,21 +26,21 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v20"
+CALCULATION_VERSION = "short-term-lab-v21"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "atr_breakout": {
-        "name": "ATR Breakout",
-        "short_name": "ATR Breakout",
+    "trend_pullback": {
+        "name": "Trend Pullback",
+        "short_name": "Trend Pullback",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Keltner-канал: пробой SMA(20) ± 1.5×ATR(14). Волатильность адаптивна к рынку.",
+        "description": "EMA20 > EMA50 (восходящий тренд), возврат к EMA20 — LONG. EMA20 < EMA50 (нисходящий) — SHORT.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -885,32 +885,41 @@ def _volume_flow_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("volume_flow_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
-def _atr_breakout(hourly: pd.DataFrame) -> list[dict]:
-    """Keltner-style ATR breakout: close beyond SMA(20) ± 1.5×ATR(14)."""
+def _trend_pullback(hourly: pd.DataFrame) -> list[dict]:
+    """Pullback into an established trend: buy dips / sell rallies toward EMA20."""
     rows: list[pd.DataFrame] = []
     for ticker, group in hourly.groupby("ticker", sort=False):
         frame = group.sort_values("open_time").copy()
         close = frame["close"]
+
+        # Hourly EMAs define the trend regime.
+        ema20h = close.ewm(span=20, adjust=False, min_periods=20).mean()
+        ema50h = close.ewm(span=50, adjust=False, min_periods=50).mean()
+
+        bullish = ema20h > ema50h * 1.002
+        bearish = ema20h < ema50h * 0.998
+
+        # Short-term EMA to detect the pullback touch (previous bar above, current touches/closes above).
+        ema20 = close.ewm(span=20, adjust=False, min_periods=20).mean()
         previous_close = close.shift(1)
+        previous_ema = ema20.shift(1)
 
-        # True Range and ATR(14), all shifted to use only past data.
-        tr = pd.concat([
-            frame["high"] - frame["low"],
-            (frame["high"] - previous_close).abs(),
-            (frame["low"] - previous_close).abs(),
-        ], axis=1).max(axis=1)
-        atr = tr.rolling(14, min_periods=14).mean().shift(1)
+        long_condition = (
+            bullish
+            & (frame["low"] <= ema20 * 1.003)
+            & (close > ema20)
+            & (previous_close <= previous_ema)
+        )
+        short_condition = (
+            bearish
+            & (frame["high"] >= ema20 * 0.997)
+            & (close < ema20)
+            & (previous_close >= previous_ema)
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
 
-        ma = close.rolling(20, min_periods=20).mean().shift(1)
-        upper = ma + 1.5 * atr
-        lower = ma - 1.5 * atr
-
-        long_break = close > upper
-        short_break = close < lower
-        direction = np.where(long_break, "long", np.where(short_break, "short", ""))
-
-        # Score: distance past the band, normalised by ATR.
-        score = ((close - upper).abs() / atr.replace(0, np.nan)).replace([np.inf, -np.inf], np.nan)
+        # Score by trend strength (EMA separation in percent).
+        score = ((ema20h / ema50h - 1).abs() * 100).clip(lower=0)
 
         out = frame.loc[direction != "", ["open_time", "close"]].copy()
         out["ticker"] = ticker
@@ -919,7 +928,7 @@ def _atr_breakout(hourly: pd.DataFrame) -> list[dict]:
         rows.append(out.rename(columns={"close": "signal_price"}))
 
     selected = _cap_per_time(pd.concat(rows, ignore_index=True) if rows else pd.DataFrame())
-    return [_candidate("atr_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+    return [_candidate("trend_pullback", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
 def generate_candidates(
@@ -929,7 +938,7 @@ def generate_candidates(
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
     return {
-        "atr_breakout": _atr_breakout(hourly),
+        "trend_pullback": _trend_pullback(hourly),
     }
 
 
