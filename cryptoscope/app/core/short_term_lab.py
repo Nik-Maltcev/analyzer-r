@@ -26,30 +26,21 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v17"
+CALCULATION_VERSION = "short-term-lab-v18"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "dual_momentum": {
-        "name": "Dual Momentum",
-        "short_name": "Двойной momentum",
+    "bollinger_squeeze": {
+        "name": "Bollinger Squeeze",
+        "short_name": "Bollinger Squeeze",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Каждые 6 часов: LONG верхнего дециля рынка только при положительном импульсе, SHORT нижнего дециля только при отрицательном импульсе.",
-    },
-    "volatility_breakout": {
-        "name": "Volatility Breakout",
-        "short_name": "Vol Breakout",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "description": "Пробой 20-часового high/low с подтверждением объёмом 1.4× от медианы. ATR(14) для нормализации.",
+        "description": "Сжатие полос Боллинджера (20, 2σ): пробой верхней/нижней полосы после периода низкой волатильности.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -894,6 +885,43 @@ def _volume_flow_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("volume_flow_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
+def _bollinger_squeeze(hourly: pd.DataFrame) -> list[dict]:
+    """Bollinger squeeze breakout: trade breakouts after volatility compression."""
+    rows: list[pd.DataFrame] = []
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        close = frame["close"]
+        # Bollinger Bands(20, 2σ) — all shifted so the signal bar sees only past data.
+        ma = close.rolling(20, min_periods=20).mean().shift(1)
+        std = close.rolling(20, min_periods=20).std().shift(1)
+        upper = ma + 2 * std
+        lower = ma - 2 * std
+        bandwidth = (upper - lower) / ma.replace(0, np.nan)
+        # Squeeze: current bandwidth below its own 50-period median (low-vol regime).
+        bw_median = bandwidth.rolling(50, min_periods=30).median().shift(1)
+        is_squeezed = bandwidth < bw_median
+
+        # Volume confirmation: current quote_volume > 1× its 20-period median.
+        vol_base = frame["quote_volume"].rolling(20, min_periods=20).median().shift(1).replace(0, np.nan)
+        vol_ok = frame["quote_volume"] > vol_base
+
+        long_break = (frame["close"] > upper) & is_squeezed & vol_ok
+        short_break = (frame["close"] < lower) & is_squeezed & vol_ok
+        direction = np.where(long_break, "long", np.where(short_break, "short", ""))
+
+        # Score: how far past the band, normalised by std (stronger = larger).
+        score = (frame["close"] - upper).abs() / std.replace(0, np.nan)
+
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = score[direction != ""]
+        rows.append(out.rename(columns={"close": "signal_price"}))
+
+    selected = _cap_per_time(pd.concat(rows, ignore_index=True) if rows else pd.DataFrame())
+    return [_candidate("bollinger_squeeze", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
 def generate_candidates(
     candles: pd.DataFrame,
     *,
@@ -901,8 +929,7 @@ def generate_candidates(
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
     return {
-        "dual_momentum": _dual_momentum(hourly),
-        "volatility_breakout": _volatility_breakout(hourly),
+        "bollinger_squeeze": _bollinger_squeeze(hourly),
     }
 
 
