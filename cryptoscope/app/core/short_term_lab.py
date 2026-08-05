@@ -26,7 +26,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v15"
+CALCULATION_VERSION = "short-term-lab-v16"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -42,14 +42,14 @@ STRATEGIES = {
         "target": 0.0,
         "description": "Каждые 6 часов: LONG верхнего дециля рынка только при положительном импульсе, SHORT нижнего дециля только при отрицательном импульсе.",
     },
-    "relative_strength": {
-        "name": "Relative Strength vs BTC",
-        "short_name": "RS vs BTC",
+    "residual_momentum": {
+        "name": "Residual Momentum vs BTC",
+        "short_name": "Residual Momentum",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Каждые 6 часов: LONG топ-дециля RS, SHORT нижнего дециля. RS = 24h-доходность монеты − 24h-доходность BTC.",
+        "description": "Каждые 4 часа: β-нейтральный моментум через OLS на BTC. LONG при z ≥ +1.3, SHORT при z ≤ −1.3.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -275,45 +275,6 @@ def _dual_momentum(hourly: pd.DataFrame) -> list[dict]:
                 "tail_size": tail_size,
             })
     return [_candidate("dual_momentum", **row) for row in rows]
-
-
-def _relative_strength(hourly: pd.DataFrame) -> list[dict]:
-    """RS = 24h coin return – 24h BTC return. Long top decile, short bottom decile."""
-    close = hourly.pivot(index="open_time", columns="ticker", values="close")
-    btc_col = "BTC/USD"
-    if btc_col not in close.columns:
-        return []
-    returns = close.pct_change(24, fill_method=None)
-    btc_return = returns[btc_col]
-    # Percentage-point spread: +5 means the coin outpaced BTC by 5 pp in 24 h.
-    rs_raw = returns.sub(btc_return, axis=0).drop(columns=btc_col)
-    rows: list[dict] = []
-    signal_mask = close.index.astype("int64") % (6 * HOUR_MS) == 0
-    for timestamp in close.index[signal_mask]:
-        cross = rs_raw.loc[timestamp].dropna()
-        prices = close.loc[timestamp]
-        count = len(cross)
-        if count < 20:
-            continue
-        tail_size = max(1, math.ceil(count * 0.10))
-        ranked = cross.sort_values()
-        longs = ranked.tail(tail_size)
-        shorts = ranked.head(tail_size)
-        for ticker, value in longs.items():
-            rows.append({
-                "ticker": ticker, "direction": "long",
-                "signal_time": int(timestamp),
-                "signal_price": float(prices[ticker]),
-                "score": float(value),
-            })
-        for ticker, value in shorts.items():
-            rows.append({
-                "ticker": ticker, "direction": "short",
-                "signal_time": int(timestamp),
-                "signal_price": float(prices[ticker]),
-                "score": float(value),
-            })
-    return [_candidate("relative_strength", **row) for row in rows]
 
 
 def _volatility_breakout(fifteen: pd.DataFrame) -> list[dict]:
@@ -941,7 +902,7 @@ def generate_candidates(
     hourly = candles if already_hourly else _aggregate(candles, 60)
     return {
         "dual_momentum": _dual_momentum(hourly),
-        "relative_strength": _relative_strength(hourly),
+        "residual_momentum": _residual_momentum(hourly),
     }
 
 
