@@ -26,21 +26,21 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v27"
+CALCULATION_VERSION = "short-term-lab-v28"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "vwap_reclaim_deviation": {
-        "name": "VWAP Reclaim / Deviation",
-        "short_name": "VWAP Reclaim",
+    "opening_range_breakout": {
+        "name": "Opening Range Breakout",
+        "short_name": "OR Breakout",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Цена отклоняется от 48-часового VWAP, затем возвращается через него. LONG — reclaim снизу, SHORT — reclaim сверху.",
+        "description": "Пробой 4-часового opening range (UTC). LONG — пробой high, SHORT — пробой low, с 04:00 до 16:00 UTC.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -1048,7 +1048,7 @@ def generate_candidates(
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
     return {
-        "vwap_reclaim_deviation": _vwap_reclaim_deviation(hourly),
+        "opening_range_breakout": _opening_range_breakout(hourly),
     }
 
 
