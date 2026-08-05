@@ -26,21 +26,21 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v22"
+CALCULATION_VERSION = "short-term-lab-v23"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "ema_pullback": {
-        "name": "EMA Pullback",
-        "short_name": "EMA Pullback",
+    "beta_neutral_arb": {
+        "name": "Beta-Neutral Statistical Arb",
+        "short_name": "Beta-Neutral Arb",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Цена возвращается к EMA(20), касается её тенью, но закрывается в сторону тренда. Простой откат без фильтра EMA50.",
+        "description": "Ранжирование по 24h residual return (α после β-регрессии на BTC). Историческая аномалия пары — возврат к среднему.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -885,45 +885,61 @@ def _volume_flow_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("volume_flow_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
-def _ema_pullback(hourly: pd.DataFrame) -> list[dict]:
-    """Price pulls back to EMA(20), touches it, closes back in the trend direction."""
-    rows: list[pd.DataFrame] = []
-    for ticker, group in hourly.groupby("ticker", sort=False):
-        frame = group.sort_values("open_time").copy()
-        close = frame["close"]
+def _beta_neutral_arb(hourly: pd.DataFrame) -> list[dict]:
+    """
+    Beta-neutral stat-arb: per-ticker OLS of 24h returns vs BTC.
+    Approach per pair -> 'alpha' relative to BTC. Outliers (long-term stable 
+    alpha but now anomalous) identified via z-score, expect reversion of the anomaly.
+    """
+    close = hourly.pivot(index="open_time", columns="ticker", values="close")
+    if "BTC/USD" not in close.columns:
+        return []
 
-        # EMA(20) shifted to use only past data — no lookahead.
-        ema = close.ewm(span=20, adjust=False, min_periods=20).mean().shift(1)
+    returns = close.pct_change(fill_method=None)
+    btc = returns["BTC/USD"]
 
-        # Direction of the EMA slope (is it rising or falling).
-        ema_rising = ema > ema.shift(1)
-        ema_falling = ema < ema.shift(1)
+    rows: list[dict] = []
+    for ticker in close.columns:
+        if ticker == "BTC/USD":
+            continue
 
-        # LONG: price dips to EMA (low touches/crosses), but closes above.
-        long_condition = (
-            ema_rising
-            & (frame["low"] <= ema)
-            & (close > ema)
-        )
-        # SHORT: price rallies to EMA (high touches/crosses), but closes below.
-        short_condition = (
-            ema_falling
-            & (frame["high"] >= ema)
-            & (close < ema)
-        )
-        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        coin = returns[ticker]
+        # Rolling 72h beta of coin vs BTC (from past data only).
+        cov = coin.rolling(72, min_periods=48).cov(btc).shift(1)
+        var_btc = btc.rolling(72, min_periods=48).var().shift(1)
+        beta = (cov / var_btc).replace(0, np.nan)
 
-        # Score: how far price closed past EMA in the trend direction (percent of EMA).
-        score = ((close - ema).abs() / ema.replace(0, np.nan) * 100).replace([np.inf, -np.inf], np.nan)
+        # Alpha: current 24h coin return - beta * BTC 24h return.
+        # Beta is from past data, returns from current closed bar -> no lookahead.
+        alpha = coin - beta * btc
 
-        out = frame.loc[direction != "", ["open_time", "close"]].copy()
-        out["ticker"] = ticker
-        out["direction"] = direction[direction != ""]
-        out["score"] = score[direction != ""]
-        rows.append(out.rename(columns={"close": "signal_price"}))
+        # Historical median alpha (stable contribution) and rolling std (noise).
+        alpha_median = alpha.rolling(72, min_periods=48).median().shift(1)
+        alpha_std = alpha.rolling(72, min_periods=48).std().shift(1).replace(0, np.nan)
 
-    selected = _cap_per_time(pd.concat(rows, ignore_index=True) if rows else pd.DataFrame())
-    return [_candidate("ema_pullback", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+        # Z-score: how anomalous is the current alpha vs its stable median.
+        z = (alpha - alpha_median) / alpha_std
+
+        # Reversion: large negative anomaly of a normally-stable coin -> LONG.
+        # Large positive anomaly of a normally-negative coin -> SHORT.
+        # Threshold: |z| >= 2.0 (2σ, classic stat-arb entry).
+        for position, timestamp in enumerate(close.index):
+            if position % 4 != 0:  # Checks every 4 hours.
+                continue
+            zval = z.loc[timestamp]
+            price = close.at[timestamp, ticker]
+            if pd.isna(zval) or pd.isna(price) or abs(float(zval)) < 2.0:
+                continue
+            rows.append({
+                "open_time": int(timestamp),
+                "ticker": ticker,
+                "direction": "long" if zval < 0 else "short",
+                "signal_price": float(price),
+                "score": float(abs(zval)),
+            })
+
+    selected = _cap_per_time(pd.DataFrame(rows))
+    return [_candidate("beta_neutral_arb", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
 def generate_candidates(
@@ -933,7 +949,7 @@ def generate_candidates(
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
     return {
-        "ema_pullback": _ema_pullback(hourly),
+        "beta_neutral_arb": _beta_neutral_arb(hourly),
     }
 
 
