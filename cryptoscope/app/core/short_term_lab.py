@@ -26,21 +26,21 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v23"
+CALCULATION_VERSION = "short-term-lab-v24"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "beta_neutral_arb": {
-        "name": "Beta-Neutral Statistical Arb",
-        "short_name": "Beta-Neutral Arb",
+    "volume_acceleration": {
+        "name": "Volume Acceleration",
+        "short_name": "Volume Accel",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Ранжирование по 24h residual return (α после β-регрессии на BTC). Историческая аномалия пары — возврат к среднему.",
+        "description": "Объём вспыхивает 2× от медианы + цена закрывается в сторону всплеска. Денежный поток опережает движение.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -885,61 +885,38 @@ def _volume_flow_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("volume_flow_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
-def _beta_neutral_arb(hourly: pd.DataFrame) -> list[dict]:
-    """
-    Beta-neutral stat-arb: per-ticker OLS of 24h returns vs BTC.
-    Approach per pair -> 'alpha' relative to BTC. Outliers (long-term stable 
-    alpha but now anomalous) identified via z-score, expect reversion of the anomaly.
-    """
-    close = hourly.pivot(index="open_time", columns="ticker", values="close")
-    if "BTC/USD" not in close.columns:
-        return []
+def _volume_acceleration(hourly: pd.DataFrame) -> list[dict]:
+    """Volume spikes 2x median + price closes in the spike direction."""
+    rows: list[pd.DataFrame] = []
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        close = frame["close"]
+        open_ = frame["open"]
 
-    returns = close.pct_change(fill_method=None)
-    btc = returns["BTC/USD"]
+        # 20-hour median volume (past only).
+        vol_median = frame["quote_volume"].rolling(20, min_periods=20).median().shift(1).replace(0, np.nan)
+        vol_ratio = frame["quote_volume"] / vol_median
 
-    rows: list[dict] = []
-    for ticker in close.columns:
-        if ticker == "BTC/USD":
-            continue
+        # Price change in percent for this bar.
+        price_pct = (close / open_ - 1) * 100
 
-        coin = returns[ticker]
-        # Rolling 72h beta of coin vs BTC (from past data only).
-        cov = coin.rolling(72, min_periods=48).cov(btc).shift(1)
-        var_btc = btc.rolling(72, min_periods=48).var().shift(1)
-        beta = (cov / var_btc).replace(0, np.nan)
+        # LONG: volume >= 2x AND price closed up more than the bar's typical noise.
+        # SHORT: volume >= 2x AND price closed down.
+        long_cond = (vol_ratio >= 2.0) & (price_pct > 0)
+        short_cond = (vol_ratio >= 2.0) & (price_pct < 0)
+        direction = np.where(long_cond, "long", np.where(short_cond, "short", ""))
 
-        # Alpha: current 24h coin return - beta * BTC 24h return.
-        # Beta is from past data, returns from current closed bar -> no lookahead.
-        alpha = coin - beta * btc
+        # Score: volume ratio * price move magnitude.
+        score = vol_ratio * price_pct.abs()
 
-        # Historical median alpha (stable contribution) and rolling std (noise).
-        alpha_median = alpha.rolling(72, min_periods=48).median().shift(1)
-        alpha_std = alpha.rolling(72, min_periods=48).std().shift(1).replace(0, np.nan)
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = score[direction != ""]
+        rows.append(out.rename(columns={"close": "signal_price"}))
 
-        # Z-score: how anomalous is the current alpha vs its stable median.
-        z = (alpha - alpha_median) / alpha_std
-
-        # Reversion: large negative anomaly of a normally-stable coin -> LONG.
-        # Large positive anomaly of a normally-negative coin -> SHORT.
-        # Threshold: |z| >= 2.0 (2σ, classic stat-arb entry).
-        for position, timestamp in enumerate(close.index):
-            if position % 4 != 0:  # Checks every 4 hours.
-                continue
-            zval = z.loc[timestamp]
-            price = close.at[timestamp, ticker]
-            if pd.isna(zval) or pd.isna(price) or abs(float(zval)) < 2.0:
-                continue
-            rows.append({
-                "open_time": int(timestamp),
-                "ticker": ticker,
-                "direction": "long" if zval < 0 else "short",
-                "signal_price": float(price),
-                "score": float(abs(zval)),
-            })
-
-    selected = _cap_per_time(pd.DataFrame(rows))
-    return [_candidate("beta_neutral_arb", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+    selected = _cap_per_time(pd.concat(rows, ignore_index=True) if rows else pd.DataFrame())
+    return [_candidate("volume_acceleration", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
 def generate_candidates(
@@ -949,7 +926,7 @@ def generate_candidates(
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
     return {
-        "beta_neutral_arb": _beta_neutral_arb(hourly),
+        "volume_acceleration": _volume_acceleration(hourly),
     }
 
 
