@@ -26,21 +26,21 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v21"
+CALCULATION_VERSION = "short-term-lab-v22"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "trend_pullback": {
-        "name": "Trend Pullback",
-        "short_name": "Trend Pullback",
+    "ema_pullback": {
+        "name": "EMA Pullback",
+        "short_name": "EMA Pullback",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "EMA20 > EMA50 (восходящий тренд), возврат к EMA20 — LONG. EMA20 < EMA50 (нисходящий) — SHORT.",
+        "description": "Цена возвращается к EMA(20), касается её тенью, но закрывается в сторону тренда. Простой откат без фильтра EMA50.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -885,41 +885,36 @@ def _volume_flow_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("volume_flow_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
-def _trend_pullback(hourly: pd.DataFrame) -> list[dict]:
-    """Pullback into an established trend: buy dips / sell rallies toward EMA20."""
+def _ema_pullback(hourly: pd.DataFrame) -> list[dict]:
+    """Price pulls back to EMA(20), touches it, closes back in the trend direction."""
     rows: list[pd.DataFrame] = []
     for ticker, group in hourly.groupby("ticker", sort=False):
         frame = group.sort_values("open_time").copy()
         close = frame["close"]
 
-        # Hourly EMAs define the trend regime.
-        ema20h = close.ewm(span=20, adjust=False, min_periods=20).mean()
-        ema50h = close.ewm(span=50, adjust=False, min_periods=50).mean()
+        # EMA(20) shifted to use only past data — no lookahead.
+        ema = close.ewm(span=20, adjust=False, min_periods=20).mean().shift(1)
 
-        bullish = ema20h > ema50h * 1.002
-        bearish = ema20h < ema50h * 0.998
+        # Direction of the EMA slope (is it rising or falling).
+        ema_rising = ema > ema.shift(1)
+        ema_falling = ema < ema.shift(1)
 
-        # EMA for pullback detection — shifted to exclude the current bar (no lookahead).
-        ema20 = close.ewm(span=20, adjust=False, min_periods=20).mean().shift(1)
-        previous_close = close.shift(1)
-        previous_ema = ema20.shift(1)
-
+        # LONG: price dips to EMA (low touches/crosses), but closes above.
         long_condition = (
-            bullish
-            & (frame["low"] <= ema20 * 1.003)
-            & (close > ema20)
-            & (previous_close <= previous_ema)
+            ema_rising
+            & (frame["low"] <= ema)
+            & (close > ema)
         )
+        # SHORT: price rallies to EMA (high touches/crosses), but closes below.
         short_condition = (
-            bearish
-            & (frame["high"] >= ema20 * 0.997)
-            & (close < ema20)
-            & (previous_close >= previous_ema)
+            ema_falling
+            & (frame["high"] >= ema)
+            & (close < ema)
         )
         direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
 
-        # Score by trend strength (EMA separation in percent).
-        score = ((ema20h / ema50h - 1).abs() * 100).clip(lower=0)
+        # Score: how far price closed past EMA in the trend direction (percent of EMA).
+        score = ((close - ema).abs() / ema.replace(0, np.nan) * 100).replace([np.inf, -np.inf], np.nan)
 
         out = frame.loc[direction != "", ["open_time", "close"]].copy()
         out["ticker"] = ticker
@@ -928,7 +923,7 @@ def _trend_pullback(hourly: pd.DataFrame) -> list[dict]:
         rows.append(out.rename(columns={"close": "signal_price"}))
 
     selected = _cap_per_time(pd.concat(rows, ignore_index=True) if rows else pd.DataFrame())
-    return [_candidate("trend_pullback", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+    return [_candidate("ema_pullback", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
 def generate_candidates(
@@ -938,7 +933,7 @@ def generate_candidates(
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
     return {
-        "trend_pullback": _trend_pullback(hourly),
+        "ema_pullback": _ema_pullback(hourly),
     }
 
 
