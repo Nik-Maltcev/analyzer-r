@@ -131,13 +131,13 @@ def test_dual_momentum_decision_is_not_changed_by_a_future_candle():
     assert after == before
 
 
-def test_dual_momentum_strategy_has_one_fixed_90_day_specification():
-    assert set(STRATEGIES) == {"dual_momentum"}
-    settings = STRATEGIES["dual_momentum"]
-    assert settings["timeframe"] == 60
-    assert settings["hold"] == 24 * 60
-    assert settings["stop"] == 0.0
-    assert settings["target"] == 0.0
+def test_strategies_share_the_same_hourly_backtest_parameters():
+    assert len(STRATEGIES) >= 2
+    for key, settings in STRATEGIES.items():
+        assert settings["timeframe"] == 60, f"{key}: timeframe"
+        assert settings["hold"] == 24 * 60, f"{key}: hold"
+        assert settings["stop"] == 0.0, f"{key}: stop"
+        assert settings["target"] == 0.0, f"{key}: target"
 
 
 def test_dual_momentum_backtest_has_only_90_day_window():

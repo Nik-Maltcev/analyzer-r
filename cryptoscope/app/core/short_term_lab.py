@@ -26,7 +26,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v14"
+CALCULATION_VERSION = "short-term-lab-v15"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -41,7 +41,16 @@ STRATEGIES = {
         "stop": 0.0,
         "target": 0.0,
         "description": "Каждые 6 часов: LONG верхнего дециля рынка только при положительном импульсе, SHORT нижнего дециля только при отрицательном импульсе.",
-    }
+    },
+    "relative_strength": {
+        "name": "Relative Strength vs BTC",
+        "short_name": "RS vs BTC",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "description": "Каждые 6 часов: LONG топ-дециля RS, SHORT нижнего дециля. RS = 24h-доходность монеты − 24h-доходность BTC.",
+    },
 }
 _REFRESH_LOCK = Lock()
 
@@ -266,6 +275,45 @@ def _dual_momentum(hourly: pd.DataFrame) -> list[dict]:
                 "tail_size": tail_size,
             })
     return [_candidate("dual_momentum", **row) for row in rows]
+
+
+def _relative_strength(hourly: pd.DataFrame) -> list[dict]:
+    """RS = 24h coin return – 24h BTC return. Long top decile, short bottom decile."""
+    close = hourly.pivot(index="open_time", columns="ticker", values="close")
+    btc_col = "BTC/USD"
+    if btc_col not in close.columns:
+        return []
+    returns = close.pct_change(24, fill_method=None)
+    btc_return = returns[btc_col]
+    # Percentage-point spread: +5 means the coin outpaced BTC by 5 pp in 24 h.
+    rs_raw = returns.sub(btc_return, axis=0).drop(columns=btc_col)
+    rows: list[dict] = []
+    signal_mask = close.index.astype("int64") % (6 * HOUR_MS) == 0
+    for timestamp in close.index[signal_mask]:
+        cross = rs_raw.loc[timestamp].dropna()
+        prices = close.loc[timestamp]
+        count = len(cross)
+        if count < 20:
+            continue
+        tail_size = max(1, math.ceil(count * 0.10))
+        ranked = cross.sort_values()
+        longs = ranked.tail(tail_size)
+        shorts = ranked.head(tail_size)
+        for ticker, value in longs.items():
+            rows.append({
+                "ticker": ticker, "direction": "long",
+                "signal_time": int(timestamp),
+                "signal_price": float(prices[ticker]),
+                "score": float(value),
+            })
+        for ticker, value in shorts.items():
+            rows.append({
+                "ticker": ticker, "direction": "short",
+                "signal_time": int(timestamp),
+                "signal_price": float(prices[ticker]),
+                "score": float(value),
+            })
+    return [_candidate("relative_strength", **row) for row in rows]
 
 
 def _volatility_breakout(fifteen: pd.DataFrame) -> list[dict]:
@@ -891,7 +939,10 @@ def generate_candidates(
     already_hourly: bool = False,
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
-    return {"dual_momentum": _dual_momentum(hourly)}
+    return {
+        "dual_momentum": _dual_momentum(hourly),
+        "relative_strength": _relative_strength(hourly),
+    }
 
 
 def _directional_return(direction: str, entry: float, price: float) -> float:
@@ -1079,29 +1130,31 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
         int((latest_time - earliest_time) // (24 * 60 * 60 * 1000)) + 1
         if latest_time and earliest_time else 0
     )
-    for days in BACKTEST_WINDOWS_DAYS:
-        cutoff = latest_time - days * 24 * 60 * 60 * 1000
-        subset = [
-            trade for trade in trades
-            if trade["strategy"] == "dual_momentum"
-            and int(trade["entry_time"]) >= cutoff
-        ]
-        values = [float(trade["cash_result"]) for trade in subset]
-        wins = [value for value in values if value > 0]
-        losses = [value for value in values if value < 0]
-        metrics[f"dual_momentum_{days}d"] = {
-            "window_days": days,
-            "coverage_days": coverage_days,
-            "is_complete": coverage_days >= days and missing_counts.get("dual_momentum", 0) == 0,
-            "eligible_candidates": eligible_counts.get("dual_momentum", 0),
-            "missing_executions": missing_counts.get("dual_momentum", 0),
-            "trades": len(subset),
-            "wins": len(wins),
-            "win_rate": len(wins) / len(subset) * 100 if subset else 0.0,
-            "net_cash": sum(values),
-            "average_net_pct": sum(float(trade["net_return_pct"]) for trade in subset) / len(subset) if subset else 0.0,
-            "profit_factor": sum(wins) / abs(sum(losses)) if losses else (999.0 if wins else 0.0),
-        }
+    for strategy in candidates:
+        for days in BACKTEST_WINDOWS_DAYS:
+            cutoff = latest_time - days * 24 * 60 * 60 * 1000
+            subset = [
+                trade for trade in trades
+                if trade["strategy"] == strategy
+                and int(trade["entry_time"]) >= cutoff
+            ]
+            values = [float(trade["cash_result"]) for trade in subset]
+            wins = [value for value in values if value > 0]
+            losses = [value for value in values if value < 0]
+            metrics[f"{strategy}_{days}d"] = {
+                "window_days": days,
+                "strategy": strategy,
+                "coverage_days": coverage_days,
+                "is_complete": coverage_days >= days and missing_counts.get(strategy, 0) == 0,
+                "eligible_candidates": eligible_counts.get(strategy, 0),
+                "missing_executions": missing_counts.get(strategy, 0),
+                "trades": len(subset),
+                "wins": len(wins),
+                "win_rate": len(wins) / len(subset) * 100 if subset else 0.0,
+                "net_cash": sum(values),
+                "average_net_pct": sum(float(trade["net_return_pct"]) for trade in subset) / len(subset) if subset else 0.0,
+                "profit_factor": sum(wins) / abs(sum(losses)) if losses else (999.0 if wins else 0.0),
+            }
     return trades, metrics
 
 
@@ -1359,16 +1412,24 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                     // FIVE_MINUTES_MS * FIVE_MINUTES_MS
                 )
                 cutoff = completed_before - 90 * 24 * 60 * 60 * 1000
-                eligible = [
-                    event
-                    for event in historical_candidates.get("dual_momentum", [])
-                    if int(event["signal_time"]) >= cutoff
-                    and int(event["signal_time"])
-                    + int(event["hold_minutes"]) * 60_000 < completed_before
+                all_eligible: dict[str, list[dict]] = {}
+                for strategy in STRATEGIES:
+                    eligible = [
+                        event
+                        for event in historical_candidates.get(strategy, [])
+                        if int(event["signal_time"]) >= cutoff
+                        and int(event["signal_time"])
+                        + int(event["hold_minutes"]) * 60_000 < completed_before
+                    ]
+                    if eligible:
+                        all_eligible[strategy] = _select_non_overlapping_candidates(eligible)
+                flat_candidates = [
+                    candidate
+                    for candidates in all_eligible.values()
+                    for candidate in candidates
                 ]
-                execution_candidates = _select_non_overlapping_candidates(eligible)
                 execution_refresh = await refresh_short_term_execution_candles(
-                    conn, execution_candidates
+                    conn, flat_candidates
                 )
                 if (
                     int(execution_refresh.get("missing_window_count") or 0) > 0
@@ -1380,9 +1441,7 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                         f"{len(execution_refresh.get('failures') or [])} download failures"
                     )
                 candles = _load_candles(conn)
-                trades, metrics = backtest(
-                    candles, {"dual_momentum": execution_candidates}
-                )
+                trades, metrics = backtest(candles, all_eligible)
                 for metric in metrics.values():
                     metric["coverage_days"] = coverage_days
                     metric["is_complete"] = (
@@ -1531,21 +1590,17 @@ def get_short_term_report(db_path: str) -> dict:
         completed_dict["coverage_days"] = int(metrics.get("coverage_days") or 0)
     strategy_metrics = metrics.get("strategies", {})
     strategy_cards = []
-    settings = STRATEGIES["dual_momentum"]
-    for days in BACKTEST_WINDOWS_DAYS:
-        key = f"dual_momentum_{days}d"
-        strategy_cards.append({
-            "key": key,
-            **settings,
-            "short_name": f"Двойной momentum · {days} дней",
-            "description": (
-                "Каждые 6 часов: LONG верхних 10% рынка при импульсе > 0; "
-                "SHORT нижних 10% при импульсе < 0. "
-                "Сигнал: закрытые свечи 60 мин; исполнение: свечи 5 мин; "
-                "импульс 24 ч.; удержание 24 ч.; без цели и стопа."
-            ),
-            **strategy_metrics.get(key, {}),
-        })
+    for strategy_key, settings in STRATEGIES.items():
+        for days in BACKTEST_WINDOWS_DAYS:
+            key = f"{strategy_key}_{days}d"
+            card = {
+                "key": key,
+                "strategy_key": strategy_key,
+                **settings,
+                "short_name": f"{settings['short_name']} · {days} дн.",
+            }
+            card.update(strategy_metrics.get(key, {}))
+            strategy_cards.append(card)
     return {
         "version": CALCULATION_VERSION,
         "latest": latest_dict,
