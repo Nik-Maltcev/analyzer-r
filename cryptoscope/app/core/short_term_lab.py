@@ -26,21 +26,21 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v24"
+CALCULATION_VERSION = "short-term-lab-v25"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "volume_acceleration": {
-        "name": "Volume Acceleration",
-        "short_name": "Volume Accel",
+    "range_mean_reversion": {
+        "name": "Range Mean Reversion",
+        "short_name": "Range Reversion",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Объём вспыхивает 2× от медианы + цена закрывается в сторону всплеска. Денежный поток опережает движение.",
+        "description": "RSI(14) < 25 → перепродано, LONG. RSI > 75 → перекуплено, SHORT. Возврат к средней в боковике.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -885,29 +885,27 @@ def _volume_flow_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("volume_flow_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
-def _volume_acceleration(hourly: pd.DataFrame) -> list[dict]:
-    """Volume spikes 2x median + price closes in the spike direction."""
+def _range_mean_reversion(hourly: pd.DataFrame) -> list[dict]:
+    """RSI(14) oversold/overbought reversion: LONG below 25, SHORT above 75."""
     rows: list[pd.DataFrame] = []
     for ticker, group in hourly.groupby("ticker", sort=False):
         frame = group.sort_values("open_time").copy()
         close = frame["close"]
-        open_ = frame["open"]
+        delta = close.diff()
+        gain = delta.clip(lower=0)
+        loss = (-delta.clip(upper=0))
 
-        # 20-hour median volume (past only).
-        vol_median = frame["quote_volume"].rolling(20, min_periods=20).median().shift(1).replace(0, np.nan)
-        vol_ratio = frame["quote_volume"] / vol_median
+        # Wilder's RSI(14) — all shifted to use only past data.
+        avg_gain = gain.ewm(alpha=1 / 14, adjust=False, min_periods=14).mean().shift(1)
+        avg_loss = loss.ewm(alpha=1 / 14, adjust=False, min_periods=14).mean().shift(1)
+        rsi = 100 - 100 / (1 + avg_gain / avg_loss.replace(0, np.nan))
 
-        # Price change in percent for this bar.
-        price_pct = (close / open_ - 1) * 100
-
-        # LONG: volume >= 2x AND price closed up more than the bar's typical noise.
-        # SHORT: volume >= 2x AND price closed down.
-        long_cond = (vol_ratio >= 2.0) & (price_pct > 0)
-        short_cond = (vol_ratio >= 2.0) & (price_pct < 0)
+        long_cond = rsi < 25
+        short_cond = rsi > 75
         direction = np.where(long_cond, "long", np.where(short_cond, "short", ""))
 
-        # Score: volume ratio * price move magnitude.
-        score = vol_ratio * price_pct.abs()
+        # Score: distance from the 50 midline (further = stronger signal).
+        score = (rsi - 50).abs()
 
         out = frame.loc[direction != "", ["open_time", "close"]].copy()
         out["ticker"] = ticker
@@ -916,7 +914,7 @@ def _volume_acceleration(hourly: pd.DataFrame) -> list[dict]:
         rows.append(out.rename(columns={"close": "signal_price"}))
 
     selected = _cap_per_time(pd.concat(rows, ignore_index=True) if rows else pd.DataFrame())
-    return [_candidate("volume_acceleration", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+    return [_candidate("range_mean_reversion", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
 def generate_candidates(
@@ -926,7 +924,7 @@ def generate_candidates(
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
     return {
-        "volume_acceleration": _volume_acceleration(hourly),
+        "range_mean_reversion": _range_mean_reversion(hourly),
     }
 
 
