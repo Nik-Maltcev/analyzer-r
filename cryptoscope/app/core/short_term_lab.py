@@ -26,21 +26,21 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v19"
+CALCULATION_VERSION = "short-term-lab-v20"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "donchian_breakout": {
-        "name": "Donchian Breakout",
-        "short_name": "Donchian",
+    "atr_breakout": {
+        "name": "ATR Breakout",
+        "short_name": "ATR Breakout",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Пробой 20-часового high (LONG) или low (SHORT). Канал Дончиана, классика Turtle Trading.",
+        "description": "Keltner-канал: пробой SMA(20) ± 1.5×ATR(14). Волатильность адаптивна к рынку.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -885,22 +885,32 @@ def _volume_flow_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("volume_flow_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
-def _donchian_breakout(hourly: pd.DataFrame) -> list[dict]:
-    """Donchian channel breakout: long above 20h high, short below 20h low."""
+def _atr_breakout(hourly: pd.DataFrame) -> list[dict]:
+    """Keltner-style ATR breakout: close beyond SMA(20) ± 1.5×ATR(14)."""
     rows: list[pd.DataFrame] = []
     for ticker, group in hourly.groupby("ticker", sort=False):
         frame = group.sort_values("open_time").copy()
-        # Channel from past 20 bars only (.shift(1) excludes the current bar).
-        upper = frame["high"].rolling(20, min_periods=20).max().shift(1)
-        lower = frame["low"].rolling(20, min_periods=20).min().shift(1)
-        channel_width = (upper - lower).replace(0, np.nan)
+        close = frame["close"]
+        previous_close = close.shift(1)
 
-        long_break = frame["close"] > upper
-        short_break = frame["close"] < lower
+        # True Range and ATR(14), all shifted to use only past data.
+        tr = pd.concat([
+            frame["high"] - frame["low"],
+            (frame["high"] - previous_close).abs(),
+            (frame["low"] - previous_close).abs(),
+        ], axis=1).max(axis=1)
+        atr = tr.rolling(14, min_periods=14).mean().shift(1)
+
+        ma = close.rolling(20, min_periods=20).mean().shift(1)
+        upper = ma + 1.5 * atr
+        lower = ma - 1.5 * atr
+
+        long_break = close > upper
+        short_break = close < lower
         direction = np.where(long_break, "long", np.where(short_break, "short", ""))
 
-        # Score: how far past the band, normalised by channel width.
-        score = ((frame["close"] - upper).abs() / channel_width).replace([np.inf, -np.inf], np.nan)
+        # Score: distance past the band, normalised by ATR.
+        score = ((close - upper).abs() / atr.replace(0, np.nan)).replace([np.inf, -np.inf], np.nan)
 
         out = frame.loc[direction != "", ["open_time", "close"]].copy()
         out["ticker"] = ticker
@@ -909,7 +919,7 @@ def _donchian_breakout(hourly: pd.DataFrame) -> list[dict]:
         rows.append(out.rename(columns={"close": "signal_price"}))
 
     selected = _cap_per_time(pd.concat(rows, ignore_index=True) if rows else pd.DataFrame())
-    return [_candidate("donchian_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+    return [_candidate("atr_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
 def generate_candidates(
@@ -919,7 +929,7 @@ def generate_candidates(
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
     return {
-        "donchian_breakout": _donchian_breakout(hourly),
+        "atr_breakout": _atr_breakout(hourly),
     }
 
 
