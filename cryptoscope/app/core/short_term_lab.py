@@ -899,8 +899,8 @@ def _trend_pullback(hourly: pd.DataFrame) -> list[dict]:
         bullish = ema20h > ema50h * 1.002
         bearish = ema20h < ema50h * 0.998
 
-        # Short-term EMA to detect the pullback touch (previous bar above, current touches/closes above).
-        ema20 = close.ewm(span=20, adjust=False, min_periods=20).mean()
+        # EMA for pullback detection — shifted to exclude the current bar (no lookahead).
+        ema20 = close.ewm(span=20, adjust=False, min_periods=20).mean().shift(1)
         previous_close = close.shift(1)
         previous_ema = ema20.shift(1)
 
