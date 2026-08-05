@@ -6,7 +6,7 @@
         <div>
             <span class="section-kicker">ADMIN · FORWARD RESEARCH</span>
             <h2>Short-Term Lab</h2>
-            <p>Time-series momentum: сигнал 60 мин, исполнение 5 мин, проверка на 90 днях.</p>
+            <p>Dual Momentum: сигнал 60 мин, исполнение 5 мин, проверка на 90 днях.</p>
         </div>
         <button class="btn btn-secondary" type="button"
                 hx-get="/tab/short-term?refresh=true"
@@ -20,7 +20,7 @@
     {% if report.running %}
     <div class="stl-notice is-running">
         <strong>Синхронизируем завершённые свечи MEXC</strong>
-        <span>Первый расчёт догружает часовую историю для проверки за 365 дней и займёт несколько минут. Ниже пока показан предыдущий завершённый расчёт.</span>
+        <span>Первый расчёт догружает часовую историю для проверки за 90 дней и может занять несколько минут. Ниже пока показан предыдущий завершённый расчёт.</span>
     </div>
     {% elif report.latest and report.latest.status == 'failed' %}
     <div class="stl-notice is-error">
@@ -87,7 +87,7 @@
                     <td>—</td>
                     {% else %}
                     <td>${{ '%.7g'|format(trade.entry_price) }}<span>{{ trade.entry_label }} UTC</span></td>
-                    <td>{{ trade.planned_exit_label }} UTC<span>раньше по цели или стопу</span></td>
+                    <td>{{ trade.planned_exit_label }} UTC<span>строго через {{ trade.hold_minutes // 60 }} ч.</span></td>
                     <td class="{% if trade.current_net_return_pct >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(trade.current_net_return_pct) }}%</strong><span>{{ '%+.2f'|format(trade.current_cash_result) }} $ при $100</span></td>
                     {% endif %}
                 </tr>
