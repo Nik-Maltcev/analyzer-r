@@ -12,6 +12,7 @@ from threading import Lock
 import numpy as np
 import pandas as pd
 
+from app.data.mexc_futures import refresh_short_term_funding_rates
 from app.data.mexc_intraday import (
     INTRADAY_TICKERS,
     refresh_reversal_candles,
@@ -23,24 +24,25 @@ from app.db.schema import (
     CREATE_SHORT_TERM_HOURLY_CANDLES,
     CREATE_SHORT_TERM_BACKTEST_TRADES,
     CREATE_SHORT_TERM_FORWARD_TRADES,
+    CREATE_SHORT_TERM_FUNDING_RATES,
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v28"
+CALCULATION_VERSION = "short-term-lab-v29"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "opening_range_breakout": {
-        "name": "Opening Range Breakout",
-        "short_name": "OR Breakout",
+    "funding_crowding_reversal": {
+        "name": "Funding Crowding Reversal",
+        "short_name": "Funding Fade",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Пробой 4-часового opening range (UTC). LONG — пробой high, SHORT — пробой low, с 04:00 до 16:00 UTC.",
+        "description": "Экстремальный funding → толпа перегружена. Funding z ≥ +1.5 → SHORT, z ≤ −1.5 → LONG. Сигнал на часах расчёта funding (00/08/16 UTC).",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -50,6 +52,7 @@ def ensure_short_term_schema(conn: sqlite3.Connection) -> None:
     for statement in (
         CREATE_REVERSAL_CANDLES,
         CREATE_SHORT_TERM_HOURLY_CANDLES,
+        CREATE_SHORT_TERM_FUNDING_RATES,
         CREATE_SHORT_TERM_RUNS,
         CREATE_SHORT_TERM_BACKTEST_TRADES,
         CREATE_SHORT_TERM_FORWARD_TRADES,
@@ -119,6 +122,21 @@ def _load_hourly_candles(conn: sqlite3.Connection) -> pd.DataFrame:
     for column in ("open", "high", "low", "close", "volume", "quote_volume"):
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
     return frame.dropna(subset=["open", "high", "low", "close"])
+
+
+def _load_funding_rates(conn: sqlite3.Connection) -> pd.DataFrame:
+    frame = pd.read_sql_query(
+        """
+        SELECT ticker, settle_time, funding_rate
+        FROM short_term_funding_rates
+        ORDER BY ticker, settle_time
+        """,
+        conn,
+    )
+    if frame.empty:
+        return frame
+    frame["funding_rate"] = pd.to_numeric(frame["funding_rate"], errors="coerce")
+    return frame.dropna(subset=["funding_rate"])
 
 
 def _aggregate(candles: pd.DataFrame, minutes: int) -> pd.DataFrame:
@@ -1041,14 +1059,87 @@ def _vwap_reclaim_deviation(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("vwap_reclaim_deviation", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
+def _funding_crowding_reversal(
+    hourly: pd.DataFrame, funding: pd.DataFrame
+) -> list[dict]:
+    """Fade crowded positioning signaled by extreme settled funding rates.
+
+    Funding settles every 8h (00/08/16 UTC) and is known at settle_time, so
+    the latest settlement at an hourly candle's open is usable at its close.
+    LONG: funding z-score <= -1.5 (crowded shorts). SHORT: z >= +1.5.
+    """
+    if hourly.empty or funding.empty:
+        return []
+    zscore_parts: list[pd.DataFrame] = []
+    for ticker, group in funding.groupby("ticker", sort=False):
+        frame = group.sort_values("settle_time").copy()
+        # ~30 days of 8h settlements; shift keeps normalization point-in-time.
+        mean = frame["funding_rate"].rolling(90, min_periods=45).mean().shift(1)
+        std = (
+            frame["funding_rate"]
+            .rolling(90, min_periods=45)
+            .std()
+            .shift(1)
+            .replace(0, np.nan)
+        )
+        frame["z"] = (frame["funding_rate"] - mean) / std
+        frame["ticker"] = ticker
+        zscore_parts.append(
+            frame[["ticker", "settle_time", "z"]].dropna(subset=["z"])
+        )
+    if not zscore_parts:
+        return []
+    zscores = pd.concat(zscore_parts, ignore_index=True)
+    zmaps = {
+        ticker: group.sort_values("settle_time")
+        for ticker, group in zscores.groupby("ticker", sort=False)
+    }
+    rows: list[pd.DataFrame] = []
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        zmap = zmaps.get(ticker)
+        if zmap is None or zmap.empty:
+            continue
+        frame = group.sort_values("open_time").copy()
+        merged = pd.merge_asof(
+            frame[["open_time", "open", "close"]],
+            zmap[["settle_time", "z"]],
+            left_on="open_time",
+            right_on="settle_time",
+            direction="backward",
+        )
+        # Only the first hourly candle after each settlement carries fresh
+        # funding information; later hours would repeat the same signal.
+        cadence = merged["open_time"].mod(8 * HOUR_MS).eq(0)
+        z = merged["z"]
+        direction = np.where(
+            cadence & (z <= -1.5), "long",
+            np.where(cadence & (z >= 1.5), "short", ""),
+        )
+        out = merged.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = z[direction != ""].abs()
+        rows.append(out.rename(columns={"close": "signal_price"}))
+    selected = _cap_per_time(
+        pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=2
+    )
+    return [
+        _candidate("funding_crowding_reversal", **row)
+        for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")
+    ]
+
+
 def generate_candidates(
     candles: pd.DataFrame,
     *,
     already_hourly: bool = False,
+    funding: pd.DataFrame | None = None,
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
+    if funding is None:
+        funding = pd.DataFrame(columns=["ticker", "settle_time", "funding_rate"])
     return {
-        "opening_range_breakout": _opening_range_breakout(hourly),
+        "funding_crowding_reversal": _funding_crowding_reversal(hourly, funding),
     }
 
 
@@ -1473,12 +1564,24 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
         try:
             refresh = await refresh_reversal_candles(conn)
             historical_refresh = await refresh_short_term_hourly_candles(conn)
+            funding_refresh = await refresh_short_term_funding_rates(conn)
             candles = _load_candles(conn)
             historical_candles = _load_hourly_candles(conn)
+            funding = _load_funding_rates(conn)
             if candles.empty:
                 raise RuntimeError("MEXC did not return completed 5-minute candles")
             if historical_candles.empty:
                 raise RuntimeError("MEXC did not return completed hourly candles")
+            if funding.empty:
+                raise RuntimeError("MEXC did not return funding-rate history")
+            funding_age_hours = (
+                datetime.now(UTC).timestamp() * 1000
+                - int(funding["settle_time"].max())
+            ) / 3_600_000
+            if funding_age_hours > 12:
+                raise RuntimeError(
+                    f"MEXC funding rates are stale by {funding_age_hours:.0f} hours"
+                )
             latest = int(candles["open_time"].max())
             age_minutes = (datetime.now(UTC).timestamp() * 1000 - latest) / 60_000
             if age_minutes > 20:
@@ -1497,7 +1600,9 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 )
             forward = _advance_forward(conn, candles)
             live_cutoff = latest - 10 * 24 * 60 * 60 * 1000
-            live_candidates = generate_candidates(candles[candles["open_time"] >= live_cutoff])
+            live_candidates = generate_candidates(
+                candles[candles["open_time"] >= live_cutoff], funding=funding
+            )
             inserted = _insert_latest_candidates(
                 conn,
                 live_candidates,
@@ -1507,7 +1612,7 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
             metrics: dict = {}
             if include_backtest:
                 historical_candidates = generate_candidates(
-                    historical_candles, already_hourly=True
+                    historical_candles, already_hourly=True, funding=funding
                 )
                 coverage_days = int(historical_refresh.get("coverage_days") or 0)
                 if coverage_days < 98:
@@ -1592,6 +1697,7 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 "forward": {**forward, "pending": inserted},
                 "coverage_days": int(historical_refresh.get("coverage_days") or 0),
                 "historical_refresh": historical_refresh,
+                "funding_refresh": funding_refresh,
                 "execution_refresh": execution_refresh if include_backtest else None,
             }
             conn.execute(
