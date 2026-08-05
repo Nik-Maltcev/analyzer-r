@@ -26,21 +26,21 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v25"
+CALCULATION_VERSION = "short-term-lab-v26"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "range_mean_reversion": {
-        "name": "Range Mean Reversion",
-        "short_name": "Range Reversion",
+    "false_breakout": {
+        "name": "False Breakout",
+        "short_name": "False Breakout",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "RSI(14) < 25 → перепродано, LONG. RSI > 75 → перекуплено, SHORT. Возврат к средней в боковике.",
+        "description": "Ложный пробой 48-часового диапазона: цена выходит за уровень, но закрывается обратно. Фейдим пробой.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -917,6 +917,72 @@ def _range_mean_reversion(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("range_mean_reversion", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
+def _false_breakout(hourly: pd.DataFrame) -> list[dict]:
+    """Fade false breakouts of a 48h support/resistance range.
+
+    LONG: price pokes below the support low but closes back above it.
+    SHORT: price pokes above the resistance high but closes back below it.
+    """
+    rows: list[pd.DataFrame] = []
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        range_high = frame["high"].rolling(48, min_periods=36).max().shift(1)
+        range_low = frame["low"].rolling(48, min_periods=36).min().shift(1)
+        previous_close = frame["close"].shift(1)
+        previous_high = frame["high"].shift(1)
+        previous_low = frame["low"].shift(1)
+
+        true_range = pd.concat([
+            frame["high"] - frame["low"],
+            (frame["high"] - previous_close).abs(),
+            (frame["low"] - previous_close).abs(),
+        ], axis=1).max(axis=1)
+        atr = true_range.rolling(14, min_periods=14).mean().shift(1).replace(0, np.nan)
+
+        volume_base = frame["quote_volume"].rolling(24, min_periods=18).median().shift(1).replace(0, np.nan)
+        volume_ratio = frame["quote_volume"] / volume_base
+
+        # False breakdown: breaks support but closes back above with bullish candle.
+        long_condition = (
+            (previous_low >= range_low)
+            & (frame["low"] < range_low)
+            & (frame["close"] > range_low)
+            & (frame["close"] > frame["open"])
+            & (volume_ratio >= 1.2)
+        )
+        # False breakout: breaks resistance but closes back below with bearish candle.
+        short_condition = (
+            (previous_high <= range_high)
+            & (frame["high"] > range_high)
+            & (frame["close"] < range_high)
+            & (frame["close"] < frame["open"])
+            & (volume_ratio >= 1.2)
+        )
+        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+
+        body = (frame["close"] - frame["open"]).abs().clip(lower=atr * 0.05)
+        upper_wick = frame["high"] - np.maximum(frame["open"], frame["close"])
+        lower_wick = np.minimum(frame["open"], frame["close"]) - frame["low"]
+        breakout_size = np.where(
+            direction == "long",
+            (range_low - frame["low"]) / atr,
+            (frame["high"] - range_high) / atr,
+        )
+        wick_ratio = np.where(direction == "long", lower_wick / body, upper_wick / body)
+        score = 1.5 + np.maximum(breakout_size, 0) + np.minimum(wick_ratio, 5) / 5 + np.log1p(volume_ratio)
+
+        out = frame.loc[direction != "", ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[direction != ""]
+        out["score"] = score[direction != ""]
+        rows.append(out.rename(columns={"close": "signal_price"}))
+
+    selected = _cap_per_time(
+        pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=1
+    )
+    return [_candidate("false_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+
+
 def generate_candidates(
     candles: pd.DataFrame,
     *,
@@ -924,7 +990,7 @@ def generate_candidates(
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
     return {
-        "range_mean_reversion": _range_mean_reversion(hourly),
+        "false_breakout": _false_breakout(hourly),
     }
 
 
