@@ -32,7 +32,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v38"
+CALCULATION_VERSION = "short-term-lab-v39"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -694,9 +694,7 @@ def _rs_btc_signals(hourly: pd.DataFrame) -> list[dict]:
 
 def _relative_strength_btc(hourly: pd.DataFrame) -> list[dict]:
     """Legacy wrapper kept for backward compatibility / tests."""
-    rows = _rs_btc_signals(hourly)
-    selected = _cap_per_time(pd.DataFrame(rows), count=1) if rows else pd.DataFrame()
-    return [_candidate("relative_strength_btc", **row) for row in selected.to_dict("records")]
+    return _wrap_rs("relative_strength_btc", _rs_btc_signals(hourly))
 
 
 def _rs_btc_filter_signals(hourly: pd.DataFrame) -> list[dict]:
@@ -727,8 +725,11 @@ def _rs_btc_filter_signals(hourly: pd.DataFrame) -> list[dict]:
 
 
 def _wrap_rs(strategy: str, raw: list[dict]) -> list[dict]:
-    selected = _cap_per_time(pd.DataFrame(raw), count=1) if raw else pd.DataFrame()
-    return [_candidate(strategy, **row) for row in selected.to_dict("records")]
+    if not raw:
+        return []
+    frame = pd.DataFrame(raw).rename(columns={"signal_time": "open_time"})
+    selected = _cap_per_time(frame, count=1)
+    return [_candidate(strategy, **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
 def _donchian_breakout(hourly: pd.DataFrame) -> list[dict]:
