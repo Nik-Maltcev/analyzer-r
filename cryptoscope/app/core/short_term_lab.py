@@ -32,7 +32,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v41"
+CALCULATION_VERSION = "short-term-lab-v42"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -2161,8 +2161,10 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                         and int(event["signal_time"])
                         + int(event["hold_minutes"]) * 60_000 < completed_before
                     ]
-                    if eligible:
-                        all_eligible[strategy] = _select_non_overlapping_candidates(eligible)
+                    all_eligible[strategy] = (
+                        _select_non_overlapping_candidates(eligible)
+                        if eligible else []
+                    )
                 flat_candidates = [
                     candidate
                     for candidates in all_eligible.values()
