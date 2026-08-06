@@ -618,7 +618,7 @@ def _trend_persistence(hourly: pd.DataFrame) -> list[dict]:
     selected = _cap_per_time(
         pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=1
     )
-    return [_candidate("trend_persistence", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+    return [_candidate("momentum_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
 def _rs_btc_signals(
