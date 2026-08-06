@@ -1890,6 +1890,7 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
                 "wins": len(wins),
                 "win_rate": len(wins) / len(subset) * 100 if subset else 0.0,
                 "net_cash": sum(values),
+                "avg_weekly_cash": sum(values) * 7 / days if days else 0.0,
                 "average_net_pct": sum(float(trade["net_return_pct"]) for trade in subset) / len(subset) if subset else 0.0,
                 "profit_factor": sum(wins) / abs(sum(losses)) if losses else (999.0 if wins else 0.0),
             }
