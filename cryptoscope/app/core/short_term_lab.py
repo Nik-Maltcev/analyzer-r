@@ -12,7 +12,10 @@ from threading import Lock
 import numpy as np
 import pandas as pd
 
-from app.data.mexc_futures import refresh_short_term_funding_rates
+from app.data.mexc_futures import (
+    refresh_short_term_funding_rates,
+    refresh_short_term_perp_candles,
+)
 from app.data.mexc_intraday import (
     INTRADAY_TICKERS,
     refresh_reversal_candles,
@@ -25,24 +28,25 @@ from app.db.schema import (
     CREATE_SHORT_TERM_BACKTEST_TRADES,
     CREATE_SHORT_TERM_FORWARD_TRADES,
     CREATE_SHORT_TERM_FUNDING_RATES,
+    CREATE_SHORT_TERM_PERP_CANDLES,
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v29"
+CALCULATION_VERSION = "short-term-lab-v30"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "funding_crowding_reversal": {
-        "name": "Funding Crowding Reversal",
-        "short_name": "Funding Fade",
+    "spot_perp_basis": {
+        "name": "Spot-Perpetual Basis",
+        "short_name": "Perp Basis",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Экстремальный funding → толпа перегружена. Funding z ≥ +1.5 → SHORT, z ≤ −1.5 → LONG. Сигнал на часах расчёта funding (00/08/16 UTC).",
+        "description": "Базис spot/perp: z-score за 7 дней. Perp с премией (z ≥ 2) → сходимость вниз → LONG spot. Perp с дисконтом (z ≤ −2) → SHORT spot.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -53,6 +57,7 @@ def ensure_short_term_schema(conn: sqlite3.Connection) -> None:
         CREATE_REVERSAL_CANDLES,
         CREATE_SHORT_TERM_HOURLY_CANDLES,
         CREATE_SHORT_TERM_FUNDING_RATES,
+        CREATE_SHORT_TERM_PERP_CANDLES,
         CREATE_SHORT_TERM_RUNS,
         CREATE_SHORT_TERM_BACKTEST_TRADES,
         CREATE_SHORT_TERM_FORWARD_TRADES,
@@ -137,6 +142,22 @@ def _load_funding_rates(conn: sqlite3.Connection) -> pd.DataFrame:
         return frame
     frame["funding_rate"] = pd.to_numeric(frame["funding_rate"], errors="coerce")
     return frame.dropna(subset=["funding_rate"])
+
+
+def _load_perp_candles(conn: sqlite3.Connection) -> pd.DataFrame:
+    frame = pd.read_sql_query(
+        """
+        SELECT ticker, open_time, open, high, low, close, volume, quote_volume
+        FROM short_term_perp_candles
+        ORDER BY ticker, open_time
+        """,
+        conn,
+    )
+    if frame.empty:
+        return frame
+    for column in ("open", "high", "low", "close", "volume", "quote_volume"):
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    return frame.dropna(subset=["open", "high", "low", "close"])
 
 
 def _aggregate(candles: pd.DataFrame, minutes: int) -> pd.DataFrame:
@@ -1129,17 +1150,76 @@ def _funding_crowding_reversal(
     ]
 
 
+def _spot_perp_basis_mean_reversion(
+    spot: pd.DataFrame, perp: pd.DataFrame
+) -> list[dict]:
+    """Fade extreme spot-perp basis deviations.
+
+    basis_pct = (perp_close / spot_close - 1) * 100, z-scored over 7 days.
+    Perp premium (z >= 2)  → revert down  → LONG  spot (spot is cheaper).
+    Perp discount (z <= -2) → revert up    → SHORT spot.
+    """
+    if spot.empty or perp.empty:
+        return []
+    spot_close = spot.pivot(index="open_time", columns="ticker", values="close")
+    perp_close = perp.pivot(index="open_time", columns="ticker", values="close")
+    common_tickers = sorted(set(spot_close.columns) & set(perp_close.columns))
+    if not common_tickers:
+        return []
+    spot_close = spot_close[common_tickers]
+    perp_close = perp_close[common_tickers]
+    aligned = spot_close.align(perp_close, join="inner")
+    spot_close, perp_close = aligned[0], aligned[1]
+    basis_pct = (perp_close / spot_close.replace(0, np.nan) - 1.0) * 100
+
+    rows: list[dict] = []
+    for ticker in common_tickers:
+        series = basis_pct[ticker].dropna()
+        if len(series) < 168:
+            continue
+        mean = series.rolling(168, min_periods=84).mean().shift(1)
+        std = series.rolling(168, min_periods=84).std().shift(1).replace(0, np.nan)
+        zscore = (series - mean) / std
+        for idx in range(len(series)):
+            z = zscore.iloc[idx]
+            if not np.isfinite(z):
+                continue
+            if z >= 2.0:
+                direction = "long"
+            elif z <= -2.0:
+                direction = "short"
+            else:
+                continue
+            rows.append({
+                "open_time": int(series.index[idx]),
+                "ticker": ticker,
+                "direction": direction,
+                "signal_price": float(spot_close.iloc[idx][ticker]),
+                "score": float(abs(z)),
+            })
+    if not rows:
+        return []
+    selected = _cap_per_time(pd.DataFrame(rows), count=2)
+    return [
+        _candidate("spot_perp_basis", **row)
+        for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")
+    ]
+
+
 def generate_candidates(
     candles: pd.DataFrame,
     *,
     already_hourly: bool = False,
     funding: pd.DataFrame | None = None,
+    perp: pd.DataFrame | None = None,
 ) -> dict[str, list[dict]]:
     hourly = candles if already_hourly else _aggregate(candles, 60)
     if funding is None:
         funding = pd.DataFrame(columns=["ticker", "settle_time", "funding_rate"])
+    if perp is None:
+        perp = pd.DataFrame(columns=["ticker", "open_time", "open", "high", "low", "close", "volume", "quote_volume"])
     return {
-        "funding_crowding_reversal": _funding_crowding_reversal(hourly, funding),
+        "spot_perp_basis": _spot_perp_basis_mean_reversion(hourly, perp),
     }
 
 
@@ -1565,23 +1645,17 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
             refresh = await refresh_reversal_candles(conn)
             historical_refresh = await refresh_short_term_hourly_candles(conn)
             funding_refresh = await refresh_short_term_funding_rates(conn)
+            perp_refresh = await refresh_short_term_perp_candles(conn)
             candles = _load_candles(conn)
             historical_candles = _load_hourly_candles(conn)
             funding = _load_funding_rates(conn)
+            perp_candles = _load_perp_candles(conn)
             if candles.empty:
                 raise RuntimeError("MEXC did not return completed 5-minute candles")
             if historical_candles.empty:
                 raise RuntimeError("MEXC did not return completed hourly candles")
-            if funding.empty:
-                raise RuntimeError("MEXC did not return funding-rate history")
-            funding_age_hours = (
-                datetime.now(UTC).timestamp() * 1000
-                - int(funding["settle_time"].max())
-            ) / 3_600_000
-            if funding_age_hours > 12:
-                raise RuntimeError(
-                    f"MEXC funding rates are stale by {funding_age_hours:.0f} hours"
-                )
+            if perp_candles.empty:
+                raise RuntimeError("MEXC did not return perpetual-futures candles")
             latest = int(candles["open_time"].max())
             age_minutes = (datetime.now(UTC).timestamp() * 1000 - latest) / 60_000
             if age_minutes > 20:
@@ -1601,7 +1675,8 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
             forward = _advance_forward(conn, candles)
             live_cutoff = latest - 10 * 24 * 60 * 60 * 1000
             live_candidates = generate_candidates(
-                candles[candles["open_time"] >= live_cutoff], funding=funding
+                candles[candles["open_time"] >= live_cutoff],
+                funding=funding, perp=perp_candles,
             )
             inserted = _insert_latest_candidates(
                 conn,
@@ -1612,7 +1687,8 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
             metrics: dict = {}
             if include_backtest:
                 historical_candidates = generate_candidates(
-                    historical_candles, already_hourly=True, funding=funding
+                    historical_candles, already_hourly=True,
+                    funding=funding, perp=perp_candles,
                 )
                 coverage_days = int(historical_refresh.get("coverage_days") or 0)
                 if coverage_days < 98:
@@ -1698,6 +1774,7 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 "coverage_days": int(historical_refresh.get("coverage_days") or 0),
                 "historical_refresh": historical_refresh,
                 "funding_refresh": funding_refresh,
+                "perp_refresh": perp_refresh,
                 "execution_refresh": execution_refresh if include_backtest else None,
             }
             conn.execute(

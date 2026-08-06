@@ -662,6 +662,22 @@ CREATE TABLE IF NOT EXISTS short_term_funding_rates (
 )
 """
 
+CREATE_SHORT_TERM_PERP_CANDLES = """
+CREATE TABLE IF NOT EXISTS short_term_perp_candles (
+    ticker        TEXT NOT NULL,
+    open_time     INTEGER NOT NULL,
+    open          REAL NOT NULL,
+    high          REAL NOT NULL,
+    low           REAL NOT NULL,
+    close         REAL NOT NULL,
+    volume        REAL NOT NULL DEFAULT 0,
+    quote_volume  REAL NOT NULL DEFAULT 0,
+    provider      TEXT NOT NULL DEFAULT 'mexc-contract',
+    imported_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (ticker, open_time)
+)
+"""
+
 CREATE_REVERSAL_RUNS = """
 CREATE TABLE IF NOT EXISTS reversal_runs (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
