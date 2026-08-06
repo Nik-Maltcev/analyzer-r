@@ -32,12 +32,12 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v48"
+CALCULATION_VERSION = "short-term-lab-v49"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
-BACKTEST_WINDOWS_DAYS = (30, 90, 180, 365)
+BACKTEST_WINDOWS_DAYS = (7, 30, 90, 180, 365)
 STRATEGIES = {
     "rs_low_cost": {
         "name": "RS vs BTC (low cost 0.10%)",
@@ -57,7 +57,38 @@ STRATEGIES = {
         "stop": 0.0,
         "target": 0.0,
         "cost_pct": 0.10,
-        "description": "Фильтр ликвидности: quote_volume 24ч ≥ $10M, тот же сигнал.",
+        "description": "Фильтр ликвидности: quote_volume 24ч ≥ $10M.",
+    },
+    "rs_trending_exit": {
+        "name": "RS vs BTC (48h + trailing 8%)",
+        "short_name": "RS trailing",
+        "timeframe": 60,
+        "hold": 48 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": 0.10,
+        "trailing_stop": 8.0,
+        "description": "Hold 48ч, трейлинг-стоп 8% от пика — тянем победителей, фиксируем откат.",
+    },
+    "rs_top3": {
+        "name": "RS vs BTC (top-3 conviction)",
+        "short_name": "RS top3",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": 0.10,
+        "description": "Топ-3 сигнала в направление за каденс (вместо 1) — больше сделок, выше conviction.",
+    },
+    "rs_regime_filter": {
+        "name": "RS vs BTC (market regime)",
+        "short_name": "RS regime",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": 0.10,
+        "description": "Только LONG при BTC ≥0% (24ч), только SHORT при BTC ≤0%. Направленческий фильтр.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -227,6 +258,7 @@ def _candidate(
         "stop_pct": float(settings["stop"]),
         "target_pct": float(settings["target"]),
         "cost_pct": float(settings.get("cost_pct", ROUND_TRIP_COST_PCT)),
+        "trailing_stop_pct": float(settings.get("trailing_stop", 0.0)),
         **extra,
     }
 
@@ -754,11 +786,11 @@ def _rs_btc_filter_signals(hourly: pd.DataFrame) -> list[dict]:
     return out
 
 
-def _wrap_rs(strategy: str, raw: list[dict]) -> list[dict]:
+def _wrap_rs(strategy: str, raw: list[dict], *, count: int = 1) -> list[dict]:
     if not raw:
         return []
     frame = pd.DataFrame(raw).rename(columns={"signal_time": "open_time"})
-    selected = _cap_per_time(frame, count=1)
+    selected = _cap_per_time(frame, count=count)
     return [_candidate(strategy, **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
@@ -1625,11 +1657,15 @@ def generate_candidates(
     if perp is None:
         perp = pd.DataFrame(columns=["ticker", "open_time", "open", "high", "low", "close", "volume", "quote_volume"])
     return {
-        "rs_low_cost": _wrap_rs("rs_low_cost", _rs_btc_signals(hourly)),
+        "rs_low_cost": _wrap_rs("rs_low_cost", _rs_btc_signals(hourly), count=1),
         "rs_low_liquidity": _wrap_rs(
             "rs_low_liquidity",
             _liquidity_filter(_rs_btc_signals(hourly), hourly, min_quote_24h=10_000_000),
+            count=1,
         ),
+        "rs_trending_exit": _wrap_rs("rs_trending_exit", _rs_btc_signals(hourly), count=1),
+        "rs_top3": _wrap_rs("rs_top3", _rs_btc_signals(hourly), count=3),
+        "rs_regime_filter": _wrap_rs("rs_regime_filter", _rs_btc_filter_signals(hourly), count=1),
     }
 
 
@@ -1743,24 +1779,37 @@ def _simulate(
         return None
     stop = float(candidate["stop_pct"])
     target = float(candidate["target_pct"])
+    trailing = float(candidate.get("trailing_stop_pct", 0.0))
     chosen = exit_index
     reason = "time"
     # A timed exit happens at the first tradable open on the horizon boundary.
     exit_price = float(bars.iloc[chosen]["open"])
+    peak = entry_price
     for index in range(entry_index, exit_index):
         bar = bars.iloc[index]
+        bar_high = float(bar["high"])
+        bar_low = float(bar["low"])
         if candidate["direction"] == "long":
-            stop_hit = float(bar["low"]) <= entry_price * (1 - stop / 100)
-            target_hit = float(bar["high"]) >= entry_price * (1 + target / 100)
+            peak = max(peak, bar_high)
+            stop_hit = stop > 0 and bar_low <= entry_price * (1 - stop / 100)
+            target_hit = target > 0 and bar_high >= entry_price * (1 + target / 100)
             stop_price = entry_price * (1 - stop / 100)
             target_price = entry_price * (1 + target / 100)
+            trail_price = peak * (1 - trailing / 100)
+            trail_hit = trailing > 0 and bar_low <= trail_price
         else:
-            stop_hit = float(bar["high"]) >= entry_price * (1 + stop / 100)
-            target_hit = float(bar["low"]) <= entry_price * (1 - target / 100)
+            peak = min(peak, bar_low)
+            stop_hit = stop > 0 and bar_high >= entry_price * (1 + stop / 100)
+            target_hit = target > 0 and bar_low <= entry_price * (1 - target / 100)
             stop_price = entry_price * (1 + stop / 100)
             target_price = entry_price * (1 - target / 100)
+            trail_price = peak * (1 + trailing / 100)
+            trail_hit = trailing > 0 and bar_high >= trail_price
         if stop > 0 and stop_hit:
             chosen, reason, exit_price = index, "stop", stop_price
+            break
+        if trailing > 0 and trail_hit:
+            chosen, reason, exit_price = index, "trail", trail_price
             break
         if target > 0 and target_hit:
             chosen, reason, exit_price = index, "target", target_price
