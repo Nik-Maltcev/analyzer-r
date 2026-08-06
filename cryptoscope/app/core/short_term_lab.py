@@ -32,7 +32,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v34"
+CALCULATION_VERSION = "short-term-lab-v35"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -1721,15 +1721,17 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 execution_refresh = await refresh_short_term_execution_candles(
                     conn, flat_candidates
                 )
-                if (
-                    int(execution_refresh.get("missing_window_count") or 0) > 0
-                    or execution_refresh.get("failures")
-                ):
+                if execution_refresh.get("failures"):
                     raise RuntimeError(
-                        "Exact 5-minute execution data is incomplete: "
-                        f"{execution_refresh.get('missing_window_count', 0)} missing windows, "
-                        f"{len(execution_refresh.get('failures') or [])} download failures"
+                        "5-minute execution download failed: "
+                        f"{len(execution_refresh.get('failures') or [])} failures"
                     )
+                missing_windows = int(execution_refresh.get("missing_window_count") or 0)
+                if missing_windows > 0:
+                    # MEXC historical 5-minute data has gaps for some tickers/windows.
+                    # These candidates are skipped by _simulate (counted in
+                    # missing_executions) — they do not invalidate the whole run.
+                    pass
                 candles = _load_candles(conn)
                 trades, metrics = backtest(candles, all_eligible)
                 for metric in metrics.values():
