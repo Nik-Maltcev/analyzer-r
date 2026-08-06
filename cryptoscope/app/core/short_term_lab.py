@@ -1441,11 +1441,12 @@ def _overnight_drift(hourly: pd.DataFrame) -> list[dict]:
         short_cond = (opens_00["z"] <= -1.5) & (opens_00["vol_ratio"] >= 1.1)
         direction = np.where(long_cond, "long", np.where(short_cond, "short", ""))
         selected = direction != ""
-        for i, row in opens_00.loc[selected].iterrows():
+        for idx in np.where(selected)[0]:
+            row = opens_00.iloc[idx]
             rows.append({
                 "signal_time": int(row["open_time"]),
                 "ticker": ticker,
-                "direction": str(direction[selected][opens_00.index.get_loc(i)]),
+                "direction": str(direction[idx]),
                 "signal_price": float(row["open"]),
                 "score": float(abs(row["z"])),
             })
