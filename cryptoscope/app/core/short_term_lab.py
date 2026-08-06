@@ -32,21 +32,52 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v37"
+CALCULATION_VERSION = "short-term-lab-v38"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (30, 90, 180, 365)
 STRATEGIES = {
-    "relative_strength_btc": {
-        "name": "Relative Strength vs BTC",
-        "short_name": "RS vs BTC",
+    "rs_vanilla": {
+        "name": "RS vs BTC (vanilla)",
+        "short_name": "RS vanilla",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": 0.30,
+        "description": "Relative Strength vs BTC, выход по времени 24ч, cost 0.30%.",
+    },
+    "rs_low_cost": {
+        "name": "RS vs BTC (low cost 0.10%)",
+        "short_name": "RS low cost",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": 0.10,
+        "description": "Тот же сигнал, но реальная лимитная cost 0.10% round-trip (Maker rebate).",
+    },
+    "rs_stops": {
+        "name": "RS vs BTC (stop 4/tp 8)",
+        "short_name": "RS stops",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 4.0,
         "target": 8.0,
-        "description": "Опережение/отставание от BTC на 6/24ч с z-score по кросс-секции. LONG лидеров, SHORT аутсайдеров. Стоп 4% / тейк 8% (R/R 1:2), выход по времени через 24ч.",
+        "cost_pct": 0.30,
+        "description": "Стоп 4% / тейк 8% (R/R 1:2), выход по времени 24ч как страхующий, cost 0.30%.",
+    },
+    "rs_btc_filter": {
+        "name": "RS vs BTC (BTC trend filter)",
+        "short_name": "RS BTC filter",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": 0.30,
+        "description": "Только сделки в сторону тренда BTC: LONG при BTC 24h ≥0, SHORT при BTC 24h ≤0.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -215,6 +246,7 @@ def _candidate(
         "hold_minutes": int(settings["hold"]),
         "stop_pct": float(settings["stop"]),
         "target_pct": float(settings["target"]),
+        "cost_pct": float(settings.get("cost_pct", ROUND_TRIP_COST_PCT)),
         **extra,
     }
 
@@ -599,7 +631,15 @@ def _trend_persistence(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("trend_persistence", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
-def _relative_strength_btc(hourly: pd.DataFrame) -> list[dict]:
+def _rs_btc_signals(hourly: pd.DataFrame) -> list[dict]:
+    """Raw RS-vs-BTC signals without strategy/cost labels.
+
+    Each event dict has fields ready for `_candidate(...)`: signal_time
+    (the hourly candle open_time), ticker, direction, signal_price, score.
+    The 60-minute execution delay is added later by `_candidate`.
+    """
+    if hourly.empty:
+        return []
     close = hourly.pivot(index="open_time", columns="ticker", values="close").sort_index()
     if "BTC/USD" not in close.columns:
         return []
@@ -643,14 +683,52 @@ def _relative_strength_btc(hourly: pd.DataFrame) -> list[dict]:
             if pd.isna(price) or pd.isna(value):
                 continue
             rows.append({
-                "open_time": int(timestamp),
+                "signal_time": int(timestamp),
                 "ticker": ticker,
                 "direction": str(direction[close.index.get_loc(timestamp)]),
                 "signal_price": float(price),
                 "score": float(value),
             })
-    selected = _cap_per_time(pd.DataFrame(rows), count=1)
-    return [_candidate("relative_strength_btc", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+    return rows
+
+
+def _relative_strength_btc(hourly: pd.DataFrame) -> list[dict]:
+    """Legacy wrapper kept for backward compatibility / tests."""
+    rows = _rs_btc_signals(hourly)
+    selected = _cap_per_time(pd.DataFrame(rows), count=1) if rows else pd.DataFrame()
+    return [_candidate("relative_strength_btc", **row) for row in selected.to_dict("records")]
+
+
+def _rs_btc_filter_signals(hourly: pd.DataFrame) -> list[dict]:
+    """RS-vs-BTC signals filtered to BTC trend direction only.
+
+    LONG candidates are dropped when BTC 24h return < 0 (bear market),
+    SHORT candidates are dropped when BTC 24h return > 0 (bull market).
+    """
+    base = _rs_btc_signals(hourly)
+    if not base:
+        return []
+    close = hourly.pivot(index="open_time", columns="ticker", values="close").sort_index()
+    if "BTC/USD" not in close.columns:
+        return []
+    btc_24h = (close["BTC/USD"].pct_change(24, fill_method=None) * 100)
+    out: list[dict] = []
+    for sig in base:
+        t = int(sig["signal_time"])
+        r = btc_24h.get(t)
+        if pd.isna(r):
+            continue
+        if sig["direction"] == "long" and float(r) < 0:
+            continue
+        if sig["direction"] == "short" and float(r) > 0:
+            continue
+        out.append(sig)
+    return out
+
+
+def _wrap_rs(strategy: str, raw: list[dict]) -> list[dict]:
+    selected = _cap_per_time(pd.DataFrame(raw), count=1) if raw else pd.DataFrame()
+    return [_candidate(strategy, **row) for row in selected.to_dict("records")]
 
 
 def _donchian_breakout(hourly: pd.DataFrame) -> list[dict]:
@@ -1219,7 +1297,10 @@ def generate_candidates(
     if perp is None:
         perp = pd.DataFrame(columns=["ticker", "open_time", "open", "high", "low", "close", "volume", "quote_volume"])
     return {
-        "relative_strength_btc": _relative_strength_btc(hourly),
+        "rs_vanilla": _wrap_rs("rs_vanilla", _rs_btc_signals(hourly)),
+        "rs_low_cost": _wrap_rs("rs_low_cost", _rs_btc_signals(hourly)),
+        "rs_stops": _wrap_rs("rs_stops", _rs_btc_signals(hourly)),
+        "rs_btc_filter": _wrap_rs("rs_btc_filter", _rs_btc_filter_signals(hourly)),
     }
 
 
@@ -1304,7 +1385,7 @@ def _simulate(
             candidate, entry_price, exit_price,
             hedge_entry_price, hedge_exit_price,
         )
-        net = gross - ROUND_TRIP_COST_PCT
+        net = gross - float(candidate.get("cost_pct", ROUND_TRIP_COST_PCT))
         return {
             **candidate,
             "entry_time": int(times[entry_index]), "entry_price": entry_price,
@@ -1312,7 +1393,7 @@ def _simulate(
             "exit_time": int(times[chosen]), "exit_price": exit_price,
             "hedge_exit_price": hedge_exit_price,
             "exit_reason": reason, "gross_return_pct": gross,
-            "cost_pct": ROUND_TRIP_COST_PCT, "net_return_pct": net,
+            "cost_pct": float(candidate.get("cost_pct", ROUND_TRIP_COST_PCT)), "net_return_pct": net,
             "cash_result": STAKE_USD * net / 100,
         }
     bars = ticker_bars.sort_values("open_time")
@@ -1356,13 +1437,13 @@ def _simulate(
             chosen, reason, exit_price = index, "target", target_price
             break
     gross = _directional_return(candidate["direction"], entry_price, exit_price)
-    net = gross - ROUND_TRIP_COST_PCT
+    net = gross - float(candidate.get("cost_pct", ROUND_TRIP_COST_PCT))
     return {
         **candidate,
         "entry_time": int(times[entry_index]), "entry_price": entry_price,
         "exit_time": int(times[chosen]), "exit_price": exit_price,
         "exit_reason": reason, "gross_return_pct": gross,
-        "cost_pct": ROUND_TRIP_COST_PCT, "net_return_pct": net,
+        "cost_pct": float(candidate.get("cost_pct", ROUND_TRIP_COST_PCT)), "net_return_pct": net,
         "cash_result": STAKE_USD * net / 100,
     }
 
@@ -1546,7 +1627,8 @@ def _advance_forward(conn: sqlite3.Connection, candles: pd.DataFrame) -> dict:
                 elif target > 0 and target_hit:
                     reason, price = "target", target_price
                 gross = _directional_return(direction, entry_price, price)
-            net = gross - ROUND_TRIP_COST_PCT
+            cost = float(trade.get("cost_pct") or trade.get("cost_pct_at_entry") or ROUND_TRIP_COST_PCT)
+            net = gross - cost
             if reason:
                 conn.execute(
                     """
@@ -1559,7 +1641,7 @@ def _advance_forward(conn: sqlite3.Connection, candles: pd.DataFrame) -> dict:
                     WHERE id=? AND status='active'
                     """,
                     (timestamp, price, net, STAKE_USD * net / 100, timestamp, price,
-                     reason, gross, ROUND_TRIP_COST_PCT, net, STAKE_USD * net / 100,
+                     reason, gross, cost, net, STAKE_USD * net / 100,
                      hedge_price, hedge_price, trade["id"]),
                 )
                 closed += 1
