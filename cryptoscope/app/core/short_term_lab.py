@@ -32,12 +32,12 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v33"
+CALCULATION_VERSION = "short-term-lab-v34"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
-BACKTEST_WINDOWS_DAYS = (90,)
+BACKTEST_WINDOWS_DAYS = (30, 90, 180, 365)
 STRATEGIES = {
     "relative_strength_btc": {
         "name": "Relative Strength vs BTC",
@@ -1427,6 +1427,7 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
                 "eligible_candidates": eligible_counts.get(strategy, 0),
                 "missing_executions": missing_counts.get(strategy, 0),
                 "trades": len(subset),
+                "trades_per_day": len(subset) / days if days else 0.0,
                 "wins": len(wins),
                 "win_rate": len(wins) / len(subset) * 100 if subset else 0.0,
                 "net_cash": sum(values),
@@ -1691,15 +1692,16 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                     funding=funding, perp=perp_candles,
                 )
                 coverage_days = int(historical_refresh.get("coverage_days") or 0)
-                if coverage_days < 98:
+                min_window = min(BACKTEST_WINDOWS_DAYS)
+                if coverage_days < min_window:
                     raise RuntimeError(
-                        f"Hourly history is incomplete: {coverage_days}/98 days"
+                        f"Hourly history is incomplete: {coverage_days}/{min_window} days"
                     )
                 completed_before = (
                     int(datetime.now(UTC).timestamp() * 1000)
                     // FIVE_MINUTES_MS * FIVE_MINUTES_MS
                 )
-                cutoff = completed_before - 90 * 24 * 60 * 60 * 1000
+                cutoff = completed_before - max(BACKTEST_WINDOWS_DAYS) * 24 * 60 * 60 * 1000
                 all_eligible: dict[str, list[dict]] = {}
                 for strategy in STRATEGIES:
                     eligible = [

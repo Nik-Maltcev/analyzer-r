@@ -6,7 +6,7 @@
         <div>
             <span class="section-kicker">ADMIN · FORWARD RESEARCH</span>
             <h2>Short-Term Lab</h2>
-            <p>Dual Momentum: сигнал 60 мин, исполнение 5 мин, проверка на 90 днях.</p>
+            <p>Relative Strength vs BTC: сигнал 60 мин, исполнение 5 мин, проверка на 30/90/180/365 днях.</p>
         </div>
         <button class="btn btn-secondary" type="button"
                 hx-get="/tab/short-term?refresh=true"
@@ -20,7 +20,7 @@
     {% if report.running %}
     <div class="stl-notice is-running">
         <strong>Синхронизируем завершённые свечи MEXC</strong>
-        <span>Первый расчёт догружает часовую историю для проверки за 90 дней и может занять несколько минут. Ниже пока показан предыдущий завершённый расчёт.</span>
+        <span>Первый расчёт догружает часовую историю для проверки за 365 дней и может занять несколько минут. Ниже пока показан предыдущий завершённый расчёт.</span>
     </div>
     {% elif report.latest and report.latest.status == 'failed' %}
     <div class="stl-notice is-error">
@@ -55,6 +55,7 @@
             {% else %}
             <dl>
                 <div><dt>Сделок</dt><dd>{{ strategy.trades|default(0) }}</dd></div>
+                <div><dt>Сделок/день</dt><dd>{{ '%.2f'|format(strategy.trades_per_day|default(0)) }}</dd></div>
                 <div><dt>В плюсе</dt><dd>{{ '%.1f'|format(strategy.win_rate|default(0)) }}%</dd></div>
                 <div><dt>Итог</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
                 <div><dt>Profit factor</dt><dd>{{ '%.2f'|format(strategy.profit_factor|default(0)) }}</dd></div>

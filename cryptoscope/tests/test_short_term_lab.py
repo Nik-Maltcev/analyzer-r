@@ -77,7 +77,7 @@ def test_dual_momentum_uses_closed_hourly_history_and_market_tails():
     events = _dual_momentum(_bars(rows))
     final = [event for event in events if event["signal_time"] == 30 * hour]
 
-    assert CALCULATION_VERSION == "short-term-lab-v33"
+    assert CALCULATION_VERSION == "short-term-lab-v34"
     assert len(final) == 6
     assert {event["direction"] for event in final} == {"long", "short"}
     assert all(event["signal_time"] % (6 * hour) == 0 for event in events)
@@ -158,8 +158,11 @@ def test_dual_momentum_backtest_has_only_90_day_window():
 
     _, metrics = backtest(candles, {"dual_momentum": []})
 
-    assert BACKTEST_WINDOWS_DAYS == (90,)
-    assert set(metrics) == {"dual_momentum_90d"}
+    assert BACKTEST_WINDOWS_DAYS == (30, 90, 180, 365)
+    assert set(metrics) == {
+        "dual_momentum_30d", "dual_momentum_90d",
+        "dual_momentum_180d", "dual_momentum_365d",
+    }
     assert metrics["dual_momentum_90d"]["window_days"] == 90
     assert all(not metrics[key]["is_complete"] for key in metrics)
 
