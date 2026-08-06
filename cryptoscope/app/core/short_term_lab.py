@@ -32,7 +32,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v40"
+CALCULATION_VERSION = "short-term-lab-v41"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -49,26 +49,6 @@ STRATEGIES = {
         "cost_pct": 0.10,
         "description": "Baseline: cost 0.10% round-trip, выход по времени 24ч.",
     },
-    "rs_low_conviction": {
-        "name": "RS vs BTC (conviction z≥1.0 + 72h)",
-        "short_name": "RS conviction",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "cost_pct": 0.10,
-        "description": "z ≥ 1.0 + доходность 72ч ≥ 4% (подтверждение сильного разноса).",
-    },
-    "rs_low_48h": {
-        "name": "RS vs BTC (48h hold)",
-        "short_name": "RS 48h",
-        "timeframe": 60,
-        "hold": 48 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "cost_pct": 0.10,
-        "description": "Базовый сигнал, но холд 48ч — тянем хвосты победителей.",
-    },
     "rs_low_liquidity": {
         "name": "RS vs BTC (liquidity ≥$10M/24h)",
         "short_name": "RS liquidity",
@@ -79,15 +59,55 @@ STRATEGIES = {
         "cost_pct": 0.10,
         "description": "Фильтр ликвидности: quote_volume 24ч ≥ $10M, тот же сигнал.",
     },
-    "rs_low_mtf": {
-        "name": "RS vs BTC (MTF 12/24/48h)",
-        "short_name": "RS MTF",
+    "btc_liquidationcascade": {
+        "name": "BTC Liquidation Cascade",
+        "short_name": "BTC Cascade",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
         "cost_pct": 0.10,
-        "description": "MTF подтверждение: 12h≥0.7%, 24h≥1.5%, 48h≥2.5% выровнены в одну сторону.",
+        "description": "BTC 4ч-пад ≥2.5% с объёмом ≥2x медианы → каскад ликвидаций алтов. LONG отскок.",
+    },
+    "overnight_drift": {
+        "name": "Overnight Drift (AS-AP gap)",
+        "short_name": "Overnight Drift",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": 0.10,
+        "description": "Открытие UTC 00:00/06:00: gap от close 18:00 к open 00:00 ≥1.5% → LONG продолжение.",
+    },
+    "volatility_clustering": {
+        "name": "Volatility Clustering (post-spike reversal)",
+        "short_name": "Vol Cluster",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": 0.10,
+        "description": "ATR spike ≥2.5σ с разворотом свечи (бычьей/медвежьей) → fade движения.",
+    },
+    "cross_sectional_mean_reversion": {
+        "name": "Cross-Sectional Mean Reversion",
+        "short_name": "CS MeanRev",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": 0.10,
+        "description": "24ч return z-score по рынку ≥ +2σ → SHORT (фадить топ-аутсайдеров), ≤−2σ → LONG (фадить дно).",
+    },
+    "multi_signal_confluence": {
+        "name": "Multi-Signal Confluence (RS + momentum + volume)",
+        "short_name": "Confluence",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": 0.10,
+        "description": "3 сигнала совпали: RS vs BTC z ≥ 0.8, RSI(14) пересёк 50, объём ≥1.5x → LONG/SHORT.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -1345,6 +1365,285 @@ def _spot_perp_basis_mean_reversion(
     ]
 
 
+def _btc_liquidation_cascade(hourly: pd.DataFrame) -> list[dict]:
+    """Long altcoins after a swift BTC drop that likely triggered liquidation cascades.
+
+    When BTC drops ≥2.5% in 4 hours with volume ≥2x the trailing median, leveraged
+    longs get liquidated, and the market overshoots down. Long the alts that got
+    flushed hardest (4h return ≤ −3%) — they tend to bounce back.
+    """
+    if hourly.empty or "BTC/USD" not in hourly["ticker"].values:
+        return []
+    btc = hourly[hourly["ticker"] == "BTC/USD"].sort_values("open_time").copy()
+    btc_close = btc.set_index("open_time")["close"]
+    btc_r4h = btc_close.pct_change(4, fill_method=None) * 100
+    btc_vol = btc.set_index("open_time")["quote_volume"]
+    btc_vol_base = btc_vol.rolling(24, min_periods=18).median().shift(1).replace(0, np.nan)
+    btc_vol_ratio = btc_vol / btc_vol_base
+    cadence = (btc.index.to_numpy(dtype=np.int64) // HOUR_MS) % 4 == 0
+    flush_times = btc.index[
+        cadence & (btc_r4h.reindex(btc.index) <= -2.5) & (btc_vol_ratio.reindex(btc.index) >= 2.0)
+    ]
+    if flush_times.empty:
+        return []
+    flush_set = set(flush_times.to_numpy())
+    rows: list[dict] = []
+    close = hourly.pivot(index="open_time", columns="ticker", values="close").sort_index()
+    for ticker in close.columns:
+        if ticker == "BTC/USD":
+            continue
+        t_series = close[ticker].dropna()
+        if len(t_series) < 30:
+            continue
+        r4h = t_series.pct_change(4, fill_method=None) * 100
+        for t in flush_set:
+            if t not in r4h.index:
+                continue
+            r = r4h.loc[t]
+            p = t_series.get(t)
+            if pd.isna(r) or pd.isna(p) or r > -3.0:
+                continue
+            rows.append({
+                "signal_time": int(t),
+                "ticker": ticker,
+                "direction": "long",
+                "signal_price": float(p),
+                "score": float(abs(r)),
+            })
+    # Limit to 5 alts per flush event (hardest-flushed)
+    if not rows:
+        return []
+    df = pd.DataFrame(rows)
+    df = df.sort_values(["signal_time", "score"], ascending=[True, False])
+    df = df.groupby("signal_time", sort=False).head(5)
+    return df.to_dict("records")
+
+
+def _overnight_drift(hourly: pd.DataFrame) -> list[dict]:
+    """Trade the overnight gap at UTC session boundaries.
+
+    Compute the gap from 18:00 close to 00:00 open (6-hour overnight window).
+    A gap ≥ 1.5% up signals institutional flow entering — long the continuation.
+    A gap ≤ −1.5% signals overnight panic — short the continuation.
+    """
+    if hourly.empty:
+        return []
+    rows: list[dict] = []
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        if len(frame) < 50:
+            continue
+        dt = pd.to_datetime(frame["open_time"], unit="ms", utc=True)
+        hour = dt.dt.hour
+        # Gap = open(00:00) / close(23:00) - 1, computed point-in-time.
+        opens_00 = frame[(hour == 0)].copy()
+        closes_23 = frame[(hour == 23)].copy()
+        if opens_00.empty or closes_23.empty:
+            continue
+        # Align by session: the close at 23:00 precedes the open at 00:00 next hour.
+        closes_23 = closes_23.set_index("open_time")["close"].sort_index()
+        opens_00 = opens_00.set_index("open_time")["open"].sort_index()
+        # shift closes_23 forward by 1 hour to compare to next opens_00
+        aligned_close = closes_23.shift(0)
+        # For each open_00 time t, find the close at t-1h
+        merged = pd.DataFrame({
+            "open_00": opens_00,
+            "close_23": aligned_close.reindex(opens_00.index - HOUR_MS).to_numpy(),
+        })
+        merged["gap_pct"] = (merged["open_00"] / merged["close_23"].replace(0, np.nan) - 1.0) * 100
+        merged = merged.dropna(subset=["gap_pct"])
+        # Rolling gap std for context (normalized, point-in-time via shift)
+        gap_std = merged["gap_pct"].rolling(30, min_periods=20).std().shift(1).replace(0, np.nan)
+        merged["z"] = merged["gap_pct"] / gap_std
+        volume_base = frame["quote_volume"].rolling(24, min_periods=18).median().shift(1).replace(0, np.nan)
+        vol_ratio = frame.set_index("open_time")["quote_volume"] / volume_base
+        merged["vol_ratio"] = vol_ratio.reindex(merged.index)
+        long_cond = (merged["z"] >= 2.0) & (merged["vol_ratio"] >= 1.2)
+        short_cond = (merged["z"] <= -2.0) & (merged["vol_ratio"] >= 1.2)
+        direction = np.where(long_cond, "long", np.where(short_cond, "short", ""))
+        selected = direction != ""
+        for idx in merged.index[selected]:
+            row = merged.loc[idx]
+            i = merged.index.get_loc(idx)
+            rows.append({
+                "signal_time": int(idx),
+                "ticker": ticker,
+                "direction": str(direction[i]),
+                "signal_price": float(row["open_00"]),
+                "score": float(abs(row["z"])),
+            })
+    return rows
+
+
+def _volatility_clustering_reversal(hourly: pd.DataFrame) -> list[dict]:
+    """Fade sharp moves that come with abnormal volatility clusters.
+
+    When a single-hour ATR spike reaches ≥2.5σ above its trailing mean AND the
+    candle closes against the spike direction (bullish after a down-spike, bearish
+    after an up-spike), enter the reversal — these volatility clusters mean-revert.
+    """
+    if hourly.empty:
+        return []
+    rows: list[dict] = []
+    for ticker, group in hourly.groupby("ticker", sort=False):
+        frame = group.sort_values("open_time").copy()
+        if len(frame) < 50:
+            continue
+        previous_close = frame["close"].shift(1)
+        true_range = pd.concat([
+            frame["high"] - frame["low"],
+            (frame["high"] - previous_close).abs(),
+            (frame["low"] - previous_close).abs(),
+        ], axis=1).max(axis=1)
+        atr = true_range.rolling(14, min_periods=14).mean()
+        # Normalize ATR by price to compare across tickers
+        atr_pct = (atr / frame["close"].replace(0, np.nan) * 100).shift(1)
+        atr_mean = atr_pct.rolling(168, min_periods=84).mean().shift(1)
+        atr_std = atr_pct.rolling(168, min_periods=84).std().shift(1).replace(0, np.nan)
+        atr_z = (atr_pct - atr_mean) / atr_std
+        # Reversal candle: bullish (close>open) after a down-spike (previous candle dropped)
+        hourly_return = (frame["close"] / frame["open"].replace(0, np.nan) - 1.0) * 100
+        prev_return = hourly_return.shift(1)
+        bullish_reversal = (atr_z >= 2.5) & (prev_return < 0) & (frame["close"] > frame["open"])
+        bearish_reversal = (atr_z >= 2.5) & (prev_return > 0) & (frame["close"] < frame["open"])
+        direction = np.where(bullish_reversal, "long", np.where(bearish_reversal, "short", ""))
+        selected = direction != ""
+        out = frame.loc[selected, ["open_time", "close"]].copy()
+        out["ticker"] = ticker
+        out["direction"] = direction[selected]
+        out["score"] = atr_z[selected].astype(float).abs()
+        rows.append(out.rename(columns={"close": "signal_price"}))
+    if not rows:
+        return []
+    return pd.concat(rows, ignore_index=True).rename(columns={"open_time": "signal_time"}).to_dict("records")
+
+
+def _cross_sectional_mean_reversion(hourly: pd.DataFrame) -> list[dict]:
+    """Fade the 24h cross-sectional return extremes.
+
+    At each 4h cadence point, rank all tickers by their 24h return. The top
+    decile (z ≥ +2σ) is overbought → SHORT. The bottom decile (z ≤ −2σ) is
+    oversold → LONG. Mean reversion across the market.
+    """
+    if hourly.empty:
+        return []
+    close = hourly.pivot(index="open_time", columns="ticker", values="close").sort_index()
+    if close.empty:
+        return []
+    return_24h = close.pct_change(24, fill_method=None) * 100
+    cs_mean = return_24h.mean(axis=1)
+    cs_std = return_24h.std(axis=1).replace(0, np.nan)
+    cs_z = return_24h.sub(cs_mean, axis=0).div(cs_std, axis=0)
+    cadence = pd.Series(
+        (close.index.to_numpy(dtype=np.int64) // HOUR_MS) % 4 == 0,
+        index=close.index,
+    )
+    rows: list[dict] = []
+    for timestamp in close.index[cadence.reindex(close.index).fillna(False).astype(bool)]:
+        if not cadence.get(timestamp, False):
+            continue
+        z_row = cs_z.loc[timestamp].dropna()
+        if len(z_row) < 20:
+            continue
+        longs = z_row[z_row <= -2.0].sort_values()
+        shorts = z_row[z_row >= 2.0].sort_values(ascending=False)
+        for ticker, z in longs.head(3).items():
+            price = close.at[timestamp, ticker]
+            if pd.isna(price):
+                continue
+            rows.append({
+                "signal_time": int(timestamp),
+                "ticker": ticker,
+                "direction": "long",
+                "signal_price": float(price),
+                "score": float(abs(z)),
+            })
+        for ticker, z in shorts.head(3).items():
+            price = close.at[timestamp, ticker]
+            if pd.isna(price):
+                continue
+            rows.append({
+                "signal_time": int(timestamp),
+                "ticker": ticker,
+                "direction": "short",
+                "signal_price": float(price),
+                "score": float(abs(z)),
+            })
+    return rows
+
+
+def _multi_signal_confluence(hourly: pd.DataFrame) -> list[dict]:
+    """Enter only when RS-vs-BTC, RSI crossover, and volume confirmation all align.
+
+    LONG:  RS z ≥ 0.8, RSI(14) crosses up through 50, volume ≥ 1.5x median.
+    SHORT: RS z ≤ −0.8, RSI crosses down through 50, volume ≥ 1.5x median.
+    """
+    if hourly.empty:
+        return []
+    close = hourly.pivot(index="open_time", columns="ticker", values="close").sort_index()
+    if "BTC/USD" not in close.columns:
+        return []
+    return_6h = close.pct_change(6, fill_method=None) * 100
+    return_24h = close.pct_change(24, fill_method=None) * 100
+    relative_24h = return_24h.sub(return_24h["BTC/USD"], axis=0)
+    relative_6h = return_6h.sub(return_6h["BTC/USD"], axis=0)
+    relative_mean = relative_24h.mean(axis=1)
+    relative_std = relative_24h.std(axis=1).replace(0, np.nan)
+    relative_z = relative_24h.sub(relative_mean, axis=0).div(relative_std, axis=0)
+    cadence = pd.Series(
+        (close.index.to_numpy(dtype=np.int64) // HOUR_MS) % 4 == 0,
+        index=close.index,
+    )
+    # RSI(14) Wilder's for each ticker
+    deltas = close.diff()
+    gain = deltas.clip(lower=0)
+    loss = (-deltas.clip(upper=0))
+    avg_gain = gain.ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
+    avg_loss = loss.ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
+    rsi = 100 - 100 / (1 + avg_gain / avg_loss.replace(0, np.nan))
+    rsi_prev = rsi.shift(1)
+    # Volume
+    qv = hourly.pivot(index="open_time", columns="ticker", values="quote_volume").sort_index()
+    qv_base = qv.rolling(24, min_periods=18).median().shift(1).replace(0, np.nan)
+    vol_ratio = qv / qv_base
+    rows: list[dict] = []
+    for ticker in close.columns:
+        if ticker == "BTC/USD":
+            continue
+        rsi_cross_up = (rsi_prev[ticker] < 50) & (rsi[ticker] >= 50)
+        rsi_cross_dn = (rsi_prev[ticker] > 50) & (rsi[ticker] <= 50)
+        long_cond = (
+            cadence
+            & (relative_z[ticker] >= 0.8)
+            & (return_6h[ticker] >= 0.4)
+            & rsi_cross_up
+            & (vol_ratio[ticker] >= 1.5)
+        )
+        short_cond = (
+            cadence
+            & (relative_z[ticker] <= -0.8)
+            & (return_6h[ticker] <= -0.4)
+            & rsi_cross_dn
+            & (vol_ratio[ticker] >= 1.5)
+        )
+        direction = np.where(long_cond, "long", np.where(short_cond, "short", ""))
+        selected = direction != ""
+        score = relative_z[ticker].abs() + (rsi[ticker] - 50).abs() / 25
+        for timestamp in close.index[selected]:
+            price = close.at[timestamp, ticker]
+            value = score.loc[timestamp]
+            if pd.isna(price) or pd.isna(value):
+                continue
+            rows.append({
+                "signal_time": int(timestamp),
+                "ticker": ticker,
+                "direction": str(direction[close.index.get_loc(timestamp)]),
+                "signal_price": float(price),
+                "score": float(value),
+            })
+    return rows
+
+
 def generate_candidates(
     candles: pd.DataFrame,
     *,
@@ -1359,19 +1658,17 @@ def generate_candidates(
         perp = pd.DataFrame(columns=["ticker", "open_time", "open", "high", "low", "close", "volume", "quote_volume"])
     return {
         "rs_low_cost": _wrap_rs("rs_low_cost", _rs_btc_signals(hourly)),
-        "rs_low_conviction": _wrap_rs(
-            "rs_low_conviction",
-            _rs_btc_signals(hourly, z_thresh=1.0, use_72h=True, r_72h=4.0),
-        ),
-        "rs_low_48h": _wrap_rs("rs_low_48h", _rs_btc_signals(hourly)),
         "rs_low_liquidity": _wrap_rs(
             "rs_low_liquidity",
             _liquidity_filter(_rs_btc_signals(hourly), hourly, min_quote_24h=10_000_000),
         ),
-        "rs_low_mtf": _wrap_rs(
-            "rs_low_mtf",
-            _rs_btc_signals(hourly, use_mtf=True, r_12h=0.7, r_48h=2.5),
+        "btc_liquidationcascade": _wrap_rs("btc_liquidationcascade", _btc_liquidation_cascade(hourly)),
+        "overnight_drift": _wrap_rs("overnight_drift", _overnight_drift(hourly)),
+        "volatility_clustering": _wrap_rs("volatility_clustering", _volatility_clustering_reversal(hourly)),
+        "cross_sectional_mean_reversion": _wrap_rs(
+            "cross_sectional_mean_reversion", _cross_sectional_mean_reversion(hourly)
         ),
+        "multi_signal_confluence": _wrap_rs("multi_signal_confluence", _multi_signal_confluence(hourly)),
     }
 
 
