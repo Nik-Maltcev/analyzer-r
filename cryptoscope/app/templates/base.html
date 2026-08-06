@@ -63,16 +63,15 @@
             <span class="logo-subtitle">pairs terminal</span>
         </div>
         <div class="navbar-tabs {% if is_admin %}has-admin-tab{% endif %}" id="nav-tabs">
-            <a href="/app" class="nav-tab active" data-tab="signals">
+<a href="/app" class="nav-tab active" data-tab="signals">
                 <i class="tab-icon" data-lucide="activity"></i><span>Сигналы</span>
             </a>
+            {# Alpha and Crypto tabs disabled — hidden from navigation
             <a href="#" class="nav-tab" data-tab="alpha" hx-get="/tab/alpha" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-sync="#main-content:replace">
                 <i class="tab-icon" data-lucide="radar"></i><span>Alpha</span>
             </a>
+            #}
             {% if is_admin %}
-            <a href="#" class="nav-tab" data-tab="crypto" hx-get="/tab/crypto" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-sync="#main-content:replace">
-                <i class="tab-icon" data-lucide="coins"></i><span>Крипта</span>
-            </a>
             <a href="#" class="nav-tab" data-tab="short-term" hx-get="/tab/short-term" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-sync="#main-content:replace">
                 <i class="tab-icon" data-lucide="timer-reset"></i><span>Short-Term</span>
             </a>
