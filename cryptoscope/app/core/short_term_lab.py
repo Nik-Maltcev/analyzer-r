@@ -32,7 +32,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v35"
+CALCULATION_VERSION = "short-term-lab-v36"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -1423,7 +1423,7 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
                 "window_days": days,
                 "strategy": strategy,
                 "coverage_days": coverage_days,
-                "is_complete": coverage_days >= days and missing_counts.get(strategy, 0) == 0,
+                "is_complete": coverage_days >= days,
                 "eligible_candidates": eligible_counts.get(strategy, 0),
                 "missing_executions": missing_counts.get(strategy, 0),
                 "trades": len(subset),
@@ -1736,9 +1736,8 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 trades, metrics = backtest(candles, all_eligible)
                 for metric in metrics.values():
                     metric["coverage_days"] = coverage_days
-                    metric["is_complete"] = (
-                        coverage_days >= int(metric.get("window_days") or 0) + 1
-                        and int(metric.get("missing_executions") or 0) == 0
+                    metric["is_complete"] = coverage_days >= int(
+                        metric.get("window_days") or 0
                     )
             else:
                 previous = conn.execute(
