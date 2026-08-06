@@ -32,7 +32,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v43"
+CALCULATION_VERSION = "short-term-lab-v44"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -59,55 +59,15 @@ STRATEGIES = {
         "cost_pct": 0.10,
         "description": "Фильтр ликвидности: quote_volume 24ч ≥ $10M, тот же сигнал.",
     },
-    "btc_liquidationcascade": {
-        "name": "BTC Liquidation Cascade",
-        "short_name": "BTC Cascade",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "cost_pct": 0.10,
-        "description": "BTC 4ч-пад ≥2.5% с объёмом ≥2x медианы → каскад ликвидаций алтов. LONG отскок.",
-    },
     "overnight_drift": {
-        "name": "Overnight Drift (AS-AP gap)",
+        "name": "Overnight Drift",
         "short_name": "Overnight Drift",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
         "cost_pct": 0.10,
-        "description": "Открытие UTC 00:00/06:00: gap от close 18:00 к open 00:00 ≥1.5% → LONG продолжение.",
-    },
-    "volatility_clustering": {
-        "name": "Volatility Clustering (post-spike reversal)",
-        "short_name": "Vol Cluster",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "cost_pct": 0.10,
-        "description": "ATR spike ≥2.5σ с разворотом свечи (бычьей/медвежьей) → fade движения.",
-    },
-    "cross_sectional_mean_reversion": {
-        "name": "Cross-Sectional Mean Reversion",
-        "short_name": "CS MeanRev",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "cost_pct": 0.10,
-        "description": "24ч return z-score по рынку ≥ +2σ → SHORT (фадить топ-аутсайдеров), ≤−2σ → LONG (фадить дно).",
-    },
-    "multi_signal_confluence": {
-        "name": "Multi-Signal Confluence (RS + momentum + volume)",
-        "short_name": "Confluence",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "cost_pct": 0.10,
-        "description": "3 сигнала совпали: RS vs BTC z ≥ 0.8, RSI(14) пересёк 50, объём ≥1.5x → LONG/SHORT.",
+        "description": "Gap от close 18:00 к open 00:00 UTC. z ≥1.5σ → LONG продолжение, z ≤−1.5σ → SHORT.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -1426,9 +1386,10 @@ def _btc_liquidation_cascade(hourly: pd.DataFrame) -> list[dict]:
 def _overnight_drift(hourly: pd.DataFrame) -> list[dict]:
     """Trade the overnight gap at UTC session boundaries.
 
-    Compute the gap from 18:00 close to 00:00 open (6-hour overnight window).
-    A gap ≥ 1.5% up signals institutional flow entering — long the continuation.
-    A gap ≤ −1.5% signals overnight panic — short the continuation.
+    The crypto market trades 24/7, but institutional flow concentrates early in
+    the UTC day. A large gap between the 18:00 UTC close and the 00:00 UTC open
+    (6 hours later) signals overnight positioning. z ≥ 1.5σ → LONG the
+    continuation; z ≤ −1.5σ → SHORT the continuation.
     """
     if hourly.empty:
         return []
@@ -1438,42 +1399,54 @@ def _overnight_drift(hourly: pd.DataFrame) -> list[dict]:
         if len(frame) < 50:
             continue
         dt = pd.to_datetime(frame["open_time"], unit="ms", utc=True)
-        hour = dt.dt.hour
-        # Gap = open(00:00) / close(23:00) - 1, computed point-in-time.
-        opens_00 = frame[(hour == 0)].copy()
-        closes_23 = frame[(hour == 23)].copy()
-        if opens_00.empty or closes_23.empty:
+        hour = dt.dt.hour.to_numpy()
+
+        opens_00_mask = hour == 0
+        closes_18_mask = hour == 18
+
+        # Each 00:00 open pairs with the 18:00 close 6 hours earlier.
+        # Build a mapping: open_time_00 -> close at (open_time_00 - 6h).
+        opens_00 = frame.loc[opens_00_mask, ["open_time", "open"]].copy()
+        closes_18 = frame.loc[closes_18_mask, ["open_time", "close"]].copy()
+        if opens_00.empty or closes_18.empty:
             continue
-        # Align by session: the close at 23:00 precedes the open at 00:00 next hour.
-        closes_23 = closes_23.set_index("open_time")["close"].sort_index()
-        opens_00 = opens_00.set_index("open_time")["open"].sort_index()
-        # shift closes_23 forward by 1 hour to compare to next opens_00
-        aligned_close = closes_23.shift(0)
-        # For each open_00 time t, find the close at t-1h
-        merged = pd.DataFrame({
-            "open_00": opens_00,
-            "close_23": aligned_close.reindex(opens_00.index - HOUR_MS).to_numpy(),
-        })
-        merged["gap_pct"] = (merged["open_00"] / merged["close_23"].replace(0, np.nan) - 1.0) * 100
-        merged = merged.dropna(subset=["gap_pct"])
-        # Rolling gap std for context (normalized, point-in-time via shift)
-        gap_std = merged["gap_pct"].rolling(30, min_periods=20).std().shift(1).replace(0, np.nan)
-        merged["z"] = merged["gap_pct"] / gap_std
-        volume_base = frame["quote_volume"].rolling(24, min_periods=18).median().shift(1).replace(0, np.nan)
-        vol_ratio = frame.set_index("open_time")["quote_volume"] / volume_base
-        merged["vol_ratio"] = vol_ratio.reindex(merged.index)
-        long_cond = (merged["z"] >= 1.5) & (merged["vol_ratio"] >= 1.2)
-        short_cond = (merged["z"] <= -1.5) & (merged["vol_ratio"] >= 1.2)
+        # The 18:00 candle has open_time T18; the 00:00 candle has T00 = T18 + 6h.
+        # So the expected close time for a 00:00-open is T00 - 6*HOUR_MS.
+        closes_18_map = closes_18.set_index("open_time")["close"]
+        opens_00["prev_close"] = closes_18_map.reindex(
+            opens_00["open_time"].to_numpy() - 6 * HOUR_MS
+        ).to_numpy()
+        opens_00["gap_pct"] = (
+            opens_00["open"] / opens_00["prev_close"].replace(0, np.nan) - 1.0
+        ) * 100
+        opens_00 = opens_00.dropna(subset=["gap_pct"])
+        if opens_00.empty:
+            continue
+        gap_std = (
+            opens_00["gap_pct"]
+            .rolling(30, min_periods=20)
+            .std()
+            .shift(1)
+            .replace(0, np.nan)
+        )
+        opens_00["z"] = opens_00["gap_pct"] / gap_std
+
+        # Volume ratio: this 00:00 candle vs trailing 24h median quote_volume.
+        qv = frame.set_index("open_time")["quote_volume"]
+        qv_base = qv.rolling(24, min_periods=18).median().shift(1).replace(0, np.nan)
+        vol_ratio = (qv / qv_base).reindex(opens_00["open_time"]).to_numpy()
+        opens_00["vol_ratio"] = vol_ratio
+
+        long_cond = (opens_00["z"] >= 1.5) & (opens_00["vol_ratio"] >= 1.1)
+        short_cond = (opens_00["z"] <= -1.5) & (opens_00["vol_ratio"] >= 1.1)
         direction = np.where(long_cond, "long", np.where(short_cond, "short", ""))
         selected = direction != ""
-        for idx in merged.index[selected]:
-            row = merged.loc[idx]
-            i = merged.index.get_loc(idx)
+        for i, row in opens_00.loc[selected].iterrows():
             rows.append({
-                "signal_time": int(idx),
+                "signal_time": int(row["open_time"]),
                 "ticker": ticker,
-                "direction": str(direction[i]),
-                "signal_price": float(row["open_00"]),
+                "direction": str(direction[selected][opens_00.index.get_loc(i)]),
+                "signal_price": float(row["open"]),
                 "score": float(abs(row["z"])),
             })
     return rows
@@ -1666,13 +1639,7 @@ def generate_candidates(
             "rs_low_liquidity",
             _liquidity_filter(_rs_btc_signals(hourly), hourly, min_quote_24h=10_000_000),
         ),
-        "btc_liquidationcascade": _wrap_rs("btc_liquidationcascade", _btc_liquidation_cascade(hourly)),
         "overnight_drift": _wrap_rs("overnight_drift", _overnight_drift(hourly)),
-        "volatility_clustering": _wrap_rs("volatility_clustering", _volatility_clustering_reversal(hourly)),
-        "cross_sectional_mean_reversion": _wrap_rs(
-            "cross_sectional_mean_reversion", _cross_sectional_mean_reversion(hourly)
-        ),
-        "multi_signal_confluence": _wrap_rs("multi_signal_confluence", _multi_signal_confluence(hourly)),
     }
 
 
