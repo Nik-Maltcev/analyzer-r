@@ -32,21 +32,57 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v31"
+CALCULATION_VERSION = "short-term-lab-v32"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "trend_persistence": {
-        "name": "Trend Persistence",
-        "short_name": "Trend Follow",
+    "trend_rsi_pullback": {
+        "name": "Trend RSI Pullback",
+        "short_name": "Trend RSI",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "EMA24 > EMA72×1.015, доходность 6/24/72ч положительна, объём ≥110% медианы, BTC контекст. Вход по тренду на 6-часовой каденции.",
+        "description": "Откат в тренде: EMA24 vs EMA72 (тренд) + RSI(14) пересекает 45 (LONG) / 55 (SHORT) с объёмом.",
+    },
+    "residual_reversion": {
+        "name": "Residual Reversion",
+        "short_name": "Residual Rev",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "description": "Фейд перегрева относительно BTC: z-score остатка (coin − β×BTC) за 2 недели ≈ z ±2.5.",
+    },
+    "volume_flow_breakout": {
+        "name": "Volume Flow Breakout",
+        "short_name": "Volume Flow",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "description": "Направленный поток объёма × close-location + пробой 48-часового диапазона с объёмом ≥1.5x.",
+    },
+    "relative_strength_btc": {
+        "name": "Relative Strength vs BTC",
+        "short_name": "RS vs BTC",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "description": "Опережение/отставание от BTC на 6/24ч с z-score по кросс-секции рынка. LONG лидеров, SHORT аутсайдеров.",
+    },
+    "bollinger_range_reversion": {
+        "name": "Bollinger Range Reversion",
+        "short_name": "Bollinger Rev",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "description": "Сжатие/боковик (EMA-тренд фильтр) + фейд пробоя Болинжера 2-σ (возврат внутрь канала).",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -752,7 +788,7 @@ def _opening_range_breakout(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("opening_range_breakout", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
-def _range_mean_reversion(hourly: pd.DataFrame) -> list[dict]:
+def _bollinger_range_reversion(hourly: pd.DataFrame) -> list[dict]:
     rows: list[pd.DataFrame] = []
     for ticker, group in hourly.groupby("ticker", sort=False):
         frame = group.sort_values("open_time").copy()
@@ -795,7 +831,7 @@ def _range_mean_reversion(hourly: pd.DataFrame) -> list[dict]:
     selected = _cap_per_time(
         pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(), count=1
     )
-    return [_candidate("range_mean_reversion", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
+    return [_candidate("bollinger_range_reversion", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
 def _trend_rsi_pullback(hourly: pd.DataFrame) -> list[dict]:
@@ -1219,7 +1255,11 @@ def generate_candidates(
     if perp is None:
         perp = pd.DataFrame(columns=["ticker", "open_time", "open", "high", "low", "close", "volume", "quote_volume"])
     return {
-        "trend_persistence": _trend_persistence(hourly),
+        "trend_rsi_pullback": _trend_rsi_pullback(hourly),
+        "residual_reversion": _residual_reversion(hourly),
+        "volume_flow_breakout": _volume_flow_breakout(hourly),
+        "relative_strength_btc": _relative_strength_btc(hourly),
+        "bollinger_range_reversion": _bollinger_range_reversion(hourly),
     }
 
 
