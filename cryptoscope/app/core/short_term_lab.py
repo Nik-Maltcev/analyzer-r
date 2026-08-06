@@ -32,40 +32,13 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v32"
+CALCULATION_VERSION = "short-term-lab-v33"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "trend_rsi_pullback": {
-        "name": "Trend RSI Pullback",
-        "short_name": "Trend RSI",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "description": "Откат в тренде: EMA24 vs EMA72 (тренд) + RSI(14) пересекает 45 (LONG) / 55 (SHORT) с объёмом.",
-    },
-    "residual_reversion": {
-        "name": "Residual Reversion",
-        "short_name": "Residual Rev",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "description": "Фейд перегрева относительно BTC: z-score остатка (coin − β×BTC) за 2 недели ≈ z ±2.5.",
-    },
-    "volume_flow_breakout": {
-        "name": "Volume Flow Breakout",
-        "short_name": "Volume Flow",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "description": "Направленный поток объёма × close-location + пробой 48-часового диапазона с объёмом ≥1.5x.",
-    },
     "relative_strength_btc": {
         "name": "Relative Strength vs BTC",
         "short_name": "RS vs BTC",
@@ -74,15 +47,6 @@ STRATEGIES = {
         "stop": 0.0,
         "target": 0.0,
         "description": "Опережение/отставание от BTC на 6/24ч с z-score по кросс-секции рынка. LONG лидеров, SHORT аутсайдеров.",
-    },
-    "bollinger_range_reversion": {
-        "name": "Bollinger Range Reversion",
-        "short_name": "Bollinger Rev",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "description": "Сжатие/боковик (EMA-тренд фильтр) + фейд пробоя Болинжера 2-σ (возврат внутрь канала).",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -1255,11 +1219,7 @@ def generate_candidates(
     if perp is None:
         perp = pd.DataFrame(columns=["ticker", "open_time", "open", "high", "low", "close", "volume", "quote_volume"])
     return {
-        "trend_rsi_pullback": _trend_rsi_pullback(hourly),
-        "residual_reversion": _residual_reversion(hourly),
-        "volume_flow_breakout": _volume_flow_breakout(hourly),
         "relative_strength_btc": _relative_strength_btc(hourly),
-        "bollinger_range_reversion": _bollinger_range_reversion(hourly),
     }
 
 
