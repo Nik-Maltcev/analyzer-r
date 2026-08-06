@@ -77,7 +77,7 @@ def test_dual_momentum_uses_closed_hourly_history_and_market_tails():
     events = _dual_momentum(_bars(rows))
     final = [event for event in events if event["signal_time"] == 30 * hour]
 
-    assert CALCULATION_VERSION == "short-term-lab-v36"
+    assert CALCULATION_VERSION == "short-term-lab-v37"
     assert len(final) == 6
     assert {event["direction"] for event in final} == {"long", "short"}
     assert all(event["signal_time"] % (6 * hour) == 0 for event in events)
@@ -146,8 +146,6 @@ def test_strategies_share_the_same_hourly_backtest_parameters():
     for key, settings in STRATEGIES.items():
         assert settings["timeframe"] == 60, f"{key}: timeframe"
         assert settings["hold"] == 24 * 60, f"{key}: hold"
-        assert settings["stop"] == 0.0, f"{key}: stop"
-        assert settings["target"] == 0.0, f"{key}: target"
 
 
 def test_dual_momentum_backtest_has_only_90_day_window():

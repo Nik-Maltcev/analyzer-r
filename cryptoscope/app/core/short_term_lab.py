@@ -32,7 +32,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v36"
+CALCULATION_VERSION = "short-term-lab-v37"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -44,9 +44,9 @@ STRATEGIES = {
         "short_name": "RS vs BTC",
         "timeframe": 60,
         "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "description": "Опережение/отставание от BTC на 6/24ч с z-score по кросс-секции рынка. LONG лидеров, SHORT аутсайдеров.",
+        "stop": 4.0,
+        "target": 8.0,
+        "description": "Опережение/отставание от BTC на 6/24ч с z-score по кросс-секции. LONG лидеров, SHORT аутсайдеров. Стоп 4% / тейк 8% (R/R 1:2), выход по времени через 24ч.",
     },
 }
 _REFRESH_LOCK = Lock()
