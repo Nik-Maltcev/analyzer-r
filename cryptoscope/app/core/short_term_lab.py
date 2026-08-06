@@ -32,21 +32,21 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v30"
+CALCULATION_VERSION = "short-term-lab-v31"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (90,)
 STRATEGIES = {
-    "spot_perp_basis": {
-        "name": "Spot-Perpetual Basis",
-        "short_name": "Perp Basis",
+    "trend_persistence": {
+        "name": "Trend Persistence",
+        "short_name": "Trend Follow",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "description": "Базис spot/perp: z-score за 7 дней. Perp с премией (z ≥ 2) → сходимость вниз → LONG spot. Perp с дисконтом (z ≤ −2) → SHORT spot.",
+        "description": "EMA24 > EMA72×1.015, доходность 6/24/72ч положительна, объём ≥110% медианы, BTC контекст. Вход по тренду на 6-часовой каденции.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -1219,7 +1219,7 @@ def generate_candidates(
     if perp is None:
         perp = pd.DataFrame(columns=["ticker", "open_time", "open", "high", "low", "close", "volume", "quote_volume"])
     return {
-        "spot_perp_basis": _spot_perp_basis_mean_reversion(hourly, perp),
+        "trend_persistence": _trend_persistence(hourly),
     }
 
 
