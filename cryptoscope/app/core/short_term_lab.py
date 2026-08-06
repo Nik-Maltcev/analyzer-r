@@ -32,7 +32,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v46"
+CALCULATION_VERSION = "short-term-lab-v48"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -58,16 +58,6 @@ STRATEGIES = {
         "target": 0.0,
         "cost_pct": 0.10,
         "description": "Фильтр ликвидности: quote_volume 24ч ≥ $10M, тот же сигнал.",
-    },
-    "momentum_breakout": {
-        "name": "Momentum Breakout (7d hold)",
-        "short_name": "Momentum 7d",
-        "timeframe": 60,
-        "hold": 7 * 24 * 60,
-        "stop": 8.0,
-        "target": 0.0,
-        "cost_pct": 0.10,
-        "description": "EMA24>EMA72×1.015 + ret 6/24/72ч ≥0.6/3/5%, объём ≥1.1x, BTC не падает. Hold 7 дней, stop 8%.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -1640,7 +1630,6 @@ def generate_candidates(
             "rs_low_liquidity",
             _liquidity_filter(_rs_btc_signals(hourly), hourly, min_quote_24h=10_000_000),
         ),
-        "momentum_breakout": _trend_persistence(hourly),
     }
 
 
