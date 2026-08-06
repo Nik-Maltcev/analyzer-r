@@ -32,23 +32,13 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v39"
+CALCULATION_VERSION = "short-term-lab-v40"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (30, 90, 180, 365)
 STRATEGIES = {
-    "rs_vanilla": {
-        "name": "RS vs BTC (vanilla)",
-        "short_name": "RS vanilla",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "cost_pct": 0.30,
-        "description": "Relative Strength vs BTC, выход по времени 24ч, cost 0.30%.",
-    },
     "rs_low_cost": {
         "name": "RS vs BTC (low cost 0.10%)",
         "short_name": "RS low cost",
@@ -57,27 +47,47 @@ STRATEGIES = {
         "stop": 0.0,
         "target": 0.0,
         "cost_pct": 0.10,
-        "description": "Тот же сигнал, но реальная лимитная cost 0.10% round-trip (Maker rebate).",
+        "description": "Baseline: cost 0.10% round-trip, выход по времени 24ч.",
     },
-    "rs_stops": {
-        "name": "RS vs BTC (stop 4/tp 8)",
-        "short_name": "RS stops",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 4.0,
-        "target": 8.0,
-        "cost_pct": 0.30,
-        "description": "Стоп 4% / тейк 8% (R/R 1:2), выход по времени 24ч как страхующий, cost 0.30%.",
-    },
-    "rs_btc_filter": {
-        "name": "RS vs BTC (BTC trend filter)",
-        "short_name": "RS BTC filter",
+    "rs_low_conviction": {
+        "name": "RS vs BTC (conviction z≥1.0 + 72h)",
+        "short_name": "RS conviction",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 0.0,
         "target": 0.0,
-        "cost_pct": 0.30,
-        "description": "Только сделки в сторону тренда BTC: LONG при BTC 24h ≥0, SHORT при BTC 24h ≤0.",
+        "cost_pct": 0.10,
+        "description": "z ≥ 1.0 + доходность 72ч ≥ 4% (подтверждение сильного разноса).",
+    },
+    "rs_low_48h": {
+        "name": "RS vs BTC (48h hold)",
+        "short_name": "RS 48h",
+        "timeframe": 60,
+        "hold": 48 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": 0.10,
+        "description": "Базовый сигнал, но холд 48ч — тянем хвосты победителей.",
+    },
+    "rs_low_liquidity": {
+        "name": "RS vs BTC (liquidity ≥$10M/24h)",
+        "short_name": "RS liquidity",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": 0.10,
+        "description": "Фильтр ликвидности: quote_volume 24ч ≥ $10M, тот же сигнал.",
+    },
+    "rs_low_mtf": {
+        "name": "RS vs BTC (MTF 12/24/48h)",
+        "short_name": "RS MTF",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": 0.10,
+        "description": "MTF подтверждение: 12h≥0.7%, 24h≥1.5%, 48h≥2.5% выровнены в одну сторону.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -631,7 +641,20 @@ def _trend_persistence(hourly: pd.DataFrame) -> list[dict]:
     return [_candidate("trend_persistence", **row) for row in selected.rename(columns={"open_time": "signal_time"}).to_dict("records")]
 
 
-def _rs_btc_signals(hourly: pd.DataFrame) -> list[dict]:
+def _rs_btc_signals(
+    hourly: pd.DataFrame,
+    *,
+    z_thresh: float = 0.5,
+    r_6h: float = 0.4,
+    r_24h: float = 1.5,
+    rel_6h: float = 0.3,
+    rel_24h: float = 1.0,
+    use_72h: bool = False,
+    r_72h: float = 4.0,
+    use_mtf: bool = False,
+    r_12h: float = 0.7,
+    r_48h: float = 2.5,
+) -> list[dict]:
     """Raw RS-vs-BTC signals without strategy/cost labels.
 
     Each event dict has fields ready for `_candidate(...)`: signal_time
@@ -654,27 +677,45 @@ def _rs_btc_signals(hourly: pd.DataFrame) -> list[dict]:
         (close.index.to_numpy(dtype=np.int64) // (60 * 60_000)) % 4 == 0,
         index=close.index,
     )
+    optional_returns: dict[str, pd.Series] = {}
+    if use_72h:
+        optional_returns["r72"] = close.pct_change(72, fill_method=None) * 100
+    if use_mtf:
+        optional_returns["r12"] = close.pct_change(12, fill_method=None) * 100
+        optional_returns["r48"] = close.pct_change(48, fill_method=None) * 100
     rows: list[dict] = []
     for ticker in close.columns:
         if ticker == "BTC/USD":
             continue
-        long_condition = (
+        long_cond = (
             cadence
-            & (return_6h[ticker] >= 0.4)
-            & (return_24h[ticker] >= 1.5)
-            & (relative_6h[ticker] >= 0.3)
-            & (relative_24h[ticker] >= 1.0)
-            & (relative_z[ticker] >= 0.5)
+            & (return_6h[ticker] >= r_6h)
+            & (return_24h[ticker] >= r_24h)
+            & (relative_6h[ticker] >= rel_6h)
+            & (relative_24h[ticker] >= rel_24h)
+            & (relative_z[ticker] >= z_thresh)
         )
-        short_condition = (
+        short_cond = (
             cadence
-            & (return_6h[ticker] <= -0.4)
-            & (return_24h[ticker] <= -1.5)
-            & (relative_6h[ticker] <= -0.3)
-            & (relative_24h[ticker] <= -1.0)
-            & (relative_z[ticker] <= -0.5)
+            & (return_6h[ticker] <= -r_6h)
+            & (return_24h[ticker] <= -r_24h)
+            & (relative_6h[ticker] <= -rel_6h)
+            & (relative_24h[ticker] <= -rel_24h)
+            & (relative_z[ticker] <= -z_thresh)
         )
-        direction = np.where(long_condition, "long", np.where(short_condition, "short", ""))
+        if "r72" in optional_returns:
+            r72 = optional_returns["r72"][ticker]
+            long_cond &= (r72 >= r_72h)
+            short_cond &= (r72 <= -r_72h)
+        if "r12" in optional_returns:
+            r12 = optional_returns["r12"][ticker]
+            long_cond &= (r12 >= r_12h)
+            short_cond &= (r12 <= -r_12h)
+        if "r48" in optional_returns:
+            r48 = optional_returns["r48"][ticker]
+            long_cond &= (r48 >= r_48h)
+            short_cond &= (r48 <= -r_48h)
+        direction = np.where(long_cond, "long", np.where(short_cond, "short", ""))
         selected = direction != ""
         score = relative_z[ticker].abs() + relative_24h[ticker].abs() / 3
         for timestamp in close.index[selected]:
@@ -690,6 +731,25 @@ def _rs_btc_signals(hourly: pd.DataFrame) -> list[dict]:
                 "score": float(value),
             })
     return rows
+
+
+def _liquidity_filter(signals: list[dict], hourly: pd.DataFrame, *, min_quote_24h: float) -> list[dict]:
+    """Drop signals whose ticker's trailing 24h quote volume is below `min_quote_24h`."""
+    if not signals:
+        return []
+    qv = hourly.pivot(index="open_time", columns="ticker", values="quote_volume").sort_index()
+    qv_24h = qv.rolling(24, min_periods=18).sum()
+    out: list[dict] = []
+    for sig in signals:
+        t = int(sig["signal_time"])
+        ticker = sig["ticker"]
+        if ticker not in qv_24h.columns:
+            continue
+        vol = qv_24h.at[t, ticker] if t in qv_24h.index else None
+        if pd.isna(vol) or float(vol) < min_quote_24h:
+            continue
+        out.append(sig)
+    return out
 
 
 def _relative_strength_btc(hourly: pd.DataFrame) -> list[dict]:
@@ -1298,10 +1358,20 @@ def generate_candidates(
     if perp is None:
         perp = pd.DataFrame(columns=["ticker", "open_time", "open", "high", "low", "close", "volume", "quote_volume"])
     return {
-        "rs_vanilla": _wrap_rs("rs_vanilla", _rs_btc_signals(hourly)),
         "rs_low_cost": _wrap_rs("rs_low_cost", _rs_btc_signals(hourly)),
-        "rs_stops": _wrap_rs("rs_stops", _rs_btc_signals(hourly)),
-        "rs_btc_filter": _wrap_rs("rs_btc_filter", _rs_btc_filter_signals(hourly)),
+        "rs_low_conviction": _wrap_rs(
+            "rs_low_conviction",
+            _rs_btc_signals(hourly, z_thresh=1.0, use_72h=True, r_72h=4.0),
+        ),
+        "rs_low_48h": _wrap_rs("rs_low_48h", _rs_btc_signals(hourly)),
+        "rs_low_liquidity": _wrap_rs(
+            "rs_low_liquidity",
+            _liquidity_filter(_rs_btc_signals(hourly), hourly, min_quote_24h=10_000_000),
+        ),
+        "rs_low_mtf": _wrap_rs(
+            "rs_low_mtf",
+            _rs_btc_signals(hourly, use_mtf=True, r_12h=0.7, r_48h=2.5),
+        ),
     }
 
 
