@@ -32,7 +32,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v42"
+CALCULATION_VERSION = "short-term-lab-v43"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -1368,9 +1368,9 @@ def _spot_perp_basis_mean_reversion(
 def _btc_liquidation_cascade(hourly: pd.DataFrame) -> list[dict]:
     """Long altcoins after a swift BTC drop that likely triggered liquidation cascades.
 
-    When BTC drops ≥2.5% in 4 hours with volume ≥2x the trailing median, leveraged
+    When BTC drops ≥2.0% in 4 hours with volume ≥1.5x the trailing median, leveraged
     longs get liquidated, and the market overshoots down. Long the alts that got
-    flushed hardest (4h return ≤ −3%) — they tend to bounce back.
+    flushed hardest (4h return ≤ −1.5%) — they tend to bounce back.
     """
     if hourly.empty or "BTC/USD" not in hourly["ticker"].values:
         return []
@@ -1380,10 +1380,15 @@ def _btc_liquidation_cascade(hourly: pd.DataFrame) -> list[dict]:
     btc_vol = btc.set_index("open_time")["quote_volume"]
     btc_vol_base = btc_vol.rolling(24, min_periods=18).median().shift(1).replace(0, np.nan)
     btc_vol_ratio = btc_vol / btc_vol_base
-    cadence = (btc.index.to_numpy(dtype=np.int64) // HOUR_MS) % 4 == 0
-    flush_times = btc.index[
-        cadence & (btc_r4h.reindex(btc.index) <= -2.5) & (btc_vol_ratio.reindex(btc.index) >= 2.0)
-    ]
+    # Use btc_close.index (open_time) — not btc.index which is a row-position RangeIndex.
+    times = btc_close.index.to_numpy(dtype=np.int64)
+    cadence = (times // HOUR_MS) % 4 == 0
+    flush_mask = (
+        cadence
+        & (btc_r4h.to_numpy() <= -2.0)
+        & (btc_vol_ratio.to_numpy() >= 1.5)
+    )
+    flush_times = btc_close.index[flush_mask]
     if flush_times.empty:
         return []
     flush_set = set(flush_times.to_numpy())
@@ -1401,7 +1406,7 @@ def _btc_liquidation_cascade(hourly: pd.DataFrame) -> list[dict]:
                 continue
             r = r4h.loc[t]
             p = t_series.get(t)
-            if pd.isna(r) or pd.isna(p) or r > -3.0:
+            if pd.isna(r) or pd.isna(p) or r > -1.5:
                 continue
             rows.append({
                 "signal_time": int(t),
@@ -1410,7 +1415,6 @@ def _btc_liquidation_cascade(hourly: pd.DataFrame) -> list[dict]:
                 "signal_price": float(p),
                 "score": float(abs(r)),
             })
-    # Limit to 5 alts per flush event (hardest-flushed)
     if not rows:
         return []
     df = pd.DataFrame(rows)
@@ -1458,8 +1462,8 @@ def _overnight_drift(hourly: pd.DataFrame) -> list[dict]:
         volume_base = frame["quote_volume"].rolling(24, min_periods=18).median().shift(1).replace(0, np.nan)
         vol_ratio = frame.set_index("open_time")["quote_volume"] / volume_base
         merged["vol_ratio"] = vol_ratio.reindex(merged.index)
-        long_cond = (merged["z"] >= 2.0) & (merged["vol_ratio"] >= 1.2)
-        short_cond = (merged["z"] <= -2.0) & (merged["vol_ratio"] >= 1.2)
+        long_cond = (merged["z"] >= 1.5) & (merged["vol_ratio"] >= 1.2)
+        short_cond = (merged["z"] <= -1.5) & (merged["vol_ratio"] >= 1.2)
         direction = np.where(long_cond, "long", np.where(short_cond, "short", ""))
         selected = direction != ""
         for idx in merged.index[selected]:
@@ -1504,8 +1508,8 @@ def _volatility_clustering_reversal(hourly: pd.DataFrame) -> list[dict]:
         # Reversal candle: bullish (close>open) after a down-spike (previous candle dropped)
         hourly_return = (frame["close"] / frame["open"].replace(0, np.nan) - 1.0) * 100
         prev_return = hourly_return.shift(1)
-        bullish_reversal = (atr_z >= 2.5) & (prev_return < 0) & (frame["close"] > frame["open"])
-        bearish_reversal = (atr_z >= 2.5) & (prev_return > 0) & (frame["close"] < frame["open"])
+        bullish_reversal = (atr_z >= 2.0) & (prev_return < 0) & (frame["close"] > frame["open"])
+        bearish_reversal = (atr_z >= 2.0) & (prev_return > 0) & (frame["close"] < frame["open"])
         direction = np.where(bullish_reversal, "long", np.where(bearish_reversal, "short", ""))
         selected = direction != ""
         out = frame.loc[selected, ["open_time", "close"]].copy()
@@ -1617,14 +1621,14 @@ def _multi_signal_confluence(hourly: pd.DataFrame) -> list[dict]:
             & (relative_z[ticker] >= 0.8)
             & (return_6h[ticker] >= 0.4)
             & rsi_cross_up
-            & (vol_ratio[ticker] >= 1.5)
+            & (vol_ratio[ticker] >= 1.2)
         )
         short_cond = (
             cadence
             & (relative_z[ticker] <= -0.8)
             & (return_6h[ticker] <= -0.4)
             & rsi_cross_dn
-            & (vol_ratio[ticker] >= 1.5)
+            & (vol_ratio[ticker] >= 1.2)
         )
         direction = np.where(long_cond, "long", np.where(short_cond, "short", ""))
         selected = direction != ""
