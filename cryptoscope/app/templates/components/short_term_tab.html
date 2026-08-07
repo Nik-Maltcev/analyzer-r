@@ -49,7 +49,9 @@
         <span class="stl-calc-status" id="stl-recalc-status"></span>
     </div>
 
-    {% include "components/short_term_strategies.html" with strategies=report.strategies, stake=report.settings.stake, stop=report.settings.stop|default(4.0), target=report.settings.target|default(6.0) %}
+    {% with strategies=report.strategies, stake=report.settings.stake %}
+    {% include "components/short_term_strategies.html" with context %}
+    {% endwith %}
 
     <section class="stl-panel">
         <header>
