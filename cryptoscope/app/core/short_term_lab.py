@@ -2447,14 +2447,38 @@ def build_strategy_cards_for_report(strategy_metrics: dict) -> list[dict]:
     return _build_strategy_cards(strategy_metrics)
 
 
+_RECALC_LOCK = Lock()
+_recalc_cache: dict[tuple, dict] = {}
+
+
 def recalc_short_term_report(
     db_path: str, *, stop_pct: float, target_pct: float
 ) -> dict:
     """Re-run the backtest for every strategy with custom stop/target overrides.
 
     Uses the completed run's already-downloaded execution candles so the
-    recalculation is fast and does not hit the network.
+    recalculation is fast and does not hit the network. Results are cached by
+    (stop, target) to avoid repeated heavy backtests.
     """
+    key = (round(float(stop_pct), 2), round(float(target_pct), 2))
+    cached = _recalc_cache.get(key)
+    if cached is not None:
+        return cached
+    with _RECALC_LOCK:
+        # double-checked after acquiring the lock
+        cached = _recalc_cache.get(key)
+        if cached is not None:
+            return cached
+        result = _recalc_short_term_report_impl(db_path, stop_pct, target_pct)
+        if len(_recalc_cache) >= 32:
+            _recalc_cache.clear()
+        _recalc_cache[key] = result
+        return result
+
+
+def _recalc_short_term_report_impl(
+    db_path: str, *, stop_pct: float, target_pct: float
+) -> dict:
     conn = sqlite3.connect(db_path, timeout=60)
     conn.row_factory = sqlite3.Row
     try:

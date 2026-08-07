@@ -137,6 +137,7 @@
         var LS_LEV = 'stl-lev';
         var LS_STOP = 'stl-stop';
         var LS_TARGET = 'stl-target';
+        var LS_CACHE = 'stl-recalc-cache';
         try {
             var s = localStorage.getItem(LS_STAKE);
             var l = localStorage.getItem(LS_LEV);
@@ -226,6 +227,13 @@
                         strategiesSection.replaceWith(fresh);
                         strategiesSection = fresh;
                     }
+                    try {
+                        localStorage.setItem(LS_CACHE, JSON.stringify({
+                            stop: stop,
+                            target: target,
+                            html: html
+                        }));
+                    } catch (e) {}
                     if (recalcStatus) recalcStatus.textContent = 'Готово ✓';
                     // re-run stake scaling on the new node
                     recalc();
@@ -236,8 +244,10 @@
                 .finally(function() { recalcBtn.disabled = false; });
         }
 
-        // Restore the user's last SL/TP selection after every HTMX re-render
-        // and re-run the backtest whenever it differs from the server defaults.
+        // Restore the user's last SL/TP selection after every HTMX re-render.
+        // If the computed cards are cached locally for these values, re-insert
+        // them without hitting the server; only re-run the (expensive) backtest
+        // when the values actually changed or no cache exists.
         var serverStop = parseFloat(strategiesSection ? strategiesSection.getAttribute('data-stop') : 4.0) || 4.0;
         var serverTarget = parseFloat(strategiesSection ? strategiesSection.getAttribute('data-target') : 6.0) || 6.0;
         var savedStop = null, savedTarget = null;
@@ -250,8 +260,25 @@
             var wantTarget = savedTarget !== null ? (parseFloat(savedTarget) || 0) : serverTarget;
             if (stopInput) stopInput.value = wantStop;
             if (targetInput) targetInput.value = wantTarget;
-            if (strategiesSection && (Math.abs(wantStop - serverStop) > 1e-9 || Math.abs(wantTarget - serverTarget) > 1e-9)) {
-                doRecalc();
+            var differs = strategiesSection &&
+                (Math.abs(wantStop - serverStop) > 1e-9 || Math.abs(wantTarget - serverTarget) > 1e-9);
+            if (differs) {
+                var cached = null;
+                try {
+                    cached = JSON.parse(localStorage.getItem(LS_CACHE) || 'null');
+                } catch (e) {}
+                if (cached && Math.abs(cached.stop - wantStop) < 1e-9 && Math.abs(cached.target - wantTarget) < 1e-9 && cached.html) {
+                    var tmp = document.createElement('div');
+                    tmp.innerHTML = cached.html;
+                    var fresh = tmp.querySelector('.stl-strategies');
+                    if (fresh) {
+                        strategiesSection.replaceWith(fresh);
+                        strategiesSection = fresh;
+                    }
+                    recalc();
+                } else {
+                    doRecalc();
+                }
             }
         }
         if (recalcBtn) recalcBtn.addEventListener('click', doRecalc);
