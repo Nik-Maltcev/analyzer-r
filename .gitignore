@@ -54,3 +54,7 @@ Thumbs.db
 *.db
 *.db-journal
 *.db-wal
+
+.config/
+run_daily_update.R
+scripts/

@@ -2405,6 +2405,8 @@ def get_short_term_report(db_path: str) -> dict:
             "short_name": f"{settings['short_name']} · ср./неделю",
             "window_days": 365,
             "is_weekly_avg": True,
+            "is_complete": full.get("is_complete", True),
+            "coverage_days": full.get("coverage_days", 365),
             "net_cash": full.get("net_cash", 0),
             "avg_weekly_cash": full.get("avg_weekly_cash", 0),
             "trades": full.get("trades", 0),
