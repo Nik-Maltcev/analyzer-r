@@ -32,7 +32,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v54"
+CALCULATION_VERSION = "short-term-lab-v55"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -44,8 +44,8 @@ STRATEGIES = {
         "short_name": "RS low cost",
         "timeframe": 60,
         "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
+        "stop": 4.0,
+        "target": 6.0,
         "cost_pct": 0.10,
         "description": "Baseline: cost 0.10% round-trip, выход по времени 24ч.",
     },
@@ -54,8 +54,8 @@ STRATEGIES = {
         "short_name": "RS liquidity",
         "timeframe": 60,
         "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
+        "stop": 4.0,
+        "target": 6.0,
         "cost_pct": 0.10,
         "description": "Фильтр ликвидности: quote_volume 24ч ≥ $10M.",
     },
@@ -64,8 +64,8 @@ STRATEGIES = {
         "short_name": "RS regime",
         "timeframe": 60,
         "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
+        "stop": 4.0,
+        "target": 6.0,
         "cost_pct": 0.10,
         "description": "Только LONG при BTC ≥0% (24ч), только SHORT при BTC ≤0%. Направленческий фильтр.",
     },
@@ -74,8 +74,8 @@ STRATEGIES = {
         "short_name": "Momentum",
         "timeframe": 60,
         "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
+        "stop": 4.0,
+        "target": 6.0,
         "cost_pct": 0.10,
         "description": "Мульти-таймфрейм импульс: 3д/7д/14д → long при сильном росте, short при сильном падении.",
     },
@@ -84,8 +84,8 @@ STRATEGIES = {
         "short_name": "Drawdown",
         "timeframe": 60,
         "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
+        "stop": 4.0,
+        "target": 6.0,
         "cost_pct": 0.10,
         "description": "Лонг на отскок от 90-дневного максимума: просадка ≥10% + подтверждённый отскок.",
     },
