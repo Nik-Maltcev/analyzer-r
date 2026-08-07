@@ -139,15 +139,27 @@ def ensure_short_term_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _load_candles(conn: sqlite3.Connection) -> pd.DataFrame:
-    frame = pd.read_sql_query(
-        """
-        SELECT ticker, open_time, open, high, low, close, volume, quote_volume
-        FROM reversal_candles
-        ORDER BY ticker, open_time
-        """,
-        conn,
-    )
+def _load_candles(conn: sqlite3.Connection, *, since_ms: int | None = None) -> pd.DataFrame:
+    if since_ms is not None:
+        frame = pd.read_sql_query(
+            """
+            SELECT ticker, open_time, open, high, low, close, volume, quote_volume
+            FROM reversal_candles
+            WHERE open_time >= ?
+            ORDER BY ticker, open_time
+            """,
+            conn,
+            params=(since_ms,),
+        )
+    else:
+        frame = pd.read_sql_query(
+            """
+            SELECT ticker, open_time, open, high, low, close, volume, quote_volume
+            FROM reversal_candles
+            ORDER BY ticker, open_time
+            """,
+            conn,
+        )
     if frame.empty:
         return frame
     for column in ("open", "high", "low", "close", "volume", "quote_volume"):
@@ -2114,7 +2126,9 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
             print("[Short-Term Lab] step 4/10: refresh_short_term_perp_candles", flush=True)
             perp_refresh = await refresh_short_term_perp_candles(conn)
             print("[Short-Term Lab] step 5/10: loading candles from DB", flush=True)
-            candles = _load_candles(conn)
+            live_window_ms = 12 * 24 * 60 * 60 * 1000
+            now_ms = int(datetime.now(UTC).timestamp() * 1000)
+            candles = _load_candles(conn, since_ms=now_ms - live_window_ms)
             historical_candles = _load_hourly_candles(conn)
             funding = _load_funding_rates(conn)
             perp_candles = _load_perp_candles(conn)
@@ -2193,6 +2207,12 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                     for candidates in all_eligible.values()
                     for candidate in candidates
                 ]
+                # Free large DataFrames before download to avoid OOM on memory-constrained hosts.
+                hc_data_start = int(historical_candles["open_time"].min())
+                hc_data_end = int(historical_candles["open_time"].max())
+                hc_count = len(historical_candles)
+                del candles, historical_candles, funding, perp_candles
+                import gc; gc.collect()
                 print(f"[Short-Term Lab] step 8/10: download execution candles for {len(flat_candidates)} candidates", flush=True)
                 execution_refresh = await refresh_short_term_execution_candles(
                     conn, flat_candidates
@@ -2208,7 +2228,11 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                     # These candidates are skipped by _simulate (counted in
                     # missing_executions) — they do not invalidate the whole run.
                     pass
-                candles = _load_candles(conn)
+                earliest_signal = min(
+                    (int(c["signal_time"]) for c in flat_candidates),
+                    default=0,
+                )
+                candles = _load_candles(conn, since_ms=earliest_signal)
                 print(f"[Short-Term Lab] step 9/10: backtest (5min candles={len(candles)})", flush=True)
                 trades, metrics = backtest(candles, all_eligible)
                 print(f"[Short-Term Lab] step 9/10 done: trades={len(trades)}, metrics={len(metrics)}", flush=True)
@@ -2264,9 +2288,7 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 SET status='completed', completed_at=datetime('now'), data_start=?,
                     data_end=?, candle_count=?, metrics_json=? WHERE id=?
                 """,
-                (int(historical_candles["open_time"].min()),
-                 int(historical_candles["open_time"].max()),
-                 len(historical_candles), json.dumps(payload), run_id),
+                (hc_data_start, hc_data_end, hc_count, json.dumps(payload), run_id),
             )
             conn.commit()
             print("[Short-Term Lab] step 10/10: completed, run persisted", flush=True)
