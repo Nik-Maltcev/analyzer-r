@@ -135,6 +135,8 @@
 
         var LS_STAKE = 'stl-stake';
         var LS_LEV = 'stl-lev';
+        var LS_STOP = 'stl-stop';
+        var LS_TARGET = 'stl-target';
         try {
             var s = localStorage.getItem(LS_STAKE);
             var l = localStorage.getItem(LS_LEV);
@@ -206,6 +208,10 @@
             if (!recalcBtn || !strategiesSection) return;
             var stop = parseFloat(stopInput ? stopInput.value : 4.0) || 0;
             var target = parseFloat(targetInput ? targetInput.value : 6.0) || 0;
+            try {
+                localStorage.setItem(LS_STOP, stop);
+                localStorage.setItem(LS_TARGET, target);
+            } catch (e) {}
             recalcBtn.disabled = true;
             if (recalcStatus) recalcStatus.textContent = 'Пересчитываем…';
             var url = '/tab/short-term/recalc-strategies?stop=' + stop + '&target=' + target +
@@ -228,6 +234,25 @@
                     if (recalcStatus) recalcStatus.textContent = 'Ошибка: ' + e;
                 })
                 .finally(function() { recalcBtn.disabled = false; });
+        }
+
+        // Restore the user's last SL/TP selection after every HTMX re-render
+        // and re-run the backtest whenever it differs from the server defaults.
+        var serverStop = parseFloat(strategiesSection ? strategiesSection.getAttribute('data-stop') : 4.0) || 4.0;
+        var serverTarget = parseFloat(strategiesSection ? strategiesSection.getAttribute('data-target') : 6.0) || 6.0;
+        var savedStop = null, savedTarget = null;
+        try {
+            savedStop = localStorage.getItem(LS_STOP);
+            savedTarget = localStorage.getItem(LS_TARGET);
+        } catch (e) {}
+        if ((savedStop !== null || savedTarget !== null)) {
+            var wantStop = savedStop !== null ? (parseFloat(savedStop) || 0) : serverStop;
+            var wantTarget = savedTarget !== null ? (parseFloat(savedTarget) || 0) : serverTarget;
+            if (stopInput) stopInput.value = wantStop;
+            if (targetInput) targetInput.value = wantTarget;
+            if (strategiesSection && (Math.abs(wantStop - serverStop) > 1e-9 || Math.abs(wantTarget - serverTarget) > 1e-9)) {
+                doRecalc();
+            }
         }
         if (recalcBtn) recalcBtn.addEventListener('click', doRecalc);
     })();
