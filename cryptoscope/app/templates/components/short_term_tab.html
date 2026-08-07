@@ -6,7 +6,7 @@
         <div>
             <span class="section-kicker">ADMIN · FORWARD RESEARCH</span>
             <h2>Short-Term Lab</h2>
-            <p>Relative Strength vs BTC: сигнал 60 мин, исполнение 5 мин, проверка на 30/90/180/365 днях.</p>
+            <p>Relative Strength vs BTC: сигнал 60 мин, исполнение 5 мин, проверка на 30/90/180/365 днях + среднее за неделю.</p>
         </div>
         <button class="btn btn-secondary" type="button"
                 hx-get="/tab/short-term?refresh=true"
@@ -57,8 +57,13 @@
                 <div><dt>Сделок</dt><dd>{{ strategy.trades|default(0) }}</dd></div>
                 <div><dt>Сделок/день</dt><dd>{{ '%.2f'|format(strategy.trades_per_day|default(0)) }}</dd></div>
                 <div><dt>В плюсе</dt><dd>{{ '%.1f'|format(strategy.win_rate|default(0)) }}%</dd></div>
+                {% if strategy.is_weekly_avg|default(false) %}
+                <div><dt>Итог (365д)</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
+                <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</strong></dd></div>
+                {% else %}
                 <div><dt>Итог</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
                 <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</dd></div>
+                {% endif %}
                 <div><dt>Profit factor</dt><dd>{{ '%.2f'|format(strategy.profit_factor|default(0)) }}</dd></div>
             </dl>
             {% endif %}

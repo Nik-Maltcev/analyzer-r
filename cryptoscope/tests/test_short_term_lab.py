@@ -156,9 +156,9 @@ def test_dual_momentum_backtest_has_only_90_day_window():
 
     _, metrics = backtest(candles, {"dual_momentum": []})
 
-    assert BACKTEST_WINDOWS_DAYS == (7, 30, 90, 180, 365)
+    assert BACKTEST_WINDOWS_DAYS == (30, 90, 180, 365)
     assert set(metrics) == {
-        "dual_momentum_7d", "dual_momentum_30d", "dual_momentum_90d",
+        "dual_momentum_30d", "dual_momentum_90d",
         "dual_momentum_180d", "dual_momentum_365d",
     }
     assert metrics["dual_momentum_90d"]["window_days"] == 90

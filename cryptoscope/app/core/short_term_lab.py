@@ -37,7 +37,7 @@ STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
-BACKTEST_WINDOWS_DAYS = (7, 30, 90, 180, 365)
+BACKTEST_WINDOWS_DAYS = (30, 90, 180, 365)
 STRATEGIES = {
     "rs_low_cost": {
         "name": "RS vs BTC (low cost 0.10%)",
@@ -2385,7 +2385,7 @@ def get_short_term_report(db_path: str) -> dict:
     strategy_metrics = metrics.get("strategies", {})
     strategy_cards = []
     for strategy_key, settings in STRATEGIES.items():
-        for days in BACKTEST_WINDOWS_DAYS:
+        for days in (30, 90, 180, 365):
             key = f"{strategy_key}_{days}d"
             card = {
                 "key": key,
@@ -2395,6 +2395,25 @@ def get_short_term_report(db_path: str) -> dict:
             }
             card.update(strategy_metrics.get(key, {}))
             strategy_cards.append(card)
+        # Average per week across all data (365d)
+        full_key = f"{strategy_key}_365d"
+        full = strategy_metrics.get(full_key, {})
+        weekly_card = {
+            "key": f"{strategy_key}_weekly",
+            "strategy_key": strategy_key,
+            **settings,
+            "short_name": f"{settings['short_name']} · ср./неделю",
+            "window_days": 365,
+            "is_weekly_avg": True,
+            "net_cash": full.get("net_cash", 0),
+            "avg_weekly_cash": full.get("avg_weekly_cash", 0),
+            "trades": full.get("trades", 0),
+            "trades_per_day": full.get("trades_per_day", 0),
+            "win_rate": full.get("win_rate", 0),
+            "wins": full.get("wins", 0),
+            "profit_factor": full.get("profit_factor", 0),
+        }
+        strategy_cards.append(weekly_card)
     return {
         "version": CALCULATION_VERSION,
         "latest": latest_dict,
