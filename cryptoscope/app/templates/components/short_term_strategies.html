@@ -1,0 +1,40 @@
+<section class="stl-strategies" aria-label="Сравнение исторических периодов" data-stake="{{ stake|default(100) }}" data-stop="{{ stop|default(4.0) }}" data-target="{{ target|default(6.0) }}">
+    {% if strategies %}
+        <div class="stl-strategy-group">
+            {% for strategy in strategies %}
+            {% if loop.first %}
+            <div class="stl-group-delim"></div>
+            {% elif strategy.strategy_key != strategies[loop.index0 - 1].strategy_key %}
+            <div class="stl-group-delim"></div>
+            {% endif %}
+            <article class="stl-strategy">
+                <div class="stl-strategy-head">
+                    <span>{{ strategy.strategy_key|replace('_', ' ') }}</span>
+                    <strong>{{ strategy.short_name }}</strong>
+                </div>
+                <p>{{ strategy.description }}</p>
+                {% if not strategy.is_complete|default(false) %}
+                <div class="stl-incomplete">
+                    <strong>История ещё загружается</strong>
+                    <span>{{ strategy.coverage_days|default(0) }} из {{ strategy.window_days }} дн.</span>
+                </div>
+                {% else %}
+                <dl>
+                    <div><dt>Сделок</dt><dd>{{ strategy.trades|default(0) }}</dd></div>
+                    <div><dt>Сделок/день</dt><dd>{{ '%.2f'|format(strategy.trades_per_day|default(0)) }}</dd></div>
+                    <div><dt>В плюсе</dt><dd>{{ '%.1f'|format(strategy.win_rate|default(0)) }}%</dd></div>
+                    {% if strategy.is_weekly_avg|default(false) %}
+                    <div><dt>Итог (365д)</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-cash="{{ strategy.net_cash|default(0) }}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
+                    <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-weekly="{{ strategy.avg_weekly_cash|default(0) }}"><strong>{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</strong></dd></div>
+                    {% else %}
+                    <div><dt>Итог</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-cash="{{ strategy.net_cash|default(0) }}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
+                    <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-weekly="{{ strategy.avg_weekly_cash|default(0) }}">{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</dd></div>
+                    {% endif %}
+                    <div><dt>Profit factor</dt><dd>{{ '%.2f'|format(strategy.profit_factor|default(0)) }}</dd></div>
+                </dl>
+                {% endif %}
+            </article>
+            {% endfor %}
+        </div>
+    {% endif %}
+</section>

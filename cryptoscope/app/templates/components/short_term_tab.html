@@ -42,40 +42,14 @@
     <div class="stl-calculator" id="stl-calculator">
         <label>Сумма ($)<input type="number" id="stl-stake" min="0.01" step="0.01" value="100"></label>
         <label>Плечо (×)<input type="number" id="stl-leverage" min="0.1" step="0.1" value="1"></label>
+        <label>Stop loss (%)<input type="number" id="stl-stop" min="0" step="0.1" value="{{ report.settings.stop|default(4.0) }}"></label>
+        <label>Take profit (%)<input type="number" id="stl-target" min="0" step="0.1" value="{{ report.settings.target|default(6.0) }}"></label>
+        <button class="btn btn-secondary" type="button" id="stl-recalc-btn">Пересчитать</button>
         <span class="stl-calc-output">Позиция: <strong id="stl-position">$100</strong> · суммарно <strong id="stl-total-per-trade">$100</strong> на сделку</span>
+        <span class="stl-calc-status" id="stl-recalc-status"></span>
     </div>
 
-    <section class="stl-strategies" aria-label="Сравнение исторических периодов" data-stake="{{ report.settings.stake }}">
-        {% for strategy in report.strategies %}
-        <article class="stl-strategy">
-            <div class="stl-strategy-head">
-                <span>{{ loop.index }} / {{ report.strategies|length }}</span>
-                <strong>{{ strategy.short_name }}</strong>
-            </div>
-            <p>{{ strategy.description }}</p>
-            {% if not strategy.is_complete|default(false) %}
-            <div class="stl-incomplete">
-                <strong>История ещё загружается</strong>
-                <span>{{ strategy.coverage_days|default(0) }} из {{ strategy.window_days }} дн.</span>
-            </div>
-            {% else %}
-            <dl>
-                <div><dt>Сделок</dt><dd>{{ strategy.trades|default(0) }}</dd></div>
-                <div><dt>Сделок/день</dt><dd>{{ '%.2f'|format(strategy.trades_per_day|default(0)) }}</dd></div>
-                <div><dt>В плюсе</dt><dd>{{ '%.1f'|format(strategy.win_rate|default(0)) }}%</dd></div>
-                {% if strategy.is_weekly_avg|default(false) %}
-                <div><dt>Итог (365д)</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-cash="{{ strategy.net_cash|default(0) }}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
-                <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-weekly="{{ strategy.avg_weekly_cash|default(0) }}"><strong>{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</strong></dd></div>
-                {% else %}
-                <div><dt>Итог</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-cash="{{ strategy.net_cash|default(0) }}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
-                <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-weekly="{{ strategy.avg_weekly_cash|default(0) }}">{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</dd></div>
-                {% endif %}
-                <div><dt>Profit factor</dt><dd>{{ '%.2f'|format(strategy.profit_factor|default(0)) }}</dd></div>
-            </dl>
-            {% endif %}
-        </article>
-        {% endfor %}
-    </section>
+    {% include "components/short_term_strategies.html" with strategies=report.strategies, stake=report.settings.stake, stop=report.settings.stop|default(4.0), target=report.settings.target|default(6.0) %}
 
     <section class="stl-panel">
         <header>
@@ -219,6 +193,41 @@
         stakeInput.addEventListener('input', recalc);
         levInput.addEventListener('input', recalc);
         recalc();
+
+        var stopInput = document.getElementById('stl-stop');
+        var targetInput = document.getElementById('stl-target');
+        var recalcBtn = document.getElementById('stl-recalc-btn');
+        var recalcStatus = document.getElementById('stl-recalc-status');
+        var strategiesSection = document.querySelector('.stl-strategies');
+
+        function doRecalc() {
+            if (!recalcBtn || !strategiesSection) return;
+            var stop = parseFloat(stopInput ? stopInput.value : 4.0) || 0;
+            var target = parseFloat(targetInput ? targetInput.value : 6.0) || 0;
+            recalcBtn.disabled = true;
+            if (recalcStatus) recalcStatus.textContent = 'Пересчитываем…';
+            var url = '/tab/short-term/recalc-strategies?stop=' + stop + '&target=' + target +
+                      '&stake=' + (strategiesSection.getAttribute('data-stake') || '100');
+            fetch(url, { headers: { 'HX-Request': 'true' } })
+                .then(function(r) { return r.text(); })
+                .then(function(html) {
+                    var tmp = document.createElement('div');
+                    tmp.innerHTML = html;
+                    var fresh = tmp.querySelector('.stl-strategies');
+                    if (fresh) {
+                        strategiesSection.replaceWith(fresh);
+                        strategiesSection = fresh;
+                    }
+                    if (recalcStatus) recalcStatus.textContent = 'Готово ✓';
+                    // re-run stake scaling on the new node
+                    recalc();
+                })
+                .catch(function(e) {
+                    if (recalcStatus) recalcStatus.textContent = 'Ошибка: ' + e;
+                })
+                .finally(function() { recalcBtn.disabled = false; });
+        }
+        if (recalcBtn) recalcBtn.addEventListener('click', doRecalc);
     })();
     </script>
 </section>

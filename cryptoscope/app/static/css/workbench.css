@@ -5738,6 +5738,8 @@ html[data-view-mode='beginner'] .signals-page {
 .stl-calculator input { width: 100px; padding: 6px 8px; font-size: 14px; color: var(--text-primary); background: var(--input-bg, var(--bg)); border: 1px solid var(--border); border-radius: 4px; }
 .stl-calc-output { font-size: 13px; color: var(--text-secondary); }
 .stl-calc-output strong { color: var(--text-primary); }
+.stl-calc-status { font-size: 12px; color: var(--text-muted); font-style: italic; }
+.stl-calculator button:disabled { opacity: .55; cursor: wait; }
 
 .stl-header,
 .stl-panel > header,
@@ -5793,9 +5795,12 @@ html[data-view-mode='beginner'] .signals-page {
 }
 
 .stl-strategies {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
     margin-top: 12px;
+}
+
+.stl-strategy-group {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .stl-strategy {
@@ -5806,6 +5811,19 @@ html[data-view-mode='beginner'] .signals-page {
 
 .stl-strategy:last-child {
     border-right: 0;
+}
+
+.stl-group-delim {
+    grid-column: 1 / -1;
+    height: 6px;
+    background: repeating-linear-gradient(
+        90deg,
+        var(--border) 0 10px,
+        transparent 10px 18px
+    );
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    margin: 0 -1px;
 }
 
 .stl-strategy-head span,
@@ -5908,7 +5926,7 @@ html[data-view-mode='beginner'] .signals-page {
 }
 
 @media (max-width: 1000px) {
-    .stl-strategies {
+    .stl-strategy-group {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
@@ -5933,7 +5951,7 @@ html[data-view-mode='beginner'] .signals-page {
         flex-direction: column;
     }
 
-    .stl-strategies {
+    .stl-strategy-group {
         grid-template-columns: 1fr;
     }
 

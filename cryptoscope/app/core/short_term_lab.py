@@ -2402,6 +2402,120 @@ async def refresh_short_term_lab(db_path: str, *, include_backtest: bool = True)
     )
 
 
+def _build_strategy_cards(strategy_metrics: dict) -> list[dict]:
+    strategy_cards = []
+    for strategy_key, settings in STRATEGIES.items():
+        for days in (30, 90, 180, 365):
+            key = f"{strategy_key}_{days}d"
+            card = {
+                "key": key,
+                "strategy_key": strategy_key,
+                "stop_pct": settings["stop"],
+                "target_pct": settings["target"],
+                **settings,
+                "short_name": f"{settings['short_name']} · {days} дн.",
+            }
+            card.update(strategy_metrics.get(key, {}))
+            strategy_cards.append(card)
+        # Average per week across all data (365d)
+        full_key = f"{strategy_key}_365d"
+        full = strategy_metrics.get(full_key, {})
+        weekly_card = {
+            "key": f"{strategy_key}_weekly",
+            "strategy_key": strategy_key,
+            "stop_pct": settings["stop"],
+            "target_pct": settings["target"],
+            **settings,
+            "short_name": f"{settings['short_name']} · ср./неделю",
+            "window_days": 365,
+            "is_weekly_avg": True,
+            "is_complete": full.get("is_complete", True),
+            "coverage_days": full.get("coverage_days", 365),
+            "net_cash": full.get("net_cash", 0),
+            "avg_weekly_cash": full.get("avg_weekly_cash", 0),
+            "trades": full.get("trades", 0),
+            "trades_per_day": full.get("trades_per_day", 0),
+            "win_rate": full.get("win_rate", 0),
+            "wins": full.get("wins", 0),
+            "profit_factor": full.get("profit_factor", 0),
+        }
+        strategy_cards.append(weekly_card)
+    return strategy_cards
+
+
+def build_strategy_cards_for_report(strategy_metrics: dict) -> list[dict]:
+    return _build_strategy_cards(strategy_metrics)
+
+
+def recalc_short_term_report(
+    db_path: str, *, stop_pct: float, target_pct: float
+) -> dict:
+    """Re-run the backtest for every strategy with custom stop/target overrides.
+
+    Uses the completed run's already-downloaded execution candles so the
+    recalculation is fast and does not hit the network.
+    """
+    conn = sqlite3.connect(db_path, timeout=60)
+    conn.row_factory = sqlite3.Row
+    try:
+        ensure_short_term_schema(conn)
+        latest_ms = int(datetime.now(UTC).timestamp() * 1000)
+        completed_before = latest_ms // FIVE_MINUTES_MS * FIVE_MINUTES_MS
+        # Candidate signals still need the full hourly window; execution bars are
+        # read from the reversal (5-min) start time.
+        hourly = _load_hourly_candles(conn)
+        funding = _load_funding_rates(conn)
+        perp_candles = _load_perp_candles(conn)
+        if hourly.empty:
+            raise ValueError("No hourly candles stored yet")
+        latest_hourly = int(hourly["open_time"].max())
+        cutoff = latest_hourly - max(BACKTEST_WINDOWS_DAYS) * 24 * 60 * 60 * 1000
+        historical_candidates = generate_candidates(
+            hourly, already_hourly=True, funding=funding, perp=perp_candles
+        )
+        all_eligible: dict[str, list[dict]] = {}
+        for strategy in STRATEGIES:
+            eligible = [
+                event
+                for event in historical_candidates.get(strategy, [])
+                if int(event["signal_time"]) >= cutoff
+            ]
+            all_eligible[strategy] = (
+                _select_non_overlapping_candidates(eligible) if eligible else []
+            )
+        # Override the per-strategy stop/target coming from _candidate defaults.
+        override = {
+            "stop_pct": stop_pct,
+            "target_pct": target_pct,
+        }
+        for events in all_eligible.values():
+            for event in events:
+                event.update(override)
+        flat_candidates = [
+            candidate
+            for candidates in all_eligible.values()
+            for candidate in candidates
+        ]
+        del hourly, funding, perp_candles
+        import gc; gc.collect()
+        if not flat_candidates:
+            return {"strategies": {}}
+        earliest_signal = min(int(c["signal_time"]) for c in flat_candidates)
+        candles = _load_candles(conn, since_ms=earliest_signal)
+        if candles.empty:
+            return {"strategies": {}}
+        trades, metrics = backtest(candles, all_eligible)
+        coverage_days = 0
+        if metrics:
+            # reuse coverage from any single metric group
+            for metric in metrics.values():
+                coverage_days = int(metric.get("coverage_days") or 0)
+                break
+        return {"strategies": metrics, "coverage_days": coverage_days}
+    finally:
+        conn.close()
+
+
 def _format_time(value: int | None) -> str:
     if not value:
         return "—"
@@ -2472,39 +2586,7 @@ def get_short_term_report(db_path: str) -> dict:
         completed_dict["data_label"] = _format_time(completed_dict.get("data_end"))
         completed_dict["coverage_days"] = int(metrics.get("coverage_days") or 0)
     strategy_metrics = metrics.get("strategies", {})
-    strategy_cards = []
-    for strategy_key, settings in STRATEGIES.items():
-        for days in (30, 90, 180, 365):
-            key = f"{strategy_key}_{days}d"
-            card = {
-                "key": key,
-                "strategy_key": strategy_key,
-                **settings,
-                "short_name": f"{settings['short_name']} · {days} дн.",
-            }
-            card.update(strategy_metrics.get(key, {}))
-            strategy_cards.append(card)
-        # Average per week across all data (365d)
-        full_key = f"{strategy_key}_365d"
-        full = strategy_metrics.get(full_key, {})
-        weekly_card = {
-            "key": f"{strategy_key}_weekly",
-            "strategy_key": strategy_key,
-            **settings,
-            "short_name": f"{settings['short_name']} · ср./неделю",
-            "window_days": 365,
-            "is_weekly_avg": True,
-            "is_complete": full.get("is_complete", True),
-            "coverage_days": full.get("coverage_days", 365),
-            "net_cash": full.get("net_cash", 0),
-            "avg_weekly_cash": full.get("avg_weekly_cash", 0),
-            "trades": full.get("trades", 0),
-            "trades_per_day": full.get("trades_per_day", 0),
-            "win_rate": full.get("win_rate", 0),
-            "wins": full.get("wins", 0),
-            "profit_factor": full.get("profit_factor", 0),
-        }
-        strategy_cards.append(weekly_card)
+    strategy_cards = _build_strategy_cards(strategy_metrics)
     return {
         "version": CALCULATION_VERSION,
         "latest": latest_dict,
@@ -2516,6 +2598,8 @@ def get_short_term_report(db_path: str) -> dict:
         "settings": {
             "stake": STAKE_USD,
             "cost_pct": ROUND_TRIP_COST_PCT,
+            "stop": STRATEGIES["rs_low_cost"]["stop"],
+            "target": STRATEGIES["rs_low_cost"]["target"],
             "universe_size": len(INTRADAY_TICKERS),
         },
     }

@@ -9,7 +9,12 @@ from fastapi.responses import HTMLResponse
 
 from app.access import is_admin_user
 from app.auth import get_current_user
-from app.core.short_term_lab import get_short_term_report, refresh_short_term_lab
+from app.core.short_term_lab import (
+    build_strategy_cards_for_report,
+    get_short_term_report,
+    recalc_short_term_report,
+    refresh_short_term_lab,
+)
 from app.db import database
 from app.ui.templates import templates
 
@@ -57,4 +62,32 @@ async def short_term_tab(request: Request, refresh: bool = Query(False)):
         request,
         "components/short_term_tab.html",
         {"report": report},
+    )
+
+
+@router.get("/recalc-strategies", response_class=HTMLResponse)
+async def recalc_strategies(
+    request: Request,
+    stop: float = Query(default=4.0, ge=0),
+    target: float = Query(default=6.0, ge=0),
+    stake: float = Query(default=100.0, gt=0),
+):
+    await _require_admin(request)
+    result = await asyncio.to_thread(
+        recalc_short_term_report,
+        database.DB_PATH,
+        stop_pct=stop,
+        target_pct=target,
+    )
+    strategy_metrics = result.get("strategies") or {}
+    strategy_cards = build_strategy_cards_for_report(strategy_metrics)
+    return templates.TemplateResponse(
+        request,
+        "components/short_term_strategies.html",
+        {
+            "strategies": strategy_cards,
+            "stake": stake,
+            "stop": stop,
+            "target": target,
+        },
     )
