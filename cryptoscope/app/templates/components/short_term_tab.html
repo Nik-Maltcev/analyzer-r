@@ -39,7 +39,13 @@
         <span>Версия {{ report.version }}</span>
     </div>
 
-    <section class="stl-strategies" aria-label="Сравнение исторических периодов">
+    <div class="stl-calculator" id="stl-calculator">
+        <label>Сумма ($)<input type="number" id="stl-stake" min="0.01" step="0.01" value="100"></label>
+        <label>Плечо (×)<input type="number" id="stl-leverage" min="0.1" step="0.1" value="1"></label>
+        <span class="stl-calc-output">Позиция: <strong id="stl-position">$100</strong> · суммарно <strong id="stl-total-per-trade">$100</strong> на сделку</span>
+    </div>
+
+    <section class="stl-strategies" aria-label="Сравнение исторических периодов" data-stake="{{ report.settings.stake }}">
         {% for strategy in report.strategies %}
         <article class="stl-strategy">
             <div class="stl-strategy-head">
@@ -58,11 +64,11 @@
                 <div><dt>Сделок/день</dt><dd>{{ '%.2f'|format(strategy.trades_per_day|default(0)) }}</dd></div>
                 <div><dt>В плюсе</dt><dd>{{ '%.1f'|format(strategy.win_rate|default(0)) }}%</dd></div>
                 {% if strategy.is_weekly_avg|default(false) %}
-                <div><dt>Итог (365д)</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
-                <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</strong></dd></div>
+                <div><dt>Итог (365д)</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-cash="{{ strategy.net_cash|default(0) }}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
+                <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-weekly="{{ strategy.avg_weekly_cash|default(0) }}"><strong>{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</strong></dd></div>
                 {% else %}
-                <div><dt>Итог</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
-                <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</dd></div>
+                <div><dt>Итог</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-cash="{{ strategy.net_cash|default(0) }}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
+                <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-weekly="{{ strategy.avg_weekly_cash|default(0) }}">{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</dd></div>
                 {% endif %}
                 <div><dt>Profit factor</dt><dd>{{ '%.2f'|format(strategy.profit_factor|default(0)) }}</dd></div>
             </dl>
@@ -95,7 +101,7 @@
                     {% else %}
                     <td>${{ '%.7g'|format(trade.entry_price) }}<span>{{ trade.entry_label }} UTC</span></td>
                     <td>{{ trade.planned_exit_label }} UTC<span>строго через {{ trade.hold_minutes // 60 }} ч.</span></td>
-                    <td class="{% if trade.current_net_return_pct >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(trade.current_net_return_pct) }}%</strong><span>{{ '%+.2f'|format(trade.current_cash_result) }} $ при $100</span></td>
+                    <td class="{% if trade.current_net_return_pct >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(trade.current_net_return_pct) }}%</strong><span data-trade-cash="{{ trade.current_cash_result }}">при <span class="stl-stake-display">$100</span></span></td>
                     {% endif %}
                 </tr>
                 {% endfor %}
@@ -124,7 +130,7 @@
                     <td class="{% if trade.direction == 'long' %}positive{% else %}negative{% endif %}">{{ trade.direction|upper }}</td>
                     <td>${{ '%.7g'|format(trade.entry_price) }} → ${{ '%.7g'|format(trade.exit_price) }}<span>{{ trade.entry_label }} → {{ trade.exit_label }} UTC</span></td>
                     <td>{{ {'target':'цель','stop':'стоп','time':'срок'}.get(trade.exit_reason, trade.exit_reason) }}</td>
-                    <td class="{% if trade.net_return_pct >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(trade.net_return_pct) }}%</strong><span>{{ '%+.2f'|format(trade.cash_result) }} $ при $100</span></td>
+                    <td class="{% if trade.net_return_pct >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(trade.net_return_pct) }}%</strong><span data-trade-cash="{{ trade.cash_result }}">при <span class="stl-stake-display">$100</span></span></td>
                 </tr>
                 {% endfor %}
                 </tbody>
@@ -142,4 +148,77 @@
         Исследовательский раздел, не индивидуальная рекомендация. Исторический тест и forward-журнал
         используют только завершённые свечи; вход происходит на следующей свече. Закрытые результаты не переписываются.
     </footer>
+
+    <script>
+    (function() {
+        var stakeInput = document.getElementById('stl-stake');
+        var levInput = document.getElementById('stl-leverage');
+        var posOut = document.getElementById('stl-position');
+        var perTradeOut = document.getElementById('stl-total-per-trade');
+        if (!stakeInput || !levInput) return;
+
+        var LS_STAKE = 'stl-stake';
+        var LS_LEV = 'stl-lev';
+        try {
+            var s = localStorage.getItem(LS_STAKE);
+            var l = localStorage.getItem(LS_LEV);
+            if (s) stakeInput.value = s;
+            if (l) levInput.value = l;
+        } catch (e) {}
+
+        function baseline() {
+            var sec = document.querySelector('.stl-strategies[data-stake]');
+            return sec ? parseFloat(sec.getAttribute('data-stake')) || 100 : 100;
+        }
+
+        function fmtMoney(v) {
+            var s = (v >= 0 ? '+' : '') + v.toFixed(2);
+            return s + ' $';
+        }
+
+        function recalc() {
+            var stake = parseFloat(stakeInput.value) || 0;
+            var lev = Math.max(0, parseFloat(levInput.value) || 0);
+            try {
+                localStorage.setItem(LS_STAKE, stakeInput.value);
+                localStorage.setItem(LS_LEV, levInput.value);
+            } catch (e) {}
+            var base = baseline();
+            var scale = base > 0 ? (stake * lev) / base : 0;
+            var position = stake;
+            var perTrade = stake * lev;
+
+            if (posOut) posOut.textContent = '$' + position.toFixed(2);
+            if (perTradeOut) perTradeOut.textContent = '$' + perTrade.toFixed(2);
+
+            document.querySelectorAll('[data-cash]').forEach(function(el) {
+                var orig = parseFloat(el.getAttribute('data-cash')) || 0;
+                el.textContent = fmtMoney(orig * scale);
+            });
+            document.querySelectorAll('[data-weekly]').forEach(function(el) {
+                var orig = parseFloat(el.getAttribute('data-weekly')) || 0;
+                var strong = el.querySelector('strong');
+                if (strong) {
+                    strong.textContent = fmtMoney(orig * scale);
+                } else {
+                    el.textContent = fmtMoney(orig * scale);
+                }
+            });
+            document.querySelectorAll('.stl-stake-display').forEach(function(el) {
+                el.textContent = '$' + perTrade.toFixed(2);
+            });
+            document.querySelectorAll('[data-trade-cash]').forEach(function(el) {
+                var orig = parseFloat(el.getAttribute('data-trade-cash')) || 0;
+                var stakeSpan = el.querySelector('.stl-stake-display');
+                if (stakeSpan) {
+                    el.innerHTML = ' ' + fmtMoney(orig * scale) + ' при <span class="stl-stake-display">$' + perTrade.toFixed(2) + '</span>';
+                }
+            });
+        }
+
+        stakeInput.addEventListener('input', recalc);
+        levInput.addEventListener('input', recalc);
+        recalc();
+    })();
+    </script>
 </section>

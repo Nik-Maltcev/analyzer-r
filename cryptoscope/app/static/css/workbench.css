@@ -5722,6 +5722,23 @@ html[data-view-mode='beginner'] .signals-page {
     color: var(--text-primary);
 }
 
+.stl-calculator {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    margin: 0 0 18px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+}
+.stl-calculator label { display:flex; flex-direction:column; gap:4px; font-size: 12px; color: var(--text-secondary); }
+.stl-calculator input { width: 100px; padding: 6px 8px; font-size: 14px; color: var(--text-primary); background: var(--input-bg, var(--bg)); border: 1px solid var(--border); border-radius: 4px; }
+.stl-calc-output { font-size: 13px; color: var(--text-secondary); }
+.stl-calc-output strong { color: var(--text-primary); }
+
 .stl-header,
 .stl-panel > header,
 .stl-meta,
