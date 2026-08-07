@@ -73,21 +73,36 @@ async def recalc_strategies(
     stake: float = Query(default=100.0, gt=0),
 ):
     await _require_admin(request)
-    result = await asyncio.to_thread(
-        recalc_short_term_report,
-        database.DB_PATH,
-        stop_pct=stop,
-        target_pct=target,
-    )
-    strategy_metrics = result.get("strategies") or {}
-    strategy_cards = build_strategy_cards_for_report(strategy_metrics)
-    return templates.TemplateResponse(
-        request,
-        "components/short_term_strategies.html",
-        {
-            "strategies": strategy_cards,
-            "stake": stake,
-            "stop": stop,
-            "target": target,
-        },
-    )
+    try:
+        result = await asyncio.to_thread(
+            recalc_short_term_report,
+            database.DB_PATH,
+            stop_pct=stop,
+            target_pct=target,
+        )
+        strategy_metrics = result.get("strategies") or {}
+        strategy_cards = build_strategy_cards_for_report(strategy_metrics)
+        return templates.TemplateResponse(
+            request,
+            "components/short_term_strategies.html",
+            {
+                "strategies": strategy_cards,
+                "stake": stake,
+                "stop": stop,
+                "target": target,
+            },
+        )
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return templates.TemplateResponse(
+            request,
+            "components/short_term_strategies.html",
+            {
+                "strategies": [],
+                "error": str(exc)[:500],
+                "stake": stake,
+                "stop": stop,
+                "target": target,
+            },
+        )

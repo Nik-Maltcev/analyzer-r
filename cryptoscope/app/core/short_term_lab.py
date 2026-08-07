@@ -138,7 +138,9 @@ def ensure_short_term_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _load_candles(conn: sqlite3.Connection, *, since_ms: int | None = None) -> pd.DataFrame:
+def _load_candles(
+    conn: sqlite3.Connection, *, since_ms: int | None = None
+) -> pd.DataFrame:
     if since_ms is not None:
         frame = pd.read_sql_query(
             """
@@ -159,6 +161,32 @@ def _load_candles(conn: sqlite3.Connection, *, since_ms: int | None = None) -> p
             """,
             conn,
         )
+    if frame.empty:
+        return frame
+    for column in ("open", "high", "low", "close", "volume", "quote_volume"):
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    return frame.dropna(subset=["open", "high", "low", "close"])
+
+
+def _load_candles_for_ticker(
+    conn: sqlite3.Connection, ticker: str, *, since_ms: int | None = None
+) -> pd.DataFrame:
+    params: list[int] = []
+    where = "ticker=?"
+    params.append(ticker)
+    if since_ms is not None:
+        where += " AND open_time >= ?"
+        params.append(since_ms)
+    frame = pd.read_sql_query(
+        f"""
+        SELECT ticker, open_time, open, high, low, close, volume, quote_volume
+        FROM reversal_candles
+        WHERE {where}
+        ORDER BY open_time
+        """,
+        conn,
+        params=params,
+    )
     if frame.empty:
         return frame
     for column in ("open", "high", "low", "close", "volume", "quote_volume"):
@@ -2479,65 +2507,125 @@ def recalc_short_term_report(
 def _recalc_short_term_report_impl(
     db_path: str, *, stop_pct: float, target_pct: float
 ) -> dict:
+    """Replay the already-stored backtest trades with a new SL/TP.
+
+    No network calls, no re-generation of signals: we reuse the exact same
+    entries and re-evaluate their exits against the stored 5-min candles,
+    ticker-by-ticker, so peak memory stays bounded.
+    """
     conn = sqlite3.connect(db_path, timeout=60)
     conn.row_factory = sqlite3.Row
     try:
         ensure_short_term_schema(conn)
-        latest_ms = int(datetime.now(UTC).timestamp() * 1000)
-        completed_before = latest_ms // FIVE_MINUTES_MS * FIVE_MINUTES_MS
-        # Candidate signals still need the full hourly window; execution bars are
-        # read from the reversal (5-min) start time.
-        hourly = _load_hourly_candles(conn)
-        funding = _load_funding_rates(conn)
-        perp_candles = _load_perp_candles(conn)
-        if hourly.empty:
-            raise ValueError("No hourly candles stored yet")
-        latest_hourly = int(hourly["open_time"].max())
-        cutoff = latest_hourly - max(BACKTEST_WINDOWS_DAYS) * 24 * 60 * 60 * 1000
-        historical_candidates = generate_candidates(
-            hourly, already_hourly=True, funding=funding, perp=perp_candles
-        )
-        all_eligible: dict[str, list[dict]] = {}
-        for strategy in STRATEGIES:
-            eligible = [
-                event
-                for event in historical_candidates.get(strategy, [])
-                if int(event["signal_time"]) >= cutoff
-            ]
-            all_eligible[strategy] = (
-                _select_non_overlapping_candidates(eligible) if eligible else []
-            )
-        # Override the per-strategy stop/target coming from _candidate defaults.
-        override = {
-            "stop_pct": stop_pct,
-            "target_pct": target_pct,
-        }
-        for events in all_eligible.values():
-            for event in events:
-                event.update(override)
-        flat_candidates = [
-            candidate
-            for candidates in all_eligible.values()
-            for candidate in candidates
-        ]
-        del hourly, funding, perp_candles
-        import gc; gc.collect()
-        if not flat_candidates:
-            return {"strategies": {}}
-        earliest_signal = min(int(c["signal_time"]) for c in flat_candidates)
-        candles = _load_candles(conn, since_ms=earliest_signal)
-        if candles.empty:
-            return {"strategies": {}}
-        trades, metrics = backtest(candles, all_eligible)
+        run = conn.execute(
+            """
+            SELECT id, metrics_json FROM short_term_runs
+            WHERE calculation_version=? AND status='completed'
+            ORDER BY id DESC LIMIT 1
+            """,
+            (CALCULATION_VERSION,),
+        ).fetchone()
+        if run is None:
+            raise ValueError("Завершённого расчёта ещё нет — сначала запустите «Обновить расчёт»")
+        rows = conn.execute(
+            """
+            SELECT strategy, ticker, direction, entry_time, entry_price, score,
+                   confidence, cost_pct, hedge_ticker, hedge_direction, hedge_ratio
+            FROM short_term_backtest_trades
+            WHERE run_id=?
+            """,
+            (run["id"],),
+        ).fetchall()
         coverage_days = 0
-        if metrics:
-            # reuse coverage from any single metric group
-            for metric in metrics.values():
-                coverage_days = int(metric.get("coverage_days") or 0)
-                break
+        try:
+            coverage_days = int((json.loads(run["metrics_json"] or "{}")).get("coverage_days") or 0)
+        except Exception:
+            pass
+        if not rows:
+            return {"strategies": {}}
+
+        by_ticker: dict[str, list[dict]] = {}
+        for row in rows:
+            by_ticker.setdefault(row["ticker"], []).append(dict(row))
+        trades: list[dict] = []
+        for ticker, trade_rows in by_ticker.items():
+            earliest = min(int(t["entry_time"]) for t in trade_rows)
+            ticker_bars = _load_candles_for_ticker(conn, ticker, since_ms=earliest)
+            if ticker_bars.empty:
+                continue
+            for t in trade_rows:
+                candidate = {
+                    "strategy": t["strategy"],
+                    "ticker": t["ticker"],
+                    "direction": t["direction"],
+                    "signal_time": int(t["entry_time"]),
+                    "signal_price": float(t["entry_price"] or 0),
+                    "score": float(t["score"] or 0),
+                    "confidence": t["confidence"] or "medium",
+                    "timeframe_minutes": int(STRATEGIES[t["strategy"]]["timeframe"]),
+                    "hold_minutes": int(STRATEGIES[t["strategy"]]["hold"]),
+                    "stop_pct": float(stop_pct),
+                    "target_pct": float(target_pct),
+                    "cost_pct": float(t["cost_pct"] or ROUND_TRIP_COST_PCT),
+                    "trailing_stop_pct": 0.0,
+                    "hedge_ticker": t.get("hedge_ticker") or None,
+                    "hedge_direction": t.get("hedge_direction") or None,
+                    "hedge_ratio": float(t.get("hedge_ratio") or 0.0),
+                }
+                hedge_bars = None
+                trade = _simulate(candidate, ticker_bars, hedge_bars)
+                if trade is not None:
+                    trades.append(trade)
+            del ticker_bars
+            gc.collect()
+        if not trades:
+            return {"strategies": {}}
+        metrics = _build_recalc_metrics(trades)
+        for metric in metrics.values():
+            metric["coverage_days"] = coverage_days
+            metric["is_complete"] = coverage_days >= int(metric.get("window_days") or 0)
         return {"strategies": metrics, "coverage_days": coverage_days}
     finally:
         conn.close()
+
+
+def _build_recalc_metrics(trades: list[dict]) -> dict:
+    if not trades:
+        return {}
+    latest_time = max(int(trade["entry_time"]) for trade in trades)
+    earliest_time = min(int(trade["entry_time"]) for trade in trades)
+    coverage_days = (
+        int((latest_time - earliest_time) // (24 * 60 * 60 * 1000)) + 1
+        if latest_time and earliest_time else 0
+    )
+    metrics: dict[str, dict] = {}
+    strategies = sorted({trade["strategy"] for trade in trades})
+    for strategy in strategies:
+        for days in BACKTEST_WINDOWS_DAYS:
+            cutoff = latest_time - days * 24 * 60 * 60 * 1000
+            subset = [
+                trade for trade in trades
+                if trade["strategy"] == strategy
+                and int(trade["entry_time"]) >= cutoff
+            ]
+            values = [float(trade["cash_result"]) for trade in subset]
+            wins = [value for value in values if value > 0]
+            losses = [value for value in values if value < 0]
+            metrics[f"{strategy}_{days}d"] = {
+                "window_days": days,
+                "strategy": strategy,
+                "coverage_days": coverage_days,
+                "is_complete": coverage_days >= days,
+                "trades": len(subset),
+                "trades_per_day": len(subset) / days if days else 0.0,
+                "wins": len(wins),
+                "win_rate": len(wins) / len(subset) * 100 if subset else 0.0,
+                "net_cash": sum(values),
+                "avg_weekly_cash": sum(values) * 7 / days if days else 0.0,
+                "average_net_pct": sum(float(trade["net_return_pct"]) for trade in subset) / len(subset) if subset else 0.0,
+                "profit_factor": sum(wins) / abs(sum(losses)) if losses else (999.0 if wins else 0.0),
+            }
+    return metrics
 
 
 def _format_time(value: int | None) -> str:

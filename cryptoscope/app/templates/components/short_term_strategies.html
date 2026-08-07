@@ -1,5 +1,10 @@
 <section class="stl-strategies" aria-label="Сравнение исторических периодов" data-stake="{{ stake|default(100) }}" data-stop="{{ stop|default(4.0) }}" data-target="{{ target|default(6.0) }}">
-    {% if strategies %}
+    {% if error %}
+    <div class="stl-notice is-error" style="grid-column: 1 / -1;">
+        <strong>Ошибка пересчёта</strong>
+        <span>{{ error }}</span>
+    </div>
+    {% elif strategies %}
         <div class="stl-strategy-group">
             {% for strategy in strategies %}
             {% if loop.first %}

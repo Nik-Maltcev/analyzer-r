@@ -207,6 +207,7 @@
 
         function doRecalc() {
             if (!recalcBtn || !strategiesSection) return;
+            if (recalcBtn.disabled) return;
             var stop = parseFloat(stopInput ? stopInput.value : 4.0) || 0;
             var target = parseFloat(targetInput ? targetInput.value : 6.0) || 0;
             try {
