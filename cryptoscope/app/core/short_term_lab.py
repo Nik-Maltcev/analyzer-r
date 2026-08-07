@@ -2104,14 +2104,21 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
         ).lastrowid
         conn.commit()
         try:
+            print("[Short-Term Lab] step 1/10: refresh_reversal_candles", flush=True)
             refresh = await refresh_reversal_candles(conn)
+            print("[Short-Term Lab] step 2/10: refresh_short_term_hourly_candles", flush=True)
             historical_refresh = await refresh_short_term_hourly_candles(conn)
+            print(f"[Short-Term Lab] step 2/10 done: coverage_days={historical_refresh.get('coverage_days')}, inserted={historical_refresh.get('inserted')}", flush=True)
+            print("[Short-Term Lab] step 3/10: refresh_short_term_funding_rates", flush=True)
             funding_refresh = await refresh_short_term_funding_rates(conn)
+            print("[Short-Term Lab] step 4/10: refresh_short_term_perp_candles", flush=True)
             perp_refresh = await refresh_short_term_perp_candles(conn)
+            print("[Short-Term Lab] step 5/10: loading candles from DB", flush=True)
             candles = _load_candles(conn)
             historical_candles = _load_hourly_candles(conn)
             funding = _load_funding_rates(conn)
             perp_candles = _load_perp_candles(conn)
+            print(f"[Short-Term Lab] candles loaded: 5min={len(candles)}, 1h={len(historical_candles)}, perp={len(perp_candles)}", flush=True)
             if candles.empty:
                 raise RuntimeError("MEXC did not return completed 5-minute candles")
             if historical_candles.empty:
@@ -2135,6 +2142,7 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                     f"BTC fresh={btc_latest >= latest - 10 * 60_000}"
                 )
             forward = _advance_forward(conn, candles)
+            print("[Short-Term Lab] step 6/10: generate live candidates", flush=True)
             live_cutoff = latest - 10 * 24 * 60 * 60 * 1000
             live_candidates = generate_candidates(
                 candles[candles["open_time"] >= live_cutoff],
@@ -2145,13 +2153,17 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 live_candidates,
                 data_available_until=latest + FIVE_MINUTES_MS,
             )
+            print(f"[Short-Term Lab] live candidates inserted={inserted}", flush=True)
             trades: list[dict] = []
             metrics: dict = {}
             if include_backtest:
+                print("[Short-Term Lab] step 7/10: generate historical candidates", flush=True)
                 historical_candidates = generate_candidates(
                     historical_candles, already_hourly=True,
                     funding=funding, perp=perp_candles,
                 )
+                total_candidates = sum(len(v) for v in historical_candidates.values())
+                print(f"[Short-Term Lab] historical candidates total={total_candidates}", flush=True)
                 coverage_days = int(historical_refresh.get("coverage_days") or 0)
                 min_window = min(BACKTEST_WINDOWS_DAYS)
                 if coverage_days < min_window:
@@ -2181,6 +2193,7 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                     for candidates in all_eligible.values()
                     for candidate in candidates
                 ]
+                print(f"[Short-Term Lab] step 8/10: download execution candles for {len(flat_candidates)} candidates", flush=True)
                 execution_refresh = await refresh_short_term_execution_candles(
                     conn, flat_candidates
                 )
@@ -2196,7 +2209,9 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                     # missing_executions) — they do not invalidate the whole run.
                     pass
                 candles = _load_candles(conn)
+                print(f"[Short-Term Lab] step 9/10: backtest (5min candles={len(candles)})", flush=True)
                 trades, metrics = backtest(candles, all_eligible)
+                print(f"[Short-Term Lab] step 9/10 done: trades={len(trades)}, metrics={len(metrics)}", flush=True)
                 for metric in metrics.values():
                     metric["coverage_days"] = coverage_days
                     metric["is_complete"] = coverage_days >= int(
@@ -2254,6 +2269,7 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                  len(historical_candles), json.dumps(payload), run_id),
             )
             conn.commit()
+            print("[Short-Term Lab] step 10/10: completed, run persisted", flush=True)
             return {"status": "completed", "run_id": run_id, "refresh": refresh, **payload}
         except Exception as exc:
             conn.execute(

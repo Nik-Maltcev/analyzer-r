@@ -75,13 +75,17 @@ async def lifespan(app: FastAPI):
             full_backtest_due = True
             while True:
                 try:
-                    await refresh_short_term_lab(
+                    print("[Short-Term Lab] refresh starting...", flush=True)
+                    result = await refresh_short_term_lab(
                         settings.db_path,
                         include_backtest=full_backtest_due,
                     )
+                    print(f"[Short-Term Lab] refresh done: {result.get('status')}", flush=True)
                     full_backtest_due = False
                 except Exception as exc:
-                    print(f"Short-Term Lab monitor failed: {exc!r}")
+                    import traceback
+                    print(f"[Short-Term Lab] refresh CRASHED: {exc!r}", flush=True)
+                    traceback.print_exc()
                 await asyncio.sleep(15 * 60)
 
         short_term_task = asyncio.create_task(monitor_short_term_lab())
