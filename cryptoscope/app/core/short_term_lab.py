@@ -32,7 +32,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v49"
+CALCULATION_VERSION = "short-term-lab-v53"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -58,27 +58,6 @@ STRATEGIES = {
         "target": 0.0,
         "cost_pct": 0.10,
         "description": "Фильтр ликвидности: quote_volume 24ч ≥ $10M.",
-    },
-    "rs_trending_exit": {
-        "name": "RS vs BTC (48h + trailing 8%)",
-        "short_name": "RS trailing",
-        "timeframe": 60,
-        "hold": 48 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "cost_pct": 0.10,
-        "trailing_stop": 8.0,
-        "description": "Hold 48ч, трейлинг-стоп 8% от пика — тянем победителей, фиксируем откат.",
-    },
-    "rs_top3": {
-        "name": "RS vs BTC (top-3 conviction)",
-        "short_name": "RS top3",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 0.0,
-        "target": 0.0,
-        "cost_pct": 0.10,
-        "description": "Топ-3 сигнала в направление за каденс (вместо 1) — больше сделок, выше conviction.",
     },
     "rs_regime_filter": {
         "name": "RS vs BTC (market regime)",
@@ -1675,8 +1654,6 @@ def generate_candidates(
             _liquidity_filter(_rs_btc_signals(hourly), hourly, min_quote_24h=10_000_000),
             count=1,
         ),
-        "rs_trending_exit": _wrap_rs("rs_trending_exit", _rs_btc_signals(hourly), count=1),
-        "rs_top3": _wrap_rs("rs_top3", _rs_btc_signals(hourly), count=3),
         "rs_regime_filter": _wrap_rs("rs_regime_filter", _rs_btc_filter_signals(hourly), count=1),
     }
 
