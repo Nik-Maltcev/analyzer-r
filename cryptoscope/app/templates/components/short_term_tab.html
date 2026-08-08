@@ -231,14 +231,21 @@
                         strategiesSection.replaceWith(fresh);
                         strategiesSection = fresh;
                     }
-                    try {
-                        localStorage.setItem(LS_CACHE, JSON.stringify({
-                            stop: stop,
-                            target: target,
-                            html: html
-                        }));
-                    } catch (e) {}
-                    if (recalcStatus) recalcStatus.textContent = 'Готово ✓';
+                    // Never cache error responses: a stale cached error would
+                    // keep showing even after a server-side fix.
+                    var isError = /stl-notice is-error/.test(html);
+                    if (!isError) {
+                        try {
+                            localStorage.setItem(LS_CACHE, JSON.stringify({
+                                stop: stop,
+                                target: target,
+                                html: html
+                            }));
+                        } catch (e) {}
+                    } else {
+                        try { localStorage.removeItem(LS_CACHE); } catch (e) {}
+                    }
+                    if (recalcStatus) recalcStatus.textContent = isError ? 'Ошибка на сервере' : 'Готово ✓';
                     // re-run stake scaling on the new node
                     recalc();
                 })
@@ -271,7 +278,8 @@
                 try {
                     cached = JSON.parse(localStorage.getItem(LS_CACHE) || 'null');
                 } catch (e) {}
-                if (cached && Math.abs(cached.stop - wantStop) < 1e-9 && Math.abs(cached.target - wantTarget) < 1e-9 && cached.html) {
+                if (cached && Math.abs(cached.stop - wantStop) < 1e-9 && Math.abs(cached.target - wantTarget) < 1e-9 && cached.html
+                        && !/stl-notice is-error/.test(cached.html)) {
                     var tmp = document.createElement('div');
                     tmp.innerHTML = cached.html;
                     var fresh = tmp.querySelector('.stl-strategies');
