@@ -10,10 +10,12 @@ from fastapi.responses import HTMLResponse
 from app.access import is_admin_user
 from app.auth import get_current_user
 from app.core.short_term_lab import (
+    build_scan_cards,
     build_strategy_cards_for_report,
     get_short_term_report,
     recalc_short_term_report,
     refresh_short_term_lab,
+    scan_short_term_sl_tp_slice,
 )
 from app.db import database
 from app.ui.templates import templates
@@ -105,4 +107,28 @@ async def recalc_strategies(
                 "stop": stop,
                 "target": target,
             },
+        )
+
+
+@router.get("/scan-strategies", response_class=HTMLResponse)
+async def scan_strategies(request: Request):
+    await _require_admin(request)
+    try:
+        result = await asyncio.to_thread(scan_short_term_sl_tp_slice, database.DB_PATH)
+        strategy_cards = build_scan_cards(result.get("strategies") or {})
+        return templates.TemplateResponse(
+            request,
+            "components/short_term_scan.html",
+            {
+                "scan_cards": strategy_cards,
+                "coverage_days": result.get("coverage_days") or 0,
+            },
+        )
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return templates.TemplateResponse(
+            request,
+            "components/short_term_scan.html",
+            {"scan_cards": [], "coverage_days": 0, "error": str(exc)[:500]},
         )

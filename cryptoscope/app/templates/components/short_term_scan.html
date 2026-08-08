@@ -1,0 +1,43 @@
+<div class="stl-scan">
+    <div class="stl-scan-header">
+        <strong>Поиск оптимальных SL/TP</strong>
+        <span>топ-5 по профит-фактору · покрытие {{ coverage_days }} дн. · все комбо уже в кэше сервера</span>
+    </div>
+    {% if error %}
+    <div class="stl-empty">{{ error }}</div>
+    {% elif scan_cards %}
+    {% for card in scan_cards %}
+    <div class="stl-scan-strategy">
+        <h4>{{ card.short_name }}</h4>
+        <table class="stl-table stl-scan-table">
+            <thead>
+                <tr>
+                    <th>Stop</th>
+                    <th>Target</th>
+                    <th>PF</th>
+                    <th>Win rate</th>
+                    <th>Сделок</th>
+                    <th>Сеть</th>
+                    <th>$/нед</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for cell in card.top %}
+                <tr>
+                    <td><strong>{{ '%.1f'|format(cell.stop_pct) }}%</strong></td>
+                    <td><strong>{{ '%.1f'|format(cell.target_pct) }}%</strong></td>
+                    <td class="{% if cell.profit_factor >= 1 %}positive{% else %}negative{% endif %}">{{ '%.2f'|format(cell.profit_factor) }}</td>
+                    <td>{{ '%.0f'|format(cell.win_rate) }}%</td>
+                    <td>{{ cell.trades }}</td>
+                    <td class="{% if cell.net_cash >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(cell.net_cash) }} $</strong></td>
+                    <td>{{ '%+.2f'|format(cell.avg_weekly_cash) }} $</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="stl-empty">Сканировать пока нечего — запустите «Обновить расчёт», чтобы появились сделки.</div>
+    {% endif %}
+</div>

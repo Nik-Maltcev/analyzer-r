@@ -45,9 +45,12 @@
         <label>Stop loss (%)<input type="number" id="stl-stop" min="0" step="0.1" value="{{ report.settings.stop|default(4.0) }}"></label>
         <label>Take profit (%)<input type="number" id="stl-target" min="0" step="0.1" value="{{ report.settings.target|default(6.0) }}"></label>
         <button class="btn btn-secondary" type="button" id="stl-recalc-btn">Пересчитать</button>
+        <button class="btn btn-primary" type="button" id="stl-scan-btn">Найти оптимальные SL/TP</button>
         <span class="stl-calc-output">Позиция: <strong id="stl-position">$100</strong> · суммарно <strong id="stl-total-per-trade">$100</strong> на сделку</span>
         <span class="stl-calc-status" id="stl-recalc-status"></span>
     </div>
+
+    <div id="stl-scan-results" class="stl-scan-results"></div>
 
     {% with strategies=report.strategies, stake=report.settings.stake %}
     {% include "components/short_term_strategies.html" with context %}
@@ -283,6 +286,34 @@
             }
         }
         if (recalcBtn) recalcBtn.addEventListener('click', doRecalc);
+
+        var scanBtn = document.getElementById('stl-scan-btn');
+        var scanResults = document.getElementById('stl-scan-results');
+        if (scanBtn && scanResults) {
+            var scanInFlight = false;
+            function doScan() {
+                if (scanInFlight) return;
+                scanInFlight = true;
+                scanBtn.disabled = true;
+                if (recalcStatus) recalcStatus.textContent = 'Сканируем сетку…';
+                scanResults.innerHTML = '<div class="stl-empty">Сканируем (первый раз может занять ~10-30 сек)…</div>';
+                fetch('/tab/short-term/scan-strategies', { headers: { 'HX-Request': 'true' } })
+                    .then(function(r) { return r.text(); })
+                    .then(function(html) {
+                        scanResults.innerHTML = html;
+                        if (recalcStatus) recalcStatus.textContent = 'Готово ✓';
+                        recalc();
+                    })
+                    .catch(function(e) {
+                        scanResults.innerHTML = '<div class="stl-empty">Ошибка: ' + e + '</div>';
+                    })
+                    .finally(function() {
+                        scanInFlight = false;
+                        scanBtn.disabled = false;
+                    });
+            }
+            scanBtn.addEventListener('click', doScan);
+        }
     })();
     </script>
 </section>

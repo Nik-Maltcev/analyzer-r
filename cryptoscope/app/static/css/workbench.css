@@ -5739,6 +5739,18 @@ html[data-view-mode='beginner'] .signals-page {
 .stl-calc-output { font-size: 13px; color: var(--text-secondary); }
 .stl-calc-output strong { color: var(--text-primary); }
 .stl-calc-status { font-size: 12px; color: var(--text-muted); font-style: italic; }
+
+.stl-scan-results { margin-top: 12px; }
+.stl-scan { border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+.stl-scan-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+.stl-scan-header strong { font-size: 14px; }
+.stl-scan-header span { font-size: 12px; color: var(--text-muted); }
+.stl-scan-strategy { margin-bottom: 14px; }
+.stl-scan-strategy h4 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.stl-scan-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.stl-scan-table th, .stl-scan-table td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+.stl-scan-table th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+.stl-scan-table tr:last-child td { border-bottom: 0; }
 .stl-calculator button:disabled { opacity: .55; cursor: wait; }
 
 .stl-header,

@@ -2479,6 +2479,10 @@ def build_strategy_cards_for_report(strategy_metrics: dict) -> list[dict]:
 _RECALC_LOCK = Lock()
 _recalc_cache: dict[tuple, dict] = {}
 
+SCAN_STOPS = (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0)
+SCAN_TARGETS = (2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0, 20.0)
+MIN_SCAN_TRADES = 3
+
 
 def recalc_short_term_report(
     db_path: str, *, stop_pct: float, target_pct: float
@@ -2590,6 +2594,221 @@ def _recalc_short_term_report_impl(
         return {"strategies": metrics, "coverage_days": coverage_days}
     finally:
         conn.close()
+
+
+_SCAN_LOCK = Lock()
+_scan_cache: dict[tuple, dict] = {}
+
+
+def scan_short_term_sl_tp_slice(
+    db_path: str, *, stops: tuple[float, ...] = (), targets: tuple[float, ...] = ()
+) -> dict:
+    """Grid-scan SL/TP over the already-stored backtest trades.
+
+    Uses the same ticker-by-ticker candle loading as the recalc path, so
+    memory stays bounded. Results are cached by run+batch to avoid repeated
+    heavy passes.
+    """
+    stops = tuple(float(x) for x in (stops or SCAN_STOPS))
+    targets = tuple(float(x) for x in (targets or SCAN_TARGETS))
+    key = ("scan", tuple(round(x, 2) for x in stops), tuple(round(x, 2) for x in targets))
+    with _SCAN_LOCK:
+        cached = _scan_cache.get(key)
+        if cached is not None:
+            return cached
+        result = _scan_short_term_sl_tp_impl(db_path, stops=stops, targets=targets)
+        if len(_scan_cache) >= 8:
+            _scan_cache.clear()
+        _scan_cache[key] = result
+        return result
+
+
+def _scan_short_term_sl_tp_impl(
+    db_path: str, *, stops: tuple[float, ...], targets: tuple[float, ...]
+) -> dict:
+    conn = sqlite3.connect(db_path, timeout=60)
+    conn.row_factory = sqlite3.Row
+    try:
+        ensure_short_term_schema(conn)
+        run = conn.execute(
+            """
+            SELECT id, metrics_json FROM short_term_runs
+            WHERE calculation_version=? AND status='completed'
+            ORDER BY id DESC LIMIT 1
+            """,
+            (CALCULATION_VERSION,),
+        ).fetchone()
+        if run is None:
+            raise ValueError("Завершённого расчёта ещё нет — сначала запустите «Обновить расчёт»")
+        rows = conn.execute(
+            """
+            SELECT strategy, ticker, direction, entry_time, cost_pct, hedge_ticker
+            FROM short_term_backtest_trades
+            WHERE run_id=?
+            """,
+            (run["id"],),
+        ).fetchall()
+        coverage_days = 0
+        try:
+            coverage_days = int((json.loads(run["metrics_json"] or "{}")).get("coverage_days") or 0)
+        except Exception:
+            pass
+        if not rows:
+            return {"strategies": {}}
+
+        by_ticker: dict[str, list[dict]] = {}
+        for row in rows:
+            by_ticker.setdefault(row["ticker"], []).append(dict(row))
+
+        combos = [
+            (round(float(stop), 4), round(float(target), 4))
+            for stop in stops
+            for target in targets
+        ]
+        strategies = list(STRATEGIES)
+        results: dict[str, list[dict]] = {
+            strategy: [
+                {
+                    "strategy": strategy,
+                    "stop_pct": stop,
+                    "target_pct": target,
+                    "net_cash": 0.0,
+                    "avg_weekly_cash": 0.0,
+                    "win_rate": 0.0,
+                    "trades": 0,
+                    "wins": 0,
+                    "sum_wins": 0.0,
+                    "sum_losses": 0.0,
+                    "profit_factor": 0.0,
+                }
+                for stop, target in combos
+            ]
+            for strategy in strategies
+        }
+
+        for ticker, trade_rows in by_ticker.items():
+            earliest = min(int(t["entry_time"]) for t in trade_rows)
+            ticker_bars = _load_candles_for_ticker(conn, ticker, since_ms=earliest)
+            if ticker_bars.empty:
+                continue
+            times = ticker_bars["open_time"].to_numpy(dtype=np.int64)
+            for t in trade_rows:
+                strategy = t["strategy"]
+                if strategy not in results or t.get("hedge_ticker"):
+                    continue
+                entry_index = int(np.searchsorted(times, int(t["entry_time"]), side="left"))
+                if entry_index >= len(ticker_bars) or int(times[entry_index]) != int(t["entry_time"]):
+                    continue
+                hold_ms = int(STRATEGIES[strategy]["hold"]) * 60_000
+                horizon_time = int(times[entry_index]) + hold_ms
+                exit_index = int(np.searchsorted(times, horizon_time, side="left"))
+                if (
+                    exit_index <= entry_index
+                    or exit_index >= len(ticker_bars)
+                    or int(times[exit_index]) != horizon_time
+                    or np.any(np.diff(times[entry_index:exit_index + 1]) != FIVE_MINUTES_MS)
+                ):
+                    continue
+                entry = float(ticker_bars.iloc[entry_index]["open"])
+                direction = t["direction"]
+                cost = float(t["cost_pct"] or ROUND_TRIP_COST_PCT)
+                high = ticker_bars["high"].to_numpy(dtype=np.float64)[entry_index:exit_index]
+                low = ticker_bars["low"].to_numpy(dtype=np.float64)[entry_index:exit_index]
+                if direction == "long":
+                    stop_prices = entry * (1 - np.asarray(stops, dtype=np.float64) / 100)
+                    target_prices = entry * (1 + np.asarray(targets, dtype=np.float64) / 100)
+                    stop_hits = np.any(low[:, None] <= stop_prices[None, :], axis=0)
+                    stop_idx = np.argmax(low[:, None] <= stop_prices[None, :], axis=0)
+                    target_hits = np.any(high[:, None] >= target_prices[None, :], axis=0)
+                    target_idx = np.argmax(high[:, None] >= target_prices[None, :], axis=0)
+                    horizon_gross = (float(ticker_bars.iloc[exit_index]["open"]) / entry - 1.0) * 100
+                else:
+                    stop_prices = entry * (1 + np.asarray(stops, dtype=np.float64) / 100)
+                    target_prices = entry * (1 - np.asarray(targets, dtype=np.float64) / 100)
+                    stop_hits_arr = high[:, None] >= stop_prices[None, :]
+                    target_hits_arr = low[:, None] <= target_prices[None, :]
+                    stop_hits = np.any(stop_hits_arr, axis=0)
+                    stop_idx = np.argmax(stop_hits_arr, axis=0)
+                    target_hits = np.any(target_hits_arr, axis=0)
+                    target_idx = np.argmax(target_hits_arr, axis=0)
+                    horizon_gross = (1.0 - float(ticker_bars.iloc[exit_index]["open"]) / entry) * 100
+                for slot, (stop, target) in enumerate(combos):
+                    si = slot // len(targets)
+                    ti = slot % len(targets)
+                    if stop_hits[si] and target_hits[ti]:
+                        if stop_idx[si] <= target_idx[ti]:
+                            gross = -float(stops[si])
+                        else:
+                            gross = float(targets[ti])
+                    elif stop_hits[si]:
+                        gross = -float(stops[si])
+                    elif target_hits[ti]:
+                        gross = float(targets[ti])
+                    else:
+                        gross = horizon_gross
+                    cell = results[strategy][slot]
+                    cell["trades"] += 1
+                    cash = 100.0 * (gross - cost) / 100.0
+                    cell["net_cash"] += cash
+                    if cash > 0:
+                        cell["wins"] += 1
+                        cell["sum_wins"] += cash
+                    else:
+                        cell["sum_losses"] += abs(cash)
+            del ticker_bars
+            gc.collect()
+
+        kept: dict[str, list[dict]] = {}
+        for strategy, cells in results.items():
+            if not any(c["trades"] > 0 for c in cells):
+                continue
+            for cell in cells:
+                if cell["trades"] < MIN_SCAN_TRADES:
+                    cell["trades"] = 0
+                    cell["wins"] = 0
+                    cell["sum_wins"] = 0.0
+                    cell["sum_losses"] = 0.0
+                cell["net_cash"] = round(cell["net_cash"], 2)
+                cell["win_rate"] = round(cell["wins"] / cell["trades"] * 100.0, 1) if cell["trades"] else 0.0
+                if cell["sum_losses"] > 0:
+                    cell["profit_factor"] = round(cell["sum_wins"] / cell["sum_losses"], 3)
+                elif cell["sum_wins"] > 0:
+                    cell["profit_factor"] = 99.0
+                cell["avg_weekly_cash"] = round(cell["net_cash"] * 7 / (coverage_days or 365), 2)
+            kept[strategy] = cells
+        return {
+            "strategies": kept,
+            "stops": [round(float(x), 2) for x in stops],
+            "targets": [round(float(x), 2) for x in targets],
+            "coverage_days": coverage_days,
+        }
+    finally:
+        conn.close()
+
+
+def build_scan_cards(strategy_cells: dict[str, list[dict]], top_n: int = 5) -> list[dict]:
+    """Rank every strategy's SL/TP combos by profit factor, keep top_n."""
+    cards: list[dict] = []
+    for strategy_key, cells in strategy_cells.items():
+        ranking = [cell for cell in cells if cell["trades"] > 0]
+        ranking.sort(
+            key=lambda cell: (
+                float(cell["profit_factor"]),
+                float(cell["net_cash"]),
+                int(cell["trades"]),
+            ),
+            reverse=True,
+        )
+        settings = STRATEGIES.get(strategy_key, {})
+        cards.append(
+            {
+                "strategy_key": strategy_key,
+                "short_name": settings.get("short_name") or strategy_key,
+                "top": ranking[:top_n],
+            }
+        )
+    cards.sort(key=lambda card: card.get("short_name") or "")
+    return cards
 
 
 def _build_recalc_metrics(trades: list[dict]) -> dict:
