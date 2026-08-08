@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
 import math
 import sqlite3
@@ -2497,7 +2498,9 @@ def recalc_short_term_report(
         cached = _recalc_cache.get(key)
         if cached is not None:
             return cached
-        result = _recalc_short_term_report_impl(db_path, stop_pct, target_pct)
+        result = _recalc_short_term_report_impl(
+            db_path, stop_pct=stop_pct, target_pct=target_pct
+        )
         if len(_recalc_cache) >= 32:
             _recalc_cache.clear()
         _recalc_cache[key] = result
