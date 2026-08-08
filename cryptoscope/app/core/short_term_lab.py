@@ -2607,12 +2607,13 @@ def scan_short_term_sl_tp_slice(
 
     Uses the same ticker-by-ticker candle loading as the recalc path, so
     memory stays bounded. Results are cached by run+batch to avoid repeated
-    heavy passes.
+    heavy passes. Shares one lock with the recalc path so the two heavy jobs
+    never run simultaneously in the same container.
     """
     stops = tuple(float(x) for x in (stops or SCAN_STOPS))
     targets = tuple(float(x) for x in (targets or SCAN_TARGETS))
     key = ("scan", tuple(round(x, 2) for x in stops), tuple(round(x, 2) for x in targets))
-    with _SCAN_LOCK:
+    with _RECALC_LOCK:
         cached = _scan_cache.get(key)
         if cached is not None:
             return cached

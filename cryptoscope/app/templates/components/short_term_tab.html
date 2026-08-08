@@ -257,8 +257,9 @@
 
         // Restore the user's last SL/TP selection after every HTMX re-render.
         // If the computed cards are cached locally for these values, re-insert
-        // them without hitting the server; only re-run the (expensive) backtest
-        // when the values actually changed or no cache exists.
+        // them without hitting the server. We never re-run the (expensive)
+        // backtest automatically here - that happens only on an explicit click,
+        // so auto-refreshes cannot hammer the container into 503s.
         var serverStop = parseFloat(strategiesSection ? strategiesSection.getAttribute('data-stop') : 4.0) || 4.0;
         var serverTarget = parseFloat(strategiesSection ? strategiesSection.getAttribute('data-target') : 6.0) || 6.0;
         var savedStop = null, savedTarget = null;
@@ -271,9 +272,8 @@
             var wantTarget = savedTarget !== null ? (parseFloat(savedTarget) || 0) : serverTarget;
             if (stopInput) stopInput.value = wantStop;
             if (targetInput) targetInput.value = wantTarget;
-            var differs = strategiesSection &&
-                (Math.abs(wantStop - serverStop) > 1e-9 || Math.abs(wantTarget - serverTarget) > 1e-9);
-            if (differs) {
+            if (strategiesSection &&
+                (Math.abs(wantStop - serverStop) > 1e-9 || Math.abs(wantTarget - serverTarget) > 1e-9)) {
                 var cached = null;
                 try {
                     cached = JSON.parse(localStorage.getItem(LS_CACHE) || 'null');
@@ -288,8 +288,11 @@
                         strategiesSection = fresh;
                     }
                     recalc();
-                } else {
-                    doRecalc();
+                } else if (recalcStatus) {
+                    // Values changed but results are missing locally; show a
+                    // hint instead of firing a backtest on every refresh.
+                    recalcStatus.textContent = 'Нажмите «Пересчитать» для SL/TP ' +
+                        (wantStop || 0).toFixed(1) + '/' + (wantTarget || 0).toFixed(1);
                 }
             }
         }
@@ -298,6 +301,13 @@
         var scanBtn = document.getElementById('stl-scan-btn');
         var scanResults = document.getElementById('stl-scan-results');
         if (scanBtn && scanResults) {
+            var LS_SCAN = 'stl-scan-html';
+            try {
+                var cachedScan = localStorage.getItem(LS_SCAN);
+                if (cachedScan && !/stl-notice is-error/.test(cachedScan)) {
+                    scanResults.innerHTML = cachedScan;
+                }
+            } catch (e) {}
             var scanInFlight = false;
             function doScan() {
                 if (scanInFlight) return;
@@ -309,6 +319,9 @@
                     .then(function(r) { return r.text(); })
                     .then(function(html) {
                         scanResults.innerHTML = html;
+                        if (!/stl-notice is-error/.test(html)) {
+                            try { localStorage.setItem(LS_SCAN, html); } catch (e) {}
+                        }
                         if (recalcStatus) recalcStatus.textContent = 'Готово ✓';
                         recalc();
                     })
