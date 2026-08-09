@@ -154,6 +154,9 @@ async def scan_strategies(request: Request):
             {
                 "scan_cards": strategy_cards,
                 "coverage_days": result.get("coverage_days") or 0,
+                "selection_days": result.get("selection_days") or 0,
+                "test_days": result.get("test_days") or 0,
+                "split_time": result.get("split_time") or 0,
             },
         )
     except Exception as exc:
@@ -162,5 +165,12 @@ async def scan_strategies(request: Request):
         return templates.TemplateResponse(
             request,
             "components/short_term_scan.html",
-            {"scan_cards": [], "coverage_days": 0, "error": str(exc)[:500]},
+            {
+                "scan_cards": [],
+                "coverage_days": 0,
+                "selection_days": 0,
+                "test_days": 0,
+                "split_time": 0,
+                "error": str(exc)[:500],
+            },
         )

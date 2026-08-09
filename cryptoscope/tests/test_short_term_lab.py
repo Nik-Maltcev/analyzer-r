@@ -11,11 +11,18 @@ from app.core.short_term_lab import (
     STRATEGIES,
     _advance_forward,
     _aggregate,
+    _barrier_exit,
     _dual_momentum,
     _directional_return,
+    _effective_round_trip_cost,
+    _finalize_scan_sample,
+    _latest_full_backtest_run,
+    _record_scan_result,
+    _scan_split_time,
     _select_non_overlapping_candidates,
     _simulate,
     backtest,
+    build_scan_cards,
     ensure_short_term_schema,
     generate_candidates,
 )
@@ -77,7 +84,7 @@ def test_dual_momentum_uses_closed_hourly_history_and_market_tails():
     events = _dual_momentum(_bars(rows))
     final = [event for event in events if event["signal_time"] == 30 * hour]
 
-    assert CALCULATION_VERSION == "short-term-lab-v55"
+    assert CALCULATION_VERSION == "short-term-lab-v56"
     assert len(final) == 6
     assert {event["direction"] for event in final} == {"long", "short"}
     assert all(event["signal_time"] % (6 * hour) == 0 for event in events)
@@ -253,6 +260,40 @@ def test_simulation_rejects_missing_entry_or_interior_five_minute_bar():
     assert _simulate(candidate, missing_middle) is None
 
 
+def test_round_trip_cost_cannot_drop_below_realistic_floor():
+    assert _effective_round_trip_cost(None) == pytest.approx(ROUND_TRIP_COST_PCT)
+    assert _effective_round_trip_cost(0.10) == pytest.approx(ROUND_TRIP_COST_PCT)
+    assert _effective_round_trip_cost(0.50) == pytest.approx(0.50)
+
+
+def test_long_stop_gap_is_filled_at_actual_five_minute_open():
+    barrier = _barrier_exit(
+        direction="long",
+        entry_price=100.0,
+        bar_open=90.0,
+        bar_high=95.0,
+        bar_low=89.0,
+        stop_pct=5.0,
+        target_pct=10.0,
+    )
+
+    assert barrier == ("stop", 90.0)
+
+
+def test_same_five_minute_candle_uses_conservative_stop_first():
+    barrier = _barrier_exit(
+        direction="long",
+        entry_price=100.0,
+        bar_open=100.0,
+        bar_high=112.0,
+        bar_low=94.0,
+        stop_pct=5.0,
+        target_pct=10.0,
+    )
+
+    assert barrier == ("stop", 95.0)
+
+
 def test_non_overlapping_selection_uses_full_24_hour_holding_period():
     base = {
         "strategy": "dual_momentum", "ticker": "BTC/USD", "direction": "long",
@@ -364,3 +405,92 @@ def test_closed_forward_trade_is_not_rewritten(tmp_path):
     conn.close()
 
     assert unchanged == closed
+
+
+def test_latest_full_backtest_run_skips_newer_lightweight_run(tmp_path):
+    db_path = tmp_path / "short-term.db"
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    ensure_short_term_schema(conn)
+    full_run_id = conn.execute(
+        """
+        INSERT INTO short_term_runs(calculation_version, status, metrics_json)
+        VALUES (?, 'completed', '{}')
+        """,
+        (CALCULATION_VERSION,),
+    ).lastrowid
+    conn.execute(
+        """
+        INSERT INTO short_term_backtest_trades (
+            run_id, strategy, ticker, direction, signal_time, entry_time,
+            entry_price, exit_time, exit_price, exit_reason, score, confidence,
+            gross_return_pct, cost_pct, net_return_pct, cash_result
+        ) VALUES (?, 'momentum', 'BTC/USD', 'long', 0, 300000,
+                  100, 600000, 101, 'time', 2, 'high', 1, 0.3, 0.7, 0.7)
+        """,
+        (full_run_id,),
+    )
+    lightweight_run_id = conn.execute(
+        """
+        INSERT INTO short_term_runs(calculation_version, status, metrics_json)
+        VALUES (?, 'completed', '{}')
+        """,
+        (CALCULATION_VERSION,),
+    ).lastrowid
+    conn.commit()
+
+    selected = _latest_full_backtest_run(conn)
+    conn.close()
+
+    assert selected is not None
+    assert selected["id"] == full_run_id
+    assert selected["id"] != lightweight_run_id
+
+
+def test_scan_split_is_chronological_and_does_not_use_returns():
+    rows = [{"entry_time": index * 1_000, "result": (-1) ** index} for index in range(10)]
+
+    assert _scan_split_time(rows) == 7_000
+
+
+def test_scan_metrics_keep_selection_and_holdout_separate():
+    cell = {
+        "selection_trades": 0, "selection_wins": 0,
+        "selection_net_cash": 0.0, "selection_sum_wins": 0.0,
+        "selection_sum_losses": 0.0,
+        "trades": 0, "wins": 0, "net_cash": 0.0,
+        "sum_wins": 0.0, "sum_losses": 0.0,
+    }
+    _record_scan_result(cell, "selection", 4.0)
+    _record_scan_result(cell, "selection", -2.0)
+    _record_scan_result(cell, "test", -3.0)
+    _record_scan_result(cell, "test", 1.0)
+    _finalize_scan_sample(cell, "selection_")
+    _finalize_scan_sample(cell)
+
+    assert cell["selection_profit_factor"] == 2.0
+    assert cell["selection_net_cash"] == 2.0
+    assert cell["profit_factor"] == pytest.approx(1 / 3, abs=0.001)
+    assert cell["net_cash"] == -2.0
+
+
+def test_scan_ranking_uses_selection_metrics_not_holdout_result():
+    preferred_on_selection = {
+        "eligible": True, "stop_pct": 1.0, "target_pct": 2.0,
+        "selection_profit_factor": 2.0, "selection_net_cash": 10.0,
+        "selection_trades": 20, "profit_factor": 0.5, "net_cash": -5.0,
+        "trades": 10,
+    }
+    preferred_only_on_holdout = {
+        "eligible": True, "stop_pct": 2.0, "target_pct": 4.0,
+        "selection_profit_factor": 1.5, "selection_net_cash": 8.0,
+        "selection_trades": 20, "profit_factor": 3.0, "net_cash": 20.0,
+        "trades": 10,
+    }
+
+    cards = build_scan_cards(
+        {"momentum": [preferred_only_on_holdout, preferred_on_selection]}, top_n=2
+    )
+
+    assert cards[0]["top"][0]["stop_pct"] == 1.0
+    assert cards[0]["top"][0]["selection_rank"] == 1

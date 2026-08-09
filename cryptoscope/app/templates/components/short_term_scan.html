@@ -1,31 +1,39 @@
 <div class="stl-scan">
     <div class="stl-scan-header">
-        <strong>Поиск оптимальных SL/TP</strong>
-        <span>топ-5 по профит-фактору · покрытие {{ coverage_days }} дн. · все комбо уже в кэше сервера</span>
+        <strong>Независимая проверка SL/TP</strong>
+        <span>старые 70% истории: подбор · новые 30%: проверка · {{ selection_days }} + {{ test_days }} дн.</span>
     </div>
     {% if error %}
     <div class="stl-empty">{{ error }}</div>
     {% elif scan_cards %}
+    <div class="stl-scan-method">
+        Параметры ранжируются только по старой части истории. PF, win rate и результат проверки рассчитаны на более новых данных, которые не участвовали в подборе.
+    </div>
     {% for card in scan_cards %}
     <div class="stl-scan-strategy">
         <h4>{{ card.short_name }}</h4>
+        {% if card.top %}
         <table class="stl-table stl-scan-table">
             <thead>
                 <tr>
+                    <th>Вариант</th>
                     <th>Stop</th>
                     <th>Target</th>
-                    <th>PF</th>
+                    <th>PF подбор</th>
+                    <th>PF проверка</th>
                     <th>Win rate</th>
                     <th>Сделок</th>
-                    <th>Сеть</th>
+                    <th>Результат</th>
                     <th>$/нед</th>
                 </tr>
             </thead>
             <tbody>
             {% for cell in card.top %}
                 <tr>
+                    <td>{% if cell.selection_rank == 1 %}<strong>№1 на подборе</strong>{% else %}№{{ cell.selection_rank }}{% endif %}</td>
                     <td><strong>{{ '%.1f'|format(cell.stop_pct) }}%</strong></td>
                     <td><strong>{{ '%.1f'|format(cell.target_pct) }}%</strong></td>
+                    <td class="{% if cell.selection_profit_factor >= 1 %}positive{% else %}negative{% endif %}">{{ '%.2f'|format(cell.selection_profit_factor) }}</td>
                     <td class="{% if cell.profit_factor >= 1 %}positive{% else %}negative{% endif %}">{{ '%.2f'|format(cell.profit_factor) }}</td>
                     <td>{{ '%.0f'|format(cell.win_rate) }}%</td>
                     <td>{{ cell.trades }}</td>
@@ -35,9 +43,12 @@
             {% endfor %}
             </tbody>
         </table>
+        {% else %}
+        <div class="stl-empty">Недостаточно сделок отдельно в выборке подбора и проверки.</div>
+        {% endif %}
     </div>
     {% endfor %}
     {% else %}
-    <div class="stl-empty">Сканировать пока нечего — запустите «Обновить расчёт», чтобы появились сделки.</div>
+    <div class="stl-empty">Для независимой проверки пока недостаточно сохранённых сделок.</div>
     {% endif %}
 </div>

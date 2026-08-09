@@ -33,7 +33,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v55"
+CALCULATION_VERSION = "short-term-lab-v56"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -41,14 +41,14 @@ HOUR_MS = 60 * 60 * 1000
 BACKTEST_WINDOWS_DAYS = (30, 90, 180, 365)
 STRATEGIES = {
     "rs_low_cost": {
-        "name": "RS vs BTC (low cost 0.10%)",
-        "short_name": "RS low cost",
+        "name": "RS vs BTC",
+        "short_name": "RS vs BTC",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 4.0,
         "target": 6.0,
-        "cost_pct": 0.10,
-        "description": "Baseline: cost 0.10% round-trip, выход по времени 24ч.",
+        "cost_pct": ROUND_TRIP_COST_PCT,
+        "description": "Базовый вариант: расходы 0.30% за полный круг, выход по времени через 24 часа.",
     },
     "rs_low_liquidity": {
         "name": "RS vs BTC (liquidity ≥$10M/24h)",
@@ -57,7 +57,7 @@ STRATEGIES = {
         "hold": 24 * 60,
         "stop": 4.0,
         "target": 6.0,
-        "cost_pct": 0.10,
+        "cost_pct": ROUND_TRIP_COST_PCT,
         "description": "Фильтр ликвидности: quote_volume 24ч ≥ $10M.",
     },
     "rs_regime_filter": {
@@ -67,7 +67,7 @@ STRATEGIES = {
         "hold": 24 * 60,
         "stop": 4.0,
         "target": 6.0,
-        "cost_pct": 0.10,
+        "cost_pct": ROUND_TRIP_COST_PCT,
         "description": "Только LONG при BTC ≥0% (24ч), только SHORT при BTC ≤0%. Направленческий фильтр.",
     },
     "momentum": {
@@ -77,7 +77,7 @@ STRATEGIES = {
         "hold": 24 * 60,
         "stop": 4.0,
         "target": 6.0,
-        "cost_pct": 0.10,
+        "cost_pct": ROUND_TRIP_COST_PCT,
         "description": "Мульти-таймфрейм импульс: 3д/7д/14д → long при сильном росте, short при сильном падении.",
     },
 }
@@ -1748,6 +1748,52 @@ def _directional_return(direction: str, entry: float, price: float) -> float:
     return ((entry - price) / entry) * 100
 
 
+def _effective_round_trip_cost(value: object) -> float:
+    """Never let legacy rows understate the configured round-trip costs."""
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = ROUND_TRIP_COST_PCT
+    if not math.isfinite(parsed):
+        parsed = ROUND_TRIP_COST_PCT
+    return max(parsed, ROUND_TRIP_COST_PCT)
+
+
+def _barrier_exit(
+    direction: str,
+    entry_price: float,
+    bar_open: float,
+    bar_high: float,
+    bar_low: float,
+    stop_pct: float,
+    target_pct: float,
+) -> tuple[str, float] | None:
+    """Resolve SL/TP on one completed 5m candle using conservative fills."""
+    if direction == "long":
+        stop_price = entry_price * (1 - stop_pct / 100)
+        target_price = entry_price * (1 + target_pct / 100)
+        if stop_pct > 0 and bar_open <= stop_price:
+            return "stop", bar_open
+        if target_pct > 0 and bar_open >= target_price:
+            return "target", bar_open
+        stop_hit = stop_pct > 0 and bar_low <= stop_price
+        target_hit = target_pct > 0 and bar_high >= target_price
+    else:
+        stop_price = entry_price * (1 + stop_pct / 100)
+        target_price = entry_price * (1 - target_pct / 100)
+        if stop_pct > 0 and bar_open >= stop_price:
+            return "stop", bar_open
+        if target_pct > 0 and bar_open <= target_price:
+            return "target", bar_open
+        stop_hit = stop_pct > 0 and bar_high >= stop_price
+        target_hit = target_pct > 0 and bar_low <= target_price
+    if stop_hit:
+        return "stop", stop_price
+    if target_hit:
+        return "target", target_price
+    return None
+
+
 def _portfolio_return(
     candidate: dict,
     entry_price: float,
@@ -1823,7 +1869,8 @@ def _simulate(
             candidate, entry_price, exit_price,
             hedge_entry_price, hedge_exit_price,
         )
-        net = gross - float(candidate.get("cost_pct", ROUND_TRIP_COST_PCT))
+        cost = _effective_round_trip_cost(candidate.get("cost_pct"))
+        net = gross - cost
         return {
             **candidate,
             "entry_time": int(times[entry_index]), "entry_price": entry_price,
@@ -1831,7 +1878,7 @@ def _simulate(
             "exit_time": int(times[chosen]), "exit_price": exit_price,
             "hedge_exit_price": hedge_exit_price,
             "exit_reason": reason, "gross_return_pct": gross,
-            "cost_pct": float(candidate.get("cost_pct", ROUND_TRIP_COST_PCT)), "net_return_pct": net,
+            "cost_pct": cost, "net_return_pct": net,
             "cash_result": STAKE_USD * net / 100,
         }
     bars = ticker_bars.sort_values("open_time")
@@ -1860,41 +1907,40 @@ def _simulate(
     peak = entry_price
     for index in range(entry_index, exit_index):
         bar = bars.iloc[index]
+        bar_open = float(bar["open"])
         bar_high = float(bar["high"])
         bar_low = float(bar["low"])
+        barrier = _barrier_exit(
+            candidate["direction"], entry_price, bar_open, bar_high, bar_low,
+            stop, target,
+        )
+        if barrier is not None:
+            chosen, (reason, exit_price) = index, barrier
+            break
         if candidate["direction"] == "long":
             peak = max(peak, bar_high)
-            stop_hit = stop > 0 and bar_low <= entry_price * (1 - stop / 100)
-            target_hit = target > 0 and bar_high >= entry_price * (1 + target / 100)
-            stop_price = entry_price * (1 - stop / 100)
-            target_price = entry_price * (1 + target / 100)
             trail_price = peak * (1 - trailing / 100)
             trail_hit = trailing > 0 and bar_low <= trail_price
         else:
             peak = min(peak, bar_low)
-            stop_hit = stop > 0 and bar_high >= entry_price * (1 + stop / 100)
-            target_hit = target > 0 and bar_low <= entry_price * (1 - target / 100)
-            stop_price = entry_price * (1 + stop / 100)
-            target_price = entry_price * (1 - target / 100)
             trail_price = peak * (1 + trailing / 100)
             trail_hit = trailing > 0 and bar_high >= trail_price
-        if stop > 0 and stop_hit:
-            chosen, reason, exit_price = index, "stop", stop_price
-            break
         if trailing > 0 and trail_hit:
+            if candidate["direction"] == "long" and bar_open <= trail_price:
+                trail_price = bar_open
+            elif candidate["direction"] == "short" and bar_open >= trail_price:
+                trail_price = bar_open
             chosen, reason, exit_price = index, "trail", trail_price
             break
-        if target > 0 and target_hit:
-            chosen, reason, exit_price = index, "target", target_price
-            break
     gross = _directional_return(candidate["direction"], entry_price, exit_price)
-    net = gross - float(candidate.get("cost_pct", ROUND_TRIP_COST_PCT))
+    cost = _effective_round_trip_cost(candidate.get("cost_pct"))
+    net = gross - cost
     return {
         **candidate,
         "entry_time": int(times[entry_index]), "entry_price": entry_price,
         "exit_time": int(times[chosen]), "exit_price": exit_price,
         "exit_reason": reason, "gross_return_pct": gross,
-        "cost_pct": float(candidate.get("cost_pct", ROUND_TRIP_COST_PCT)), "net_return_pct": net,
+        "cost_pct": cost, "net_return_pct": net,
         "cash_result": STAKE_USD * net / 100,
     }
 
@@ -2002,7 +2048,7 @@ def _advance_forward(conn: sqlite3.Connection, candles: pd.DataFrame) -> dict:
         )
         if trade["status"] == "pending":
             candidates = evaluation_bars[
-                evaluation_bars["open_time"] >= int(trade["signal_time"])
+                evaluation_bars["open_time"] == int(trade["signal_time"])
             ]
             if candidates.empty:
                 continue
@@ -2031,8 +2077,17 @@ def _advance_forward(conn: sqlite3.Connection, candles: pd.DataFrame) -> dict:
             evaluation_bars["open_time"]
             > int(trade["last_evaluated_time"] or trade["entry_time"] - 1)
         ]
+        previous_time = int(trade["last_evaluated_time"] or trade["entry_time"] - 1)
+        expected_time = (
+            int(trade["entry_time"])
+            if previous_time < int(trade["entry_time"])
+            else previous_time + FIVE_MINUTES_MS
+        )
         for _, bar in unseen.iterrows():
             timestamp = int(bar["open_time"])
+            if timestamp != expected_time:
+                break
+            expected_time += FIVE_MINUTES_MS
             entry_price = float(trade["entry_price"])
             stop = float(trade["stop_pct"])
             target = float(trade["target_pct"])
@@ -2056,30 +2111,25 @@ def _advance_forward(conn: sqlite3.Connection, candles: pd.DataFrame) -> dict:
             elif timestamp >= int(trade["planned_exit_time"]):
                 reason = "time"
                 price = float(bar["open"])
-                stop_hit = target_hit = False
-                stop_price = target_price = price
-            elif direction == "long":
-                stop_hit = float(bar["low"]) <= entry_price * (1 - stop / 100)
-                target_hit = float(bar["high"]) >= entry_price * (1 + target / 100)
-                stop_price = entry_price * (1 - stop / 100)
-                target_price = entry_price * (1 + target / 100)
             else:
-                stop_hit = float(bar["high"]) >= entry_price * (1 + stop / 100)
-                target_hit = float(bar["low"]) <= entry_price * (1 - target / 100)
-                stop_price = entry_price * (1 + stop / 100)
-                target_price = entry_price * (1 - target / 100)
-            if not is_hedged and timestamp < int(trade["planned_exit_time"]):
                 reason = None
                 price = float(bar["close"])
+                barrier = _barrier_exit(
+                    direction,
+                    entry_price,
+                    float(bar["open"]),
+                    float(bar["high"]),
+                    float(bar["low"]),
+                    stop,
+                    target,
+                )
+                if barrier is not None:
+                    reason, price = barrier
             if not is_hedged:
-                if reason == "time":
-                    pass
-                elif stop > 0 and stop_hit:
-                    reason, price = "stop", stop_price
-                elif target > 0 and target_hit:
-                    reason, price = "target", target_price
                 gross = _directional_return(direction, entry_price, price)
-            cost = float(trade.get("cost_pct") or trade.get("cost_pct_at_entry") or ROUND_TRIP_COST_PCT)
+            cost = _effective_round_trip_cost(
+                trade.get("cost_pct") or trade.get("cost_pct_at_entry")
+            )
             net = gross - cost
             if reason:
                 conn.execute(
@@ -2198,6 +2248,9 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 raise RuntimeError("MEXC did not return completed 5-minute candles")
             if historical_candles.empty:
                 raise RuntimeError("MEXC did not return completed hourly candles")
+            hc_data_start = int(historical_candles["open_time"].min())
+            hc_data_end = int(historical_candles["open_time"].max())
+            hc_count = int(len(historical_candles))
             if perp_candles.empty:
                 raise RuntimeError("MEXC did not return perpetual-futures candles")
             latest = int(candles["open_time"].max())
@@ -2269,9 +2322,6 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                     for candidate in candidates
                 ]
                 # Free large DataFrames before download to avoid OOM on memory-constrained hosts.
-                hc_data_start = int(historical_candles["open_time"].min())
-                hc_data_end = int(historical_candles["open_time"].max())
-                hc_count = len(historical_candles)
                 del candles, historical_candles, funding, perp_candles
                 import gc; gc.collect()
                 print(f"[Short-Term Lab] step 8/10: download execution candles for {len(flat_candidates)} candidates", flush=True)
@@ -2424,7 +2474,81 @@ _recalc_cache: dict[tuple, dict] = {}
 
 SCAN_STOPS = (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0)
 SCAN_TARGETS = (2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0, 20.0)
-MIN_SCAN_TRADES = 3
+SCAN_TRAIN_FRACTION = 0.70
+MIN_SCAN_TRAIN_TRADES = 20
+MIN_SCAN_TEST_TRADES = 10
+
+
+def _scan_split_time(rows: list[sqlite3.Row | dict]) -> int:
+    """Return a chronological 70/30 boundary without looking at outcomes."""
+    times = sorted({int(row["entry_time"]) for row in rows})
+    if len(times) < 2:
+        raise ValueError("Недостаточно истории для независимой проверки SL/TP")
+    split_index = max(1, min(len(times) - 1, int(len(times) * SCAN_TRAIN_FRACTION)))
+    return times[split_index]
+
+
+def _record_scan_result(cell: dict, sample: str, cash: float) -> None:
+    prefix = "selection_" if sample == "selection" else ""
+    cell[f"{prefix}trades"] += 1
+    cell[f"{prefix}net_cash"] += cash
+    if cash > 0:
+        cell[f"{prefix}wins"] += 1
+        cell[f"{prefix}sum_wins"] += cash
+    else:
+        cell[f"{prefix}sum_losses"] += abs(cash)
+
+
+def _finalize_scan_sample(cell: dict, prefix: str = "") -> None:
+    trades = int(cell[f"{prefix}trades"])
+    wins = int(cell[f"{prefix}wins"])
+    sum_wins = float(cell[f"{prefix}sum_wins"])
+    sum_losses = float(cell[f"{prefix}sum_losses"])
+    cell[f"{prefix}net_cash"] = round(float(cell[f"{prefix}net_cash"]), 2)
+    cell[f"{prefix}win_rate"] = round(wins / trades * 100.0, 1) if trades else 0.0
+    if sum_losses > 0:
+        cell[f"{prefix}profit_factor"] = round(sum_wins / sum_losses, 3)
+    elif sum_wins > 0:
+        cell[f"{prefix}profit_factor"] = 99.0
+    else:
+        cell[f"{prefix}profit_factor"] = 0.0
+
+
+def _latest_full_backtest_run(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    """Return the newest completed run that persisted historical trades.
+
+    Lightweight monitoring runs intentionally reuse metrics without copying the
+    historical trade ledger. They must not be used by replay or SL/TP scans.
+    """
+    return conn.execute(
+        """
+        SELECT r.id, r.metrics_json
+        FROM short_term_runs AS r
+        WHERE r.calculation_version=? AND r.status='completed'
+          AND EXISTS (
+              SELECT 1 FROM short_term_backtest_trades AS t
+              WHERE t.run_id=r.id
+          )
+        ORDER BY r.id DESC LIMIT 1
+        """,
+        (CALCULATION_VERSION,),
+    ).fetchone()
+
+
+def _latest_full_backtest_run_id(db_path: str) -> int:
+    conn = sqlite3.connect(db_path, timeout=60)
+    conn.row_factory = sqlite3.Row
+    try:
+        ensure_short_term_schema(conn)
+        run = _latest_full_backtest_run(conn)
+        if run is None:
+            raise ValueError(
+                "Нет завершённого исторического расчёта. "
+                "Сначала нажмите «Обновить расчёт» и дождитесь завершения."
+            )
+        return int(run["id"])
+    finally:
+        conn.close()
 
 
 def recalc_short_term_report(
@@ -2436,7 +2560,13 @@ def recalc_short_term_report(
     recalculation is fast and does not hit the network. Results are cached by
     (stop, target) to avoid repeated heavy backtests.
     """
-    key = (round(float(stop_pct), 2), round(float(target_pct), 2))
+    run_id = _latest_full_backtest_run_id(db_path)
+    key = (
+        "recalc",
+        run_id,
+        round(float(stop_pct), 2),
+        round(float(target_pct), 2),
+    )
     cached = _recalc_cache.get(key)
     if cached is not None:
         return cached
@@ -2446,7 +2576,7 @@ def recalc_short_term_report(
         if cached is not None:
             return cached
         result = _recalc_short_term_report_impl(
-            db_path, stop_pct=stop_pct, target_pct=target_pct
+            db_path, stop_pct=stop_pct, target_pct=target_pct, run_id=run_id
         )
         if len(_recalc_cache) >= 32:
             _recalc_cache.clear()
@@ -2455,7 +2585,7 @@ def recalc_short_term_report(
 
 
 def _recalc_short_term_report_impl(
-    db_path: str, *, stop_pct: float, target_pct: float
+    db_path: str, *, stop_pct: float, target_pct: float, run_id: int | None = None
 ) -> dict:
     """Replay the already-stored backtest trades with a new SL/TP.
 
@@ -2467,14 +2597,17 @@ def _recalc_short_term_report_impl(
     conn.row_factory = sqlite3.Row
     try:
         ensure_short_term_schema(conn)
-        run = conn.execute(
-            """
-            SELECT id, metrics_json FROM short_term_runs
-            WHERE calculation_version=? AND status='completed'
-            ORDER BY id DESC LIMIT 1
-            """,
-            (CALCULATION_VERSION,),
-        ).fetchone()
+        run = (
+            conn.execute(
+                """
+                SELECT id, metrics_json FROM short_term_runs
+                WHERE id=? AND calculation_version=? AND status='completed'
+                """,
+                (run_id, CALCULATION_VERSION),
+            ).fetchone()
+            if run_id is not None
+            else _latest_full_backtest_run(conn)
+        )
         if run is None:
             raise ValueError("Завершённого расчёта ещё нет — сначала запустите «Обновить расчёт»")
         rows = conn.execute(
@@ -2493,7 +2626,6 @@ def _recalc_short_term_report_impl(
             pass
         if not rows:
             return {"strategies": {}}
-
         by_ticker: dict[str, list[dict]] = {}
         for row in rows:
             by_ticker.setdefault(row["ticker"], []).append(dict(row))
@@ -2516,7 +2648,7 @@ def _recalc_short_term_report_impl(
                     "hold_minutes": int(STRATEGIES[t["strategy"]]["hold"]),
                     "stop_pct": float(stop_pct),
                     "target_pct": float(target_pct),
-                    "cost_pct": float(t["cost_pct"] or ROUND_TRIP_COST_PCT),
+                    "cost_pct": _effective_round_trip_cost(t["cost_pct"]),
                     "trailing_stop_pct": 0.0,
                     "hedge_ticker": t.get("hedge_ticker") or None,
                     "hedge_direction": t.get("hedge_direction") or None,
@@ -2555,12 +2687,20 @@ def scan_short_term_sl_tp_slice(
     """
     stops = tuple(float(x) for x in (stops or SCAN_STOPS))
     targets = tuple(float(x) for x in (targets or SCAN_TARGETS))
-    key = ("scan", tuple(round(x, 2) for x in stops), tuple(round(x, 2) for x in targets))
+    run_id = _latest_full_backtest_run_id(db_path)
+    key = (
+        "scan",
+        run_id,
+        tuple(round(x, 2) for x in stops),
+        tuple(round(x, 2) for x in targets),
+    )
     with _RECALC_LOCK:
         cached = _scan_cache.get(key)
         if cached is not None:
             return cached
-        result = _scan_short_term_sl_tp_impl(db_path, stops=stops, targets=targets)
+        result = _scan_short_term_sl_tp_impl(
+            db_path, stops=stops, targets=targets, run_id=run_id
+        )
         if len(_scan_cache) >= 8:
             _scan_cache.clear()
         _scan_cache[key] = result
@@ -2568,20 +2708,27 @@ def scan_short_term_sl_tp_slice(
 
 
 def _scan_short_term_sl_tp_impl(
-    db_path: str, *, stops: tuple[float, ...], targets: tuple[float, ...]
+    db_path: str,
+    *,
+    stops: tuple[float, ...],
+    targets: tuple[float, ...],
+    run_id: int | None = None,
 ) -> dict:
     conn = sqlite3.connect(db_path, timeout=60)
     conn.row_factory = sqlite3.Row
     try:
         ensure_short_term_schema(conn)
-        run = conn.execute(
-            """
-            SELECT id, metrics_json FROM short_term_runs
-            WHERE calculation_version=? AND status='completed'
-            ORDER BY id DESC LIMIT 1
-            """,
-            (CALCULATION_VERSION,),
-        ).fetchone()
+        run = (
+            conn.execute(
+                """
+                SELECT id, metrics_json FROM short_term_runs
+                WHERE id=? AND calculation_version=? AND status='completed'
+                """,
+                (run_id, CALCULATION_VERSION),
+            ).fetchone()
+            if run_id is not None
+            else _latest_full_backtest_run(conn)
+        )
         if run is None:
             raise ValueError("Завершённого расчёта ещё нет — сначала запустите «Обновить расчёт»")
         rows = conn.execute(
@@ -2599,6 +2746,13 @@ def _scan_short_term_sl_tp_impl(
             pass
         if not rows:
             return {"strategies": {}}
+
+        split_time = _scan_split_time(rows)
+        all_entry_times = [int(row["entry_time"]) for row in rows]
+        history_start = min(all_entry_times)
+        history_end = max(all_entry_times)
+        selection_days = max(1, int((split_time - history_start) // 86_400_000) + 1)
+        test_days = max(1, int((history_end - split_time) // 86_400_000) + 1)
 
         by_ticker: dict[str, list[dict]] = {}
         for row in rows:
@@ -2624,6 +2778,13 @@ def _scan_short_term_sl_tp_impl(
                     "sum_wins": 0.0,
                     "sum_losses": 0.0,
                     "profit_factor": 0.0,
+                    "selection_net_cash": 0.0,
+                    "selection_win_rate": 0.0,
+                    "selection_trades": 0,
+                    "selection_wins": 0,
+                    "selection_sum_wins": 0.0,
+                    "selection_sum_losses": 0.0,
+                    "selection_profit_factor": 0.0,
                 }
                 for stop, target in combos
             ]
@@ -2655,7 +2816,8 @@ def _scan_short_term_sl_tp_impl(
                     continue
                 entry = float(ticker_bars.iloc[entry_index]["open"])
                 direction = t["direction"]
-                cost = float(t["cost_pct"] or ROUND_TRIP_COST_PCT)
+                cost = _effective_round_trip_cost(t["cost_pct"])
+                bar_open = ticker_bars["open"].to_numpy(dtype=np.float64)[entry_index:exit_index]
                 high = ticker_bars["high"].to_numpy(dtype=np.float64)[entry_index:exit_index]
                 low = ticker_bars["low"].to_numpy(dtype=np.float64)[entry_index:exit_index]
                 if direction == "long":
@@ -2679,26 +2841,32 @@ def _scan_short_term_sl_tp_impl(
                 for slot, (stop, target) in enumerate(combos):
                     si = slot // len(targets)
                     ti = slot % len(targets)
-                    if stop_hits[si] and target_hits[ti]:
-                        if stop_idx[si] <= target_idx[ti]:
-                            gross = -float(stops[si])
-                        else:
-                            gross = float(targets[ti])
-                    elif stop_hits[si]:
-                        gross = -float(stops[si])
-                    elif target_hits[ti]:
-                        gross = float(targets[ti])
-                    else:
+                    hit_index = None
+                    if stop_hits[si]:
+                        hit_index = int(stop_idx[si])
+                    if target_hits[ti]:
+                        target_index = int(target_idx[ti])
+                        hit_index = target_index if hit_index is None else min(hit_index, target_index)
+                    if hit_index is None:
                         gross = horizon_gross
-                    cell = results[strategy][slot]
-                    cell["trades"] += 1
-                    cash = 100.0 * (gross - cost) / 100.0
-                    cell["net_cash"] += cash
-                    if cash > 0:
-                        cell["wins"] += 1
-                        cell["sum_wins"] += cash
                     else:
-                        cell["sum_losses"] += abs(cash)
+                        barrier = _barrier_exit(
+                            direction,
+                            entry,
+                            float(bar_open[hit_index]),
+                            float(high[hit_index]),
+                            float(low[hit_index]),
+                            float(stop),
+                            float(target),
+                        )
+                        gross = (
+                            _directional_return(direction, entry, barrier[1])
+                            if barrier is not None else horizon_gross
+                        )
+                    cell = results[strategy][slot]
+                    cash = 100.0 * (gross - cost) / 100.0
+                    sample = "selection" if int(t["entry_time"]) < split_time else "test"
+                    _record_scan_result(cell, sample, cash)
             del ticker_bars
             gc.collect()
 
@@ -2707,48 +2875,47 @@ def _scan_short_term_sl_tp_impl(
             if not any(c["trades"] > 0 for c in cells):
                 continue
             for cell in cells:
-                if cell["trades"] < MIN_SCAN_TRADES:
-                    cell["trades"] = 0
-                    cell["wins"] = 0
-                    cell["sum_wins"] = 0.0
-                    cell["sum_losses"] = 0.0
-                cell["net_cash"] = round(cell["net_cash"], 2)
-                cell["win_rate"] = round(cell["wins"] / cell["trades"] * 100.0, 1) if cell["trades"] else 0.0
-                if cell["sum_losses"] > 0:
-                    cell["profit_factor"] = round(cell["sum_wins"] / cell["sum_losses"], 3)
-                elif cell["sum_wins"] > 0:
-                    cell["profit_factor"] = 99.0
-                cell["avg_weekly_cash"] = round(cell["net_cash"] * 7 / (coverage_days or 365), 2)
+                _finalize_scan_sample(cell, "selection_")
+                _finalize_scan_sample(cell)
+                cell["eligible"] = (
+                    cell["selection_trades"] >= MIN_SCAN_TRAIN_TRADES
+                    and cell["trades"] >= MIN_SCAN_TEST_TRADES
+                )
+                cell["avg_weekly_cash"] = round(cell["net_cash"] * 7 / test_days, 2)
             kept[strategy] = cells
         return {
             "strategies": kept,
             "stops": [round(float(x), 2) for x in stops],
             "targets": [round(float(x), 2) for x in targets],
             "coverage_days": coverage_days,
+            "selection_days": selection_days,
+            "test_days": test_days,
+            "split_time": split_time,
         }
     finally:
         conn.close()
 
 
 def build_scan_cards(strategy_cells: dict[str, list[dict]], top_n: int = 5) -> list[dict]:
-    """Rank every strategy's SL/TP combos by profit factor, keep top_n."""
+    """Select SL/TP on the old sample; never rank on holdout outcomes."""
     cards: list[dict] = []
     for strategy_key, cells in strategy_cells.items():
-        ranking = [cell for cell in cells if cell["trades"] > 0]
+        ranking = [cell for cell in cells if cell.get("eligible")]
         ranking.sort(
             key=lambda cell: (
-                float(cell["profit_factor"]),
-                float(cell["net_cash"]),
-                int(cell["trades"]),
+                float(cell["selection_profit_factor"]),
+                float(cell["selection_net_cash"]),
+                int(cell["selection_trades"]),
             ),
             reverse=True,
         )
+        top = [dict(cell, selection_rank=index + 1) for index, cell in enumerate(ranking[:top_n])]
         settings = STRATEGIES.get(strategy_key, {})
         cards.append(
             {
                 "strategy_key": strategy_key,
                 "short_name": settings.get("short_name") or strategy_key,
-                "top": ranking[:top_n],
+                "top": top,
             }
         )
     cards.sort(key=lambda card: card.get("short_name") or "")
