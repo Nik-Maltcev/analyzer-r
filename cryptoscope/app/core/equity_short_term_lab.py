@@ -23,6 +23,11 @@ STAKE_USD = 100.0
 HOLD_SESSIONS = 5
 WINDOWS_DAYS = (30, 90, 180, 365)
 DAY_MS = 86_400_000
+STOP_GRID = (1.0, 2.0, 3.0, 5.0, 8.0)
+TARGET_GRID = (1.0, 2.0, 3.0, 5.0, 8.0, 12.0)
+OPTIMIZER_TRAIN_SHARE = 0.70
+OPTIMIZER_MIN_TRAIN_TRADES = 8
+OPTIMIZER_MIN_VALIDATION_TRADES = 4
 
 MARKETS = {
     "ru": {
@@ -208,7 +213,14 @@ def _trade_return(direction: str, entry: float, exit_price: float, cost: float) 
     return gross, gross - cost
 
 
-def simulate(candidates: list[dict], frame: pd.DataFrame, market: str) -> list[dict]:
+def simulate(
+    candidates: list[dict],
+    frame: pd.DataFrame,
+    market: str,
+    *,
+    stop_pct: float = 0.0,
+    target_pct: float = 0.0,
+) -> list[dict]:
     cost = float(_config(market)["cost_pct"])
     series = _ticker_series(frame)
     trades: list[dict] = []
@@ -227,15 +239,35 @@ def simulate(candidates: list[dict], frame: pd.DataFrame, market: str) -> list[d
         if entry_time <= occupied_until.get(key, -1):
             continue
         entry_price = float(ticker_frame.iloc[signal_pos]["close"])
-        exit_price = float(ticker_frame.iloc[exit_pos]["close"])
+        selected_exit_pos = exit_pos
+        exit_reason = f"{HOLD_SESSIONS} торговых сессий"
+        if stop_pct > 0 or target_pct > 0:
+            # Daily equity data contains closes only.  Thresholds are checked
+            # on subsequent completed session closes, never inside a candle.
+            for check_pos in range(signal_pos + 1, exit_pos + 1):
+                check_price = float(ticker_frame.iloc[check_pos]["close"])
+                check_gross, _ = _trade_return(
+                    candidate["direction"], entry_price, check_price, 0.0,
+                )
+                if stop_pct > 0 and check_gross <= -stop_pct:
+                    selected_exit_pos = check_pos
+                    exit_reason = f"SL {stop_pct:g}% по закрытию"
+                    break
+                if target_pct > 0 and check_gross >= target_pct:
+                    selected_exit_pos = check_pos
+                    exit_reason = f"TP {target_pct:g}% по закрытию"
+                    break
+        exit_price = float(ticker_frame.iloc[selected_exit_pos]["close"])
         gross, net = _trade_return(candidate["direction"], entry_price, exit_price, cost)
         trade = {
             **candidate,
             "entry_time": entry_time,
             "entry_price": entry_price,
-            "exit_time": int(times[exit_pos]),
+            "exit_time": int(times[selected_exit_pos]),
             "exit_price": exit_price,
-            "exit_reason": "5 торговых сессий",
+            "exit_reason": exit_reason,
+            "stop_pct": float(stop_pct),
+            "target_pct": float(target_pct),
             "gross_return_pct": gross,
             "cost_pct": cost,
             "net_return_pct": net,
@@ -244,6 +276,105 @@ def simulate(candidates: list[dict], frame: pd.DataFrame, market: str) -> list[d
         trades.append(trade)
         occupied_until[key] = trade["exit_time"]
     return trades
+
+
+def _trade_summary(trades: list[dict]) -> dict:
+    values = [float(item["cash_result"]) for item in trades]
+    wins = [value for value in values if value > 0]
+    losses = [value for value in values if value < 0]
+    return {
+        "trades": len(values),
+        "wins": len(wins),
+        "win_rate": len(wins) / len(values) * 100 if values else 0.0,
+        "net_cash": sum(values),
+        "avg_cash": sum(values) / len(values) if values else 0.0,
+        "profit_factor": (
+            sum(wins) / abs(sum(losses))
+            if losses
+            else (999.0 if wins else 0.0)
+        ),
+    }
+
+
+def _optimize_close_exits(
+    candidates: list[dict],
+    frame: pd.DataFrame,
+    market: str,
+    data_start: int,
+    data_end: int,
+) -> dict[str, dict]:
+    """Select close-based SL/TP on old data and report unseen validation.
+
+    Every grid combination is simulated independently, including its changed
+    non-overlap schedule.  Selection sees only the first 70% of each calendar
+    window.  The final metrics come exclusively from the remaining 30%.
+    """
+    coverage = max(0, int((data_end - data_start) // DAY_MS) + 1)
+    grid_runs: dict[tuple[float, float], list[dict]] = {}
+    for stop_pct in STOP_GRID:
+        for target_pct in TARGET_GRID:
+            grid_runs[(stop_pct, target_pct)] = simulate(
+                candidates,
+                frame,
+                market,
+                stop_pct=stop_pct,
+                target_pct=target_pct,
+            )
+
+    output: dict[str, dict] = {}
+    for strategy in STRATEGIES:
+        for days in WINDOWS_DAYS:
+            key = f"{strategy}_{days}d"
+            window_start = max(data_start, data_end - days * DAY_MS)
+            split_time = int(
+                window_start + (data_end - window_start) * OPTIMIZER_TRAIN_SHARE
+            )
+            choices: list[tuple[tuple[float, float, float], float, float, dict, list[dict]]] = []
+            for (stop_pct, target_pct), all_trades in grid_runs.items():
+                relevant = [
+                    item for item in all_trades
+                    if item["strategy"] == strategy and item["exit_time"] >= window_start
+                ]
+                train = [item for item in relevant if item["exit_time"] <= split_time]
+                validation = [item for item in relevant if item["exit_time"] > split_time]
+                train_metrics = _trade_summary(train)
+                if train_metrics["trades"] < OPTIMIZER_MIN_TRAIN_TRADES:
+                    continue
+                # Net result is primary; profit factor and a smaller threshold
+                # are deterministic tie-breakers. Validation is never consulted.
+                rank = (
+                    float(train_metrics["net_cash"]),
+                    float(train_metrics["profit_factor"]),
+                    -float(stop_pct + target_pct),
+                )
+                choices.append((rank, stop_pct, target_pct, train_metrics, validation))
+
+            if not choices:
+                output[key] = {
+                    "available": False,
+                    "reason": "Недостаточно сделок для честного разделения 70/30",
+                }
+                continue
+            _, stop_pct, target_pct, train_metrics, validation = max(
+                choices, key=lambda item: item[0]
+            )
+            validation_metrics = _trade_summary(validation)
+            available = validation_metrics["trades"] >= OPTIMIZER_MIN_VALIDATION_TRADES
+            output[key] = {
+                "available": available,
+                "reason": (
+                    "Недостаточно сделок в проверочной части"
+                    if not available else ""
+                ),
+                "stop_pct": stop_pct,
+                "target_pct": target_pct,
+                "train": train_metrics,
+                "validation": validation_metrics,
+                "train_end": split_time,
+                "coverage_days": coverage,
+                "method": "session_close_70_30",
+            }
+    return output
 
 
 def _metrics(trades: list[dict], data_start: int, data_end: int) -> dict:
@@ -374,6 +505,9 @@ def refresh_equity_short_term_lab(db_path: str, market: str) -> dict:
             candidates = generate_candidates(frame, market)
             trades = simulate(candidates, frame, market)
             metrics = _metrics(trades, data_start, data_end)
+            exit_optimization = _optimize_close_exits(
+                candidates, frame, market, data_start, data_end,
+            )
             conn.executemany(
                 """INSERT OR IGNORE INTO short_term_backtest_trades
                    (run_id,strategy,ticker,direction,signal_time,entry_time,entry_price,exit_time,
@@ -388,6 +522,7 @@ def refresh_equity_short_term_lab(db_path: str, market: str) -> dict:
             inserted = _insert_latest(conn, candidates, market, data_end)
             payload = {
                 "strategies": metrics,
+                "exit_optimization": exit_optimization,
                 "coverage_days": int((data_end - data_start) // DAY_MS) + 1,
                 "forward": {**forward, "pending": inserted},
             }
@@ -443,11 +578,17 @@ def get_equity_short_term_report(db_path: str, market: str) -> dict:
     conn.close()
     payload = json.loads(completed["metrics_json"] or "{}") if completed else {}
     metrics = payload.get("strategies", {})
+    exit_optimization = payload.get("exit_optimization", {})
     cards = []
     for strategy, settings in STRATEGIES.items():
         windows = []
         for days in WINDOWS_DAYS:
-            windows.append({"days": days, **metrics.get(f"{strategy}_{days}d", {})})
+            metric_key = f"{strategy}_{days}d"
+            windows.append({
+                "days": days,
+                **metrics.get(metric_key, {}),
+                "exit_optimization": exit_optimization.get(metric_key, {}),
+            })
         cards.append({"key": strategy, **settings, "windows": windows})
 
     def trade(row: sqlite3.Row) -> dict:
@@ -488,5 +629,7 @@ def get_equity_short_term_report(db_path: str, market: str) -> dict:
             "stake": STAKE_USD,
             "cost_pct": config["cost_pct"],
             "hold_sessions": HOLD_SESSIONS,
+            "exit_model": "session_close",
+            "optimizer_train_share": OPTIMIZER_TRAIN_SHARE,
         },
     }

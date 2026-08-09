@@ -88,3 +88,57 @@ def test_ru_and_stocks_use_separate_forward_journal_versions():
     assert MARKETS["ru"]["version"] != MARKETS["stocks"]["version"]
     assert MARKETS["ru"]["source"] == "MOEX ISS"
     assert MARKETS["stocks"]["source"] == "Yahoo Finance"
+
+
+def test_close_based_target_exits_on_first_later_session_close():
+    frame = _daily_frame(days=9, tickers=1)
+    ticker_frame = frame[frame["ticker"] == "T00"].reset_index(drop=True)
+    entry_price = float(ticker_frame.iloc[1]["close"])
+    ticker_frame.loc[2, "close"] = entry_price * 1.03
+    frame.loc[frame["ticker"] == "T00", "close"] = ticker_frame["close"].to_numpy()
+    candidate = {
+        "strategy": "daily_momentum",
+        "ticker": "T00",
+        "direction": "long",
+        "signal_time": int(ticker_frame.iloc[0]["time_ms"]),
+        "signal_price": float(ticker_frame.iloc[0]["close"]),
+        "score": 2.0,
+        "confidence": "high",
+        "timeframe_minutes": 1440,
+        "hold_minutes": HOLD_SESSIONS * 1440,
+        "stop_pct": 0.0,
+        "target_pct": 0.0,
+    }
+
+    trade = simulate([candidate], frame, "ru", stop_pct=2, target_pct=2)[0]
+
+    assert trade["exit_time"] == int(ticker_frame.iloc[2]["time_ms"])
+    assert trade["exit_price"] == pytest.approx(entry_price * 1.03)
+    assert trade["exit_reason"] == "TP 2% по закрытию"
+
+
+def test_close_based_stop_respects_short_direction():
+    frame = _daily_frame(days=9, tickers=1)
+    ticker_frame = frame[frame["ticker"] == "T00"].reset_index(drop=True)
+    entry_price = float(ticker_frame.iloc[1]["close"])
+    ticker_frame.loc[2, "close"] = entry_price * 1.04
+    frame.loc[frame["ticker"] == "T00", "close"] = ticker_frame["close"].to_numpy()
+    candidate = {
+        "strategy": "daily_momentum",
+        "ticker": "T00",
+        "direction": "short",
+        "signal_time": int(ticker_frame.iloc[0]["time_ms"]),
+        "signal_price": float(ticker_frame.iloc[0]["close"]),
+        "score": -2.0,
+        "confidence": "high",
+        "timeframe_minutes": 1440,
+        "hold_minutes": HOLD_SESSIONS * 1440,
+        "stop_pct": 0.0,
+        "target_pct": 0.0,
+    }
+
+    trade = simulate([candidate], frame, "stocks", stop_pct=3, target_pct=8)[0]
+
+    assert trade["exit_time"] == int(ticker_frame.iloc[2]["time_ms"])
+    assert trade["exit_reason"] == "SL 3% по закрытию"
+    assert trade["gross_return_pct"] == pytest.approx(-4.0)

@@ -5910,6 +5910,37 @@ html[data-view-mode='beginner'] .signals-page {
     font: 600 14px var(--font-mono);
 }
 
+.stl-exit-optimizer {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.stl-exit-optimizer > span,
+.stl-exit-optimizer > em {
+    display: block;
+    color: var(--text-muted);
+    font-size: 9px;
+    font-style: normal;
+    line-height: 1.4;
+}
+
+.stl-exit-optimizer > strong {
+    display: block;
+    margin-top: 5px;
+    color: var(--text-primary);
+    font: 600 12px var(--font-mono);
+}
+
+.stl-exit-optimizer.is-available {
+    border-top-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.stl-exit-optimizer dl {
+    margin-top: 10px;
+    gap: 8px;
+}
+
 .stl-meta {
     flex-wrap: wrap;
     justify-content: flex-start;

@@ -38,8 +38,8 @@
     {% endif %}
 
     <div class="stl-notice stl-method-note">
-        <strong>Дневная модель, без имитации intraday</strong>
-        <span>Сигнал формируется после закрытия сессии. Расчётный вход: закрытие следующей доступной сессии. Выход: ещё через {{ report.settings.hold_sessions }} торговых сессий. В базе нет дневных OHLC, поэтому внутридневные стопы и цели здесь не моделируются.</span>
+        <strong>SL/TP проверяются по закрытию сессии</strong>
+        <span>Сигнал формируется после закрытия. Расчётный вход: закрытие следующей доступной сессии. Базовый выход: ещё через {{ report.settings.hold_sessions }} торговых сессий. Оптимизатор выбирает SL/TP на старых 70% периода и показывает результат на новых 30%. Внутридневное касание уровня без дневных OHLC не моделируется.</span>
     </div>
 
     {% if report.is_ready %}
@@ -70,6 +70,21 @@
                         <div><dt>Итог</dt><dd class="{% if window.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(window.net_cash|default(0)) }} $</dd></div>
                         <div><dt>Profit factor</dt><dd>{{ '%.2f'|format(window.profit_factor|default(0)) }}</dd></div>
                     </dl>
+                    {% set optimization = window.exit_optimization|default({}) %}
+                    <div class="stl-exit-optimizer {% if optimization.available %}is-available{% endif %}">
+                        <span>SL/TP по закрытию · проверка 30%</span>
+                        {% if optimization.available %}
+                        <strong>SL {{ optimization.stop_pct|int }}% · TP {{ optimization.target_pct|int }}%</strong>
+                        <dl>
+                            <div><dt>Проверка</dt><dd>{{ optimization.validation.trades }} сделок</dd></div>
+                            <div><dt>Итог</dt><dd class="{% if optimization.validation.net_cash >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(optimization.validation.net_cash) }} $</dd></div>
+                            <div><dt>PF</dt><dd>{{ '%.2f'|format(optimization.validation.profit_factor) }}</dd></div>
+                            <div><dt>Подбор</dt><dd>{{ optimization.train.trades }} сделок</dd></div>
+                        </dl>
+                        {% else %}
+                        <em>{{ optimization.reason|default('Появится после нового расчёта') }}</em>
+                        {% endif %}
+                    </div>
                     {% if not window.is_complete %}<span>Доступно меньше {{ window.days }} календарных дней</span>{% endif %}
                 </div>
                 {% endfor %}
