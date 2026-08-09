@@ -154,8 +154,10 @@ def _high_confidence_scanner_items(prices, periods, market: str) -> list[dict]:
             tickers,
             list(wide.index.astype(str)),
         ),
-        "drawdown": drawdown_scan(wide.values, tickers),
     }
+    # Drawdown is retired for the crypto market (still available for equities).
+    if market != "crypto":
+        frames["drawdown"] = drawdown_scan(wide.values, tickers)
     period_map = {
         (str(row["scanner"]), str(row["ticker_a"]), str(row["direction"])): row
         for row in periods

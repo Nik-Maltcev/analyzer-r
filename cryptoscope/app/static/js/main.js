@@ -46,6 +46,7 @@ function setViewMode(mode) {
 
 window.setViewMode = setViewMode;
 applyViewMode();
+applyScannerVisibility(currentMarket);
 
 function selectedMarket() {
     return document.querySelector('.market-btn.active')?.dataset.market
@@ -83,13 +84,28 @@ function loadSignalsWorkspace(button, market = selectedMarket()) {
     });
 }
 
+function drawdownScannerButton() {
+    return document.querySelector('.mode-btn[data-scanner="drawdown"]');
+}
+
+function applyScannerVisibility(market) {
+    // Drawdown is retired for the crypto market (still available for equities).
+    // Inline display wins over the .mode-btn display:inline-flex rule.
+    const ddBtn = drawdownScannerButton();
+    if (ddBtn) ddBtn.style.display = (market === 'crypto') ? 'none' : '';
+}
+
 function switchMarket(market) {
     currentMarket = market;
     window.currentMarket = market;
     document.querySelectorAll('.market-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.market === market);
     });
-    const activeMode = document.querySelector('.mode-btn.active');
+    applyScannerVisibility(market);
+    let activeMode = document.querySelector('.mode-btn.active');
+    if (market === 'crypto' && activeMode && activeMode.dataset.scanner === 'drawdown') {
+        activeMode = document.querySelector('.mode-btn[data-mode="all"]') || activeMode;
+    }
     loadSignalsWorkspace(activeMode, market);
 }
 window.switchMarket = switchMarket;

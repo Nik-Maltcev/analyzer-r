@@ -89,6 +89,9 @@ async def scanner_drawdown(
     min_drawdown: float = Query(10.0, ge=5, le=50),
 ):
     """Drawdown scanner."""
+    # Drawdown is retired for the crypto market (still available for equities).
+    if market == "crypto":
+        return {"results": [], "total": 0, "market": market, "disabled": True}
     async with get_connection() as conn:
         prices_df = await fetch_prices(conn, market)
     

@@ -80,16 +80,6 @@ STRATEGIES = {
         "cost_pct": 0.10,
         "description": "Мульти-таймфрейм импульс: 3д/7д/14д → long при сильном росте, short при сильном падении.",
     },
-    "drawdown": {
-        "name": "Drawdown mean reversion",
-        "short_name": "Drawdown",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 4.0,
-        "target": 6.0,
-        "cost_pct": 0.10,
-        "description": "Лонг на отскок от 90-дневного максимума: просадка ≥10% + подтверждённый отскок.",
-    },
 }
 _REFRESH_LOCK = Lock()
 
@@ -864,52 +854,6 @@ def _momentum_signals(hourly: pd.DataFrame) -> list[dict]:
                 "signal_time": int(timestamp),
                 "ticker": ticker,
                 "direction": str(direction[close.index.get_loc(timestamp)]),
-                "signal_price": float(price),
-                "score": float(value),
-            })
-    return rows
-
-
-def _drawdown_signals(hourly: pd.DataFrame) -> list[dict]:
-    """Mean-reversion long signals on deep hourly drawdowns.
-
-    Mirrors the daily drawdown_scan: 90-day high → 2160-hour high.
-    Enter long when drawdown >= 10% and 3h/7h returns confirm a bounce
-    (r3 > 0.5% and r7 > 0%).
-    """
-    if hourly.empty:
-        return []
-    close = hourly.pivot(index="open_time", columns="ticker", values="close").sort_index()
-    if close.shape[0] < 2160:
-        return []
-    high_90d = close.rolling(2160, min_periods=1680).max()
-    dd_pct = (1 - close / high_90d) * 100
-    r3 = close.pct_change(3, fill_method=None) * 100
-    r7 = close.pct_change(7, fill_method=None) * 100
-    cadence = pd.Series(
-        (close.index.to_numpy(dtype=np.int64) // (60 * 60_000)) % 4 == 0,
-        index=close.index,
-    )
-    rows: list[dict] = []
-    for ticker in close.columns:
-        if ticker == "BTC/USD":
-            continue
-        long_cond = (
-            cadence
-            & (dd_pct[ticker] >= 10)
-            & (r3[ticker] > 0.5)
-            & (r7[ticker] > 0)
-        )
-        score = dd_pct[ticker]
-        for timestamp in close.index[long_cond]:
-            price = close.at[timestamp, ticker]
-            value = score.loc[timestamp]
-            if pd.isna(price) or pd.isna(value):
-                continue
-            rows.append({
-                "signal_time": int(timestamp),
-                "ticker": ticker,
-                "direction": "long",
                 "signal_price": float(price),
                 "score": float(value),
             })
@@ -1795,7 +1739,6 @@ def generate_candidates(
         ),
         "rs_regime_filter": _wrap_rs("rs_regime_filter", _rs_btc_filter_signals(hourly), count=1),
         "momentum": _wrap_rs("momentum", _momentum_signals(hourly), count=1),
-        "drawdown": _wrap_rs("drawdown", _drawdown_signals(hourly), count=1),
     }
 
 
@@ -2928,8 +2871,8 @@ def get_short_term_report(db_path: str) -> dict:
         "completed": completed_dict,
         "is_ready": completed is not None,
         "strategies": strategy_cards,
-        "open": [trade_dict(row) for row in open_rows],
-        "closed": [trade_dict(row) for row in closed_rows],
+        "open": [trade_dict(row) for row in open_rows if row["strategy"] in STRATEGIES],
+        "closed": [trade_dict(row) for row in closed_rows if row["strategy"] in STRATEGIES],
         "settings": {
             "stake": STAKE_USD,
             "cost_pct": ROUND_TRIP_COST_PCT,

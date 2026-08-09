@@ -2,6 +2,9 @@
     {% if error %}
     <div class="error-msg">{{ error }}</div>
     {% endif %}
+    {% if disabled_notice %}
+    <div class="error-msg">{{ disabled_notice }}</div>
+    {% endif %}
 
     {% include "components/scanner_market_risk.html" %}
 

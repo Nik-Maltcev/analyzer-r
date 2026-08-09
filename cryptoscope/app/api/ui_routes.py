@@ -717,6 +717,11 @@ async def tab_scanner_content(
         "live_error": None,
     }
 
+    # Drawdown is retired for the crypto market (still available for equities).
+    if scanner_type == "drawdown" and market == "crypto":
+        ctx["disabled_notice"] = "Сканер Drawdown отключён для крипто-рынка."
+        return templates.TemplateResponse(request, template, ctx)
+
     try:
         async with get_connection() as conn:
             prices_df = await fetch_prices(conn, market)
