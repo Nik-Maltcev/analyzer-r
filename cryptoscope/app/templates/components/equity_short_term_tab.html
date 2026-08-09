@@ -28,7 +28,12 @@
     {% if report.running %}
     <div class="stl-notice is-running">
         <strong>Пересчитываем {{ report.market_label }}</strong>
-        <span>Используются уже сохранённые на Railway Volume дневные цены и объёмы. Предыдущий завершённый расчёт остаётся доступен ниже.</span>
+        <span>{% if report.needs_optimizer_refresh %}Добавляем проверенный поиск SL/TP к сохранённому отчёту. Страница обновится автоматически после завершения.{% else %}Используются уже сохранённые на Railway Volume дневные цены и объёмы. Предыдущий завершённый расчёт остаётся доступен ниже.{% endif %}</span>
+    </div>
+    {% elif report.needs_optimizer_refresh %}
+    <div class="stl-notice is-running">
+        <strong>Подготавливаем поиск SL/TP</strong>
+        <span>Сохранённый отчёт создан старой версией расчёта. Новый пересчёт запущен автоматически.</span>
     </div>
     {% elif report.latest and report.latest.status == 'failed' %}
     <div class="stl-notice is-error">

@@ -578,6 +578,7 @@ def get_equity_short_term_report(db_path: str, market: str) -> dict:
     conn.close()
     payload = json.loads(completed["metrics_json"] or "{}") if completed else {}
     metrics = payload.get("strategies", {})
+    has_exit_optimization = "exit_optimization" in payload
     exit_optimization = payload.get("exit_optimization", {})
     cards = []
     for strategy, settings in STRATEGIES.items():
@@ -621,6 +622,10 @@ def get_equity_short_term_report(db_path: str, market: str) -> dict:
         "completed": dict(completed) if completed else None,
         "is_ready": completed is not None,
         "needs_refresh": completed is None or price_end > completed_end,
+        # Completed reports created before the SL/TP optimizer was introduced
+        # need one migration refresh. Once the payload contains the field,
+        # unavailable validation results are still considered calculated.
+        "needs_optimizer_refresh": completed is not None and not has_exit_optimization,
         "data_label": _format_date(completed_end),
         "strategies": cards,
         "open": [trade(row) for row in open_rows],
