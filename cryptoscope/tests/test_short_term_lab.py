@@ -43,11 +43,20 @@ def _bars(rows):
 @pytest.fixture(autouse=True)
 def _register_legacy_strategies(monkeypatch):
     """Retired strategies stay importable for their point-in-time tests."""
-    for key in ("dual_momentum", "volatility_breakout"):
+    for key in ("dual_momentum", "volatility_breakout", "momentum"):
         monkeypatch.setitem(STRATEGIES, key, {
             "name": key, "short_name": key, "timeframe": 60,
             "hold": 24 * 60, "stop": 0.0, "target": 0.0,
         })
+
+
+def test_active_crypto_short_term_strategies_are_rs_only():
+    legacy_test_strategies = {"dual_momentum", "volatility_breakout", "momentum"}
+
+    assert set(STRATEGIES) - legacy_test_strategies == {
+        "rs_low_cost",
+        "rs_regime_filter",
+    }
 
 
 def test_aggregate_uses_only_fully_closed_bars():
@@ -84,7 +93,7 @@ def test_dual_momentum_uses_closed_hourly_history_and_market_tails():
     events = _dual_momentum(_bars(rows))
     final = [event for event in events if event["signal_time"] == 30 * hour]
 
-    assert CALCULATION_VERSION == "short-term-lab-v56"
+    assert CALCULATION_VERSION == "short-term-lab-v57"
     assert len(final) == 6
     assert {event["direction"] for event in final} == {"long", "short"}
     assert all(event["signal_time"] % (6 * hour) == 0 for event in events)

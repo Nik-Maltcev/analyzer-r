@@ -33,7 +33,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v56"
+CALCULATION_VERSION = "short-term-lab-v57"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -42,23 +42,13 @@ BACKTEST_WINDOWS_DAYS = (30, 90, 180, 365)
 STRATEGIES = {
     "rs_low_cost": {
         "name": "RS vs BTC",
-        "short_name": "RS vs BTC",
+        "short_name": "RS low cost",
         "timeframe": 60,
         "hold": 24 * 60,
         "stop": 4.0,
         "target": 6.0,
         "cost_pct": ROUND_TRIP_COST_PCT,
         "description": "Базовый вариант: расходы 0.30% за полный круг, выход по времени через 24 часа.",
-    },
-    "rs_low_liquidity": {
-        "name": "RS vs BTC (liquidity ≥$10M/24h)",
-        "short_name": "RS liquidity",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 4.0,
-        "target": 6.0,
-        "cost_pct": ROUND_TRIP_COST_PCT,
-        "description": "Фильтр ликвидности: quote_volume 24ч ≥ $10M.",
     },
     "rs_regime_filter": {
         "name": "RS vs BTC (market regime)",
@@ -69,16 +59,6 @@ STRATEGIES = {
         "target": 6.0,
         "cost_pct": ROUND_TRIP_COST_PCT,
         "description": "Только LONG при BTC ≥0% (24ч), только SHORT при BTC ≤0%. Направленческий фильтр.",
-    },
-    "momentum": {
-        "name": "Momentum (multi-timeframe)",
-        "short_name": "Momentum",
-        "timeframe": 60,
-        "hold": 24 * 60,
-        "stop": 4.0,
-        "target": 6.0,
-        "cost_pct": ROUND_TRIP_COST_PCT,
-        "description": "Мульти-таймфрейм импульс: 3д/7д/14д → long при сильном росте, short при сильном падении.",
     },
 }
 _REFRESH_LOCK = Lock()
@@ -1732,13 +1712,7 @@ def generate_candidates(
         perp = pd.DataFrame(columns=["ticker", "open_time", "open", "high", "low", "close", "volume", "quote_volume"])
     return {
         "rs_low_cost": _wrap_rs("rs_low_cost", _rs_btc_signals(hourly), count=1),
-        "rs_low_liquidity": _wrap_rs(
-            "rs_low_liquidity",
-            _liquidity_filter(_rs_btc_signals(hourly), hourly, min_quote_24h=10_000_000),
-            count=1,
-        ),
         "rs_regime_filter": _wrap_rs("rs_regime_filter", _rs_btc_filter_signals(hourly), count=1),
-        "momentum": _wrap_rs("momentum", _momentum_signals(hourly), count=1),
     }
 
 
