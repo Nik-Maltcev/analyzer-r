@@ -1,0 +1,149 @@
+<section class="stl-shell"
+         hx-get="/tab/short-term?market={{ report.market }}"
+         hx-trigger="{% if report.running %}every 5s{% else %}every 60s{% endif %}"
+         hx-target="this" hx-swap="outerHTML">
+    <nav class="stl-market-switch" aria-label="Рынок Short-Term Lab">
+        <button type="button" hx-get="/tab/short-term?market=crypto" hx-target="#main-content" hx-swap="innerHTML">Crypto</button>
+        <button class="{% if report.market == 'ru' %}is-active{% endif %}" type="button"
+                {% if report.market == 'ru' %}aria-current="page"{% else %}hx-get="/tab/short-term?market=ru" hx-target="#main-content" hx-swap="innerHTML"{% endif %}>RU</button>
+        <button class="{% if report.market == 'stocks' %}is-active{% endif %}" type="button"
+                {% if report.market == 'stocks' %}aria-current="page"{% else %}hx-get="/tab/short-term?market=stocks" hx-target="#main-content" hx-swap="innerHTML"{% endif %}>Акции/ETF</button>
+    </nav>
+
+    <header class="stl-header">
+        <div>
+            <span class="section-kicker">ADMIN · DAILY FORWARD RESEARCH</span>
+            <h2>Short-Term Lab · {{ report.market_label }}</h2>
+            <p>Те же четыре гипотезы, адаптированные к завершённым дневным сессиям {{ report.market_label }}.</p>
+        </div>
+        <button class="btn btn-secondary" type="button"
+                hx-get="/tab/short-term?market={{ report.market }}&refresh=true"
+                hx-target="#main-content" hx-swap="innerHTML"
+                {% if report.running %}disabled{% endif %}>
+            <i data-lucide="refresh-cw"></i>
+            {% if report.running %}Идёт расчёт{% else %}Обновить расчёт{% endif %}
+        </button>
+    </header>
+
+    {% if report.running %}
+    <div class="stl-notice is-running">
+        <strong>Пересчитываем {{ report.market_label }}</strong>
+        <span>Используются уже сохранённые на Railway Volume дневные цены и объёмы. Предыдущий завершённый расчёт остаётся доступен ниже.</span>
+    </div>
+    {% elif report.latest and report.latest.status == 'failed' %}
+    <div class="stl-notice is-error">
+        <strong>Последний расчёт не завершён</strong>
+        <span>{{ report.latest.error }}</span>
+    </div>
+    {% endif %}
+
+    <div class="stl-notice stl-method-note">
+        <strong>Дневная модель, без имитации intraday</strong>
+        <span>Сигнал формируется после закрытия сессии. Расчётный вход: закрытие следующей доступной сессии. Выход: ещё через {{ report.settings.hold_sessions }} торговых сессий. В базе нет дневных OHLC, поэтому внутридневные стопы и цели здесь не моделируются.</span>
+    </div>
+
+    {% if report.is_ready %}
+    <div class="stl-meta">
+        <span>Источник {{ report.source }}</span>
+        <span>Данные до {{ report.data_label }}</span>
+        <span>Свеча 1 день</span>
+        <span>Расходы {{ '%.2f'|format(report.settings.cost_pct) }}% на сделку</span>
+        <span>$100 на сделку</span>
+        <span>Версия {{ report.version }}</span>
+    </div>
+
+    <section class="stl-equity-strategies">
+        {% for strategy in report.strategies %}
+        <article class="stl-equity-strategy">
+            <header>
+                <span>{{ loop.index }} / {{ report.strategies|length }}</span>
+                <h3>{{ strategy.name }}</h3>
+            </header>
+            <p>{{ strategy.description }}</p>
+            <div class="stl-window-grid">
+                {% for window in strategy.windows %}
+                <div class="stl-window {% if not window.is_complete %}is-partial{% endif %}">
+                    <strong>{{ window.days }} дней</strong>
+                    <dl>
+                        <div><dt>Сделок</dt><dd>{{ window.trades|default(0) }}</dd></div>
+                        <div><dt>В плюсе</dt><dd>{{ '%.1f'|format(window.win_rate|default(0)) }}%</dd></div>
+                        <div><dt>Итог</dt><dd class="{% if window.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(window.net_cash|default(0)) }} $</dd></div>
+                        <div><dt>Profit factor</dt><dd>{{ '%.2f'|format(window.profit_factor|default(0)) }}</dd></div>
+                    </dl>
+                    {% if not window.is_complete %}<span>Доступно меньше {{ window.days }} календарных дней</span>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </article>
+        {% endfor %}
+    </section>
+
+    <section class="stl-panel">
+        <header>
+            <div><span class="section-kicker">FORWARD TEST</span><h3>Активные наблюдения</h3></div>
+            <span>{{ report.open|length }} в журнале</span>
+        </header>
+        {% if report.open %}
+        <div class="stl-table-wrap">
+            <table class="stl-table">
+                <thead><tr><th>Действие</th><th>Стратегия</th><th>Сигнал</th><th>Расчётный вход</th><th>План выхода</th><th>Текущий итог</th></tr></thead>
+                <tbody>
+                {% for trade in report.open %}
+                <tr>
+                    <td><strong class="{% if trade.direction == 'long' %}positive{% else %}negative{% endif %}">{{ 'Купить' if trade.direction == 'long' else 'Шорт' }} {{ trade.ticker }}</strong></td>
+                    <td>{{ trade.strategy_name }}<span>{{ 'Высокая' if trade.confidence == 'high' else 'Средняя' }} уверенность</span></td>
+                    <td>{{ trade.signal_time_label }}<span>score {{ '%+.2f'|format(trade.score) }}</span></td>
+                    {% if trade.status == 'pending' %}
+                    <td><strong>Ожидает сессию</strong><span>вход после следующего закрытия</span></td>
+                    <td>После входа<span>{{ report.settings.hold_sessions }} сессий</span></td>
+                    <td>—</td>
+                    {% else %}
+                    <td>${{ '%.7g'|format(trade.entry_price) }}<span>{{ trade.entry_time_label }}</span></td>
+                    <td>{{ trade.planned_exit_time_label }}<span>{{ report.settings.hold_sessions }} сессий после входа</span></td>
+                    <td class="{% if trade.current_net_return_pct >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(trade.current_net_return_pct) }}%</strong><span>{{ '%+.2f'|format(trade.current_cash_result) }} $ при $100</span></td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="stl-empty">На последней завершённой сессии строгих новых входов нет.</div>
+        {% endif %}
+    </section>
+
+    <section class="stl-panel">
+        <header>
+            <div><span class="section-kicker">НЕИЗМЕНЯЕМЫЙ ЖУРНАЛ</span><h3>Завершённые forward-сделки</h3></div>
+            <span>{{ report.closed|length }} последних</span>
+        </header>
+        {% if report.closed %}
+        <div class="stl-table-wrap">
+            <table class="stl-table">
+                <thead><tr><th>Инструмент</th><th>Стратегия</th><th>Сторона</th><th>Вход → выход</th><th>Причина</th><th>После расходов</th></tr></thead>
+                <tbody>
+                {% for trade in report.closed %}
+                <tr>
+                    <td><strong>{{ trade.ticker }}</strong></td>
+                    <td>{{ trade.strategy_name }}</td>
+                    <td class="{% if trade.direction == 'long' %}positive{% else %}negative{% endif %}">{{ trade.direction|upper }}</td>
+                    <td>${{ '%.7g'|format(trade.entry_price) }} → ${{ '%.7g'|format(trade.exit_price) }}<span>{{ trade.entry_time_label }} → {{ trade.exit_time_label }}</span></td>
+                    <td>{{ trade.exit_reason }}</td>
+                    <td class="{% if trade.net_return_pct >= 0 %}positive{% else %}negative{% endif %}"><strong>{{ '%+.2f'|format(trade.net_return_pct) }}%</strong><span>{{ '%+.2f'|format(trade.cash_result) }} $ при $100</span></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="stl-empty">Forward-журнал начнёт заполняться после первого входа и пяти последующих торговых сессий.</div>
+        {% endif %}
+    </section>
+    {% elif not report.running %}
+    <div class="stl-empty">В Volume пока нет завершённого расчёта {{ report.market_label }}. Нажмите «Обновить расчёт».</div>
+    {% endif %}
+
+    <footer class="stl-disclaimer">
+        Исследовательский раздел, не индивидуальная рекомендация. Исторический тест использует только данные, доступные на дату сигнала. Forward-сделки не добавляются задним числом, закрытый результат не переписывается.
+    </footer>
+</section>

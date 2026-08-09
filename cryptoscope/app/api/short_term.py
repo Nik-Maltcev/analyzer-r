@@ -9,6 +9,10 @@ from fastapi.responses import HTMLResponse
 
 from app.access import is_admin_user
 from app.auth import get_current_user
+from app.core.equity_short_term_lab import (
+    get_equity_short_term_report,
+    refresh_equity_short_term_lab,
+)
 from app.core.short_term_lab import (
     build_scan_cards,
     build_strategy_cards_for_report,
@@ -21,7 +25,8 @@ from app.db import database
 from app.ui.templates import templates
 
 router = APIRouter(prefix="/tab/short-term", tags=["short-term"])
-_REFRESH_TASK: asyncio.Task | None = None
+_SUPPORTED_MARKETS = {"crypto", "ru", "stocks"}
+_REFRESH_TASKS: dict[str, asyncio.Task] = {}
 
 
 async def _require_admin(request: Request) -> None:
@@ -32,37 +37,63 @@ async def _require_admin(request: Request) -> None:
         raise HTTPException(status_code=404, detail="Not found")
 
 
-async def _run_refresh() -> None:
+async def _run_refresh(market: str) -> None:
     try:
-        result = await refresh_short_term_lab(database.DB_PATH)
-        print(f"Short-Term Lab refresh complete: run={result.get('run_id')}")
+        if market == "crypto":
+            result = await refresh_short_term_lab(database.DB_PATH)
+        else:
+            result = await asyncio.to_thread(
+                refresh_equity_short_term_lab,
+                database.DB_PATH,
+                market,
+            )
+        print(f"Short-Term Lab refresh complete: market={market} run={result.get('run_id')}")
     except Exception as exc:
-        print(f"Short-Term Lab refresh failed: {exc!r}")
+        print(f"Short-Term Lab refresh failed: market={market} error={exc!r}")
 
 
-def _start_refresh() -> None:
-    global _REFRESH_TASK
-    if _REFRESH_TASK is None or _REFRESH_TASK.done():
-        _REFRESH_TASK = asyncio.create_task(_run_refresh())
+def _start_refresh(market: str) -> None:
+    task = _REFRESH_TASKS.get(market)
+    if task is None or task.done():
+        _REFRESH_TASKS[market] = asyncio.create_task(_run_refresh(market))
 
 
 @router.get("", response_class=HTMLResponse)
-async def short_term_tab(request: Request, refresh: bool = Query(False)):
+async def short_term_tab(
+    request: Request,
+    refresh: bool = Query(False),
+    market: str = Query("crypto"),
+):
     await _require_admin(request)
-    report = await asyncio.to_thread(get_short_term_report, database.DB_PATH)
+    market = market.strip().lower()
+    if market not in _SUPPORTED_MARKETS:
+        raise HTTPException(status_code=400, detail="Unsupported Short-Term Lab market")
+    if market == "crypto":
+        report = await asyncio.to_thread(get_short_term_report, database.DB_PATH)
+    else:
+        report = await asyncio.to_thread(
+            get_equity_short_term_report,
+            database.DB_PATH,
+            market,
+        )
     latest = report.get("latest") or {}
     latest_status = latest.get("status")
     persisted_run_active = latest_status == "running" and not latest.get("is_stale")
     if refresh or (not report["is_ready"] and not persisted_run_active):
-        _start_refresh()
+        _start_refresh(market)
         await asyncio.sleep(0)
+    task = _REFRESH_TASKS.get(market)
     report["running"] = bool(
-        (_REFRESH_TASK and not _REFRESH_TASK.done())
+        (task and not task.done())
         or persisted_run_active
     )
     return templates.TemplateResponse(
         request,
-        "components/short_term_tab.html",
+        (
+            "components/short_term_tab.html"
+            if market == "crypto"
+            else "components/equity_short_term_tab.html"
+        ),
         {"report": report},
     )
 

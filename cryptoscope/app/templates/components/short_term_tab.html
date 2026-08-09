@@ -1,7 +1,12 @@
 <section class="stl-shell"
-         hx-get="/tab/short-term"
+         hx-get="/tab/short-term?market=crypto"
          hx-trigger="{% if report.running %}every 5s{% else %}every 60s{% endif %}"
          hx-target="this" hx-swap="outerHTML">
+    <nav class="stl-market-switch" aria-label="Рынок Short-Term Lab">
+        <button class="is-active" type="button" aria-current="page">Crypto</button>
+        <button type="button" hx-get="/tab/short-term?market=ru" hx-target="#main-content" hx-swap="innerHTML">RU</button>
+        <button type="button" hx-get="/tab/short-term?market=stocks" hx-target="#main-content" hx-swap="innerHTML">Акции/ETF</button>
+    </nav>
     <header class="stl-header">
         <div>
             <span class="section-kicker">ADMIN · FORWARD RESEARCH</span>
@@ -9,7 +14,7 @@
             <p>Relative Strength vs BTC: сигнал 60 мин, исполнение 5 мин, проверка на 30/90/180/365 днях + среднее за неделю.</p>
         </div>
         <button class="btn btn-secondary" type="button"
-                hx-get="/tab/short-term?refresh=true"
+                hx-get="/tab/short-term?market=crypto&refresh=true"
                 hx-target="#main-content" hx-swap="innerHTML"
                 {% if report.running %}disabled{% endif %}>
             <i data-lucide="refresh-cw"></i>
