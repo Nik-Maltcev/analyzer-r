@@ -4,6 +4,7 @@ import pytest
 from app.core.equity_short_term_lab import (
     HOLD_SESSIONS,
     MARKETS,
+    _optimize_close_exits,
     generate_candidates,
     simulate,
 )
@@ -142,3 +143,31 @@ def test_close_based_stop_respects_short_direction():
     assert trade["exit_time"] == int(ticker_frame.iloc[2]["time_ms"])
     assert trade["exit_reason"] == "SL 3% по закрытию"
     assert trade["gross_return_pct"] == pytest.approx(-4.0)
+
+
+def test_exit_optimizer_exposes_ranked_candidates_without_using_validation_for_rank():
+    frame = _daily_frame(days=180, tickers=10)
+    candidates = generate_candidates(frame, "ru")
+    data_start = int(frame["time_ms"].min())
+    data_end = int(frame["time_ms"].max())
+
+    optimized = _optimize_close_exits(
+        candidates,
+        frame,
+        "ru",
+        data_start,
+        data_end,
+    )
+    available = [item for item in optimized.values() if item.get("candidates")]
+
+    assert available
+    for result in available:
+        ranked = result["candidates"]
+        assert len(ranked) <= 5
+        assert [item["rank"] for item in ranked] == list(range(1, len(ranked) + 1))
+        assert ranked[0]["stop_pct"] == result["stop_pct"]
+        assert ranked[0]["target_pct"] == result["target_pct"]
+        assert all("train" in item and "validation" in item for item in ranked)
+        assert [item["train"]["profit_factor"] for item in ranked] == sorted(
+            (item["train"]["profit_factor"] for item in ranked), reverse=True
+        )

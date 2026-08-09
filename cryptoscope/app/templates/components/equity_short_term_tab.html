@@ -57,6 +57,82 @@
         <span>Версия {{ report.version }}</span>
     </div>
 
+    <section class="stl-equity-sltp-rankings" data-equity-sltp-market="{{ report.market }}">
+        <header class="stl-equity-sltp-header">
+            <div>
+                <span class="section-kicker">ПРОВЕРКА НА НОВЫХ ДАННЫХ</span>
+                <h3>Поиск оптимальных SL/TP</h3>
+                <p>Top-5 выбираются только на старых 70% периода. В таблице показан результат на новых 30%, которые не участвовали в подборе.</p>
+            </div>
+            <div class="stl-equity-sltp-periods" role="group" aria-label="Период проверки SL/TP">
+                {% for days in [30, 90, 180, 365] %}
+                <button type="button" data-sltp-period="{{ days }}" class="{% if days == 90 %}is-active{% endif %}">{{ days }} дн.</button>
+                {% endfor %}
+            </div>
+        </header>
+
+        <div class="stl-equity-sltp-grid">
+            {% for strategy in report.strategies %}
+            <article class="stl-equity-sltp-strategy">
+                <header><h4>{{ strategy.name }}</h4><span>проверка 30%</span></header>
+                {% for window in strategy.windows %}
+                {% set optimization = window.exit_optimization|default({}) %}
+                <div class="stl-equity-sltp-window {% if window.days != 90 %}is-hidden{% endif %}"
+                     data-sltp-window="{{ window.days }}">
+                    <div class="stl-table-wrap">
+                        <table class="stl-table stl-equity-sltp-table">
+                            <thead>
+                                <tr><th>Stop</th><th>Target</th><th>PF</th><th>Win rate</th><th>Сделок</th><th>Сеть</th><th>$/сделку</th></tr>
+                            </thead>
+                            <tbody>
+                            {% if optimization.candidates|default([]) %}
+                                {% for candidate in optimization.candidates %}
+                                {% set metrics = candidate.validation %}
+                                <tr class="{% if loop.first %}is-selected{% endif %}">
+                                    <td><strong>{{ candidate.stop_pct|int }}%</strong>{% if loop.first %}<span>выбран</span>{% endif %}</td>
+                                    <td><strong>{{ candidate.target_pct|int }}%</strong></td>
+                                    <td class="{% if metrics.profit_factor >= 1 %}positive{% else %}negative{% endif %}">{{ '%.2f'|format(metrics.profit_factor) }}</td>
+                                    <td>{{ '%.0f'|format(metrics.win_rate) }}%</td>
+                                    <td>{{ metrics.trades }}</td>
+                                    <td class="{% if metrics.net_cash >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(metrics.net_cash) }} $</td>
+                                    <td class="{% if metrics.avg_cash >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(metrics.avg_cash) }} $</td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr><td colspan="7" class="stl-empty-cell">{{ optimization.reason|default('Недостаточно сделок для честного разделения 70/30') }}</td></tr>
+                            {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% endfor %}
+            </article>
+            {% endfor %}
+        </div>
+        <footer>SL/TP проверяются только по закрытию дневной сессии. Внутридневное касание уровня без дневных OHLC не моделируется.</footer>
+    </section>
+
+    <script>
+    (() => {
+        const root = document.querySelector('[data-equity-sltp-market="{{ report.market }}"]');
+        if (!root || root.dataset.bound === 'true') return;
+        root.dataset.bound = 'true';
+        const storageKey = `meanx-equity-sltp-period-{{ report.market }}`;
+        const buttons = [...root.querySelectorAll('[data-sltp-period]')];
+        const windows = [...root.querySelectorAll('[data-sltp-window]')];
+        const showPeriod = (period) => {
+            buttons.forEach((button) => button.classList.toggle('is-active', button.dataset.sltpPeriod === period));
+            windows.forEach((windowNode) => windowNode.classList.toggle('is-hidden', windowNode.dataset.sltpWindow !== period));
+            try { localStorage.setItem(storageKey, period); } catch (_) {}
+        };
+        buttons.forEach((button) => button.addEventListener('click', () => showPeriod(button.dataset.sltpPeriod)));
+        let initial = '90';
+        try { initial = localStorage.getItem(storageKey) || initial; } catch (_) {}
+        if (!buttons.some((button) => button.dataset.sltpPeriod === initial)) initial = '90';
+        showPeriod(initial);
+    })();
+    </script>
+
     <section class="stl-equity-strategies">
         {% for strategy in report.strategies %}
         <article class="stl-equity-strategy">

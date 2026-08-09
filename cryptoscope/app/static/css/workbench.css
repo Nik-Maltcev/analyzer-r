@@ -5840,6 +5840,155 @@ html[data-view-mode='beginner'] .signals-page {
     margin-top: 12px;
 }
 
+.stl-equity-sltp-rankings {
+    margin-top: 14px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+}
+
+.stl-equity-sltp-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.stl-equity-sltp-header h3,
+.stl-equity-sltp-strategy h4 {
+    margin: 3px 0 0;
+}
+
+.stl-equity-sltp-header p {
+    max-width: 760px;
+    margin: 6px 0 0;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.stl-equity-sltp-periods {
+    display: flex;
+    flex: 0 0 auto;
+    border: 1px solid var(--border);
+}
+
+.stl-equity-sltp-periods button {
+    min-width: 64px;
+    height: 34px;
+    padding: 0 12px;
+    border: 0;
+    border-right: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font: 600 10px var(--font-mono);
+    cursor: pointer;
+}
+
+.stl-equity-sltp-periods button:last-child {
+    border-right: 0;
+}
+
+.stl-equity-sltp-periods button.is-active {
+    background: var(--surface-raised);
+    color: var(--accent);
+    box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.stl-equity-sltp-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stl-equity-sltp-strategy {
+    min-width: 0;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
+.stl-equity-sltp-strategy:nth-child(2n) {
+    border-right: 0;
+}
+
+.stl-equity-sltp-strategy > header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 15px;
+}
+
+.stl-equity-sltp-strategy > header h4 {
+    font-size: 12px;
+}
+
+.stl-equity-sltp-strategy > header span {
+    color: var(--text-muted);
+    font-size: 9px;
+}
+
+.stl-equity-sltp-window.is-hidden {
+    display: none;
+}
+
+.stl-equity-sltp-table {
+    width: 100%;
+    border-top: 1px solid var(--border);
+}
+
+.stl-equity-sltp-table th,
+.stl-equity-sltp-table td {
+    padding: 10px 12px;
+    white-space: nowrap;
+}
+
+.stl-equity-sltp-table td:first-child span {
+    display: block;
+    margin-top: 3px;
+    color: var(--accent);
+    font-size: 8px;
+    text-transform: uppercase;
+}
+
+.stl-equity-sltp-table tr.is-selected {
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.stl-equity-sltp-rankings > footer {
+    padding: 11px 15px;
+    color: var(--text-muted);
+    font-size: 9px;
+}
+
+.stl-empty-cell {
+    color: var(--text-muted);
+    text-align: center;
+}
+
+@media (max-width: 900px) {
+    .stl-equity-sltp-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .stl-equity-sltp-periods {
+        align-self: flex-start;
+        max-width: 100%;
+        overflow-x: auto;
+    }
+
+    .stl-equity-sltp-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .stl-equity-sltp-strategy,
+    .stl-equity-sltp-strategy:nth-child(2n) {
+        border-right: 0;
+    }
+}
+
 .stl-equity-strategy {
     border: 1px solid var(--border);
     background: var(--panel);

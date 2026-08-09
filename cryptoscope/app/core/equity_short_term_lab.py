@@ -340,11 +340,12 @@ def _optimize_close_exits(
                 train_metrics = _trade_summary(train)
                 if train_metrics["trades"] < OPTIMIZER_MIN_TRAIN_TRADES:
                     continue
-                # Net result is primary; profit factor and a smaller threshold
-                # are deterministic tie-breakers. Validation is never consulted.
+                # Match the crypto optimizer: profit factor is primary, while
+                # net result and a smaller threshold are deterministic ties.
+                # Validation is never consulted during selection.
                 rank = (
-                    float(train_metrics["net_cash"]),
                     float(train_metrics["profit_factor"]),
+                    float(train_metrics["net_cash"]),
                     -float(stop_pct + target_pct),
                 )
                 choices.append((rank, stop_pct, target_pct, train_metrics, validation))
@@ -352,14 +353,30 @@ def _optimize_close_exits(
             if not choices:
                 output[key] = {
                     "available": False,
+                    "candidates": [],
                     "reason": "Недостаточно сделок для честного разделения 70/30",
                 }
                 continue
-            _, stop_pct, target_pct, train_metrics, validation = max(
-                choices, key=lambda item: item[0]
-            )
+            ranked_choices = sorted(choices, key=lambda item: item[0], reverse=True)
+            _, stop_pct, target_pct, train_metrics, validation = ranked_choices[0]
             validation_metrics = _trade_summary(validation)
             available = validation_metrics["trades"] >= OPTIMIZER_MIN_VALIDATION_TRADES
+            ranked_candidates = []
+            for candidate_rank, (_, candidate_stop, candidate_target, candidate_train, candidate_validation) in enumerate(
+                ranked_choices[:5], start=1
+            ):
+                candidate_validation_metrics = _trade_summary(candidate_validation)
+                ranked_candidates.append({
+                    "rank": candidate_rank,
+                    "stop_pct": candidate_stop,
+                    "target_pct": candidate_target,
+                    "train": candidate_train,
+                    "validation": candidate_validation_metrics,
+                    "validation_available": (
+                        candidate_validation_metrics["trades"]
+                        >= OPTIMIZER_MIN_VALIDATION_TRADES
+                    ),
+                })
             output[key] = {
                 "available": available,
                 "reason": (
@@ -373,6 +390,7 @@ def _optimize_close_exits(
                 "train_end": split_time,
                 "coverage_days": coverage,
                 "method": "session_close_70_30",
+                "candidates": ranked_candidates,
             }
     return output
 
@@ -580,6 +598,11 @@ def get_equity_short_term_report(db_path: str, market: str) -> dict:
     metrics = payload.get("strategies", {})
     has_exit_optimization = "exit_optimization" in payload
     exit_optimization = payload.get("exit_optimization", {})
+    has_ranked_optimization = has_exit_optimization and all(
+        "candidates" in exit_optimization.get(f"{strategy}_{days}d", {})
+        for strategy in STRATEGIES
+        for days in WINDOWS_DAYS
+    )
     cards = []
     for strategy, settings in STRATEGIES.items():
         windows = []
@@ -625,7 +648,7 @@ def get_equity_short_term_report(db_path: str, market: str) -> dict:
         # Completed reports created before the SL/TP optimizer was introduced
         # need one migration refresh. Once the payload contains the field,
         # unavailable validation results are still considered calculated.
-        "needs_optimizer_refresh": completed is not None and not has_exit_optimization,
+        "needs_optimizer_refresh": completed is not None and not has_ranked_optimization,
         "data_label": _format_date(completed_end),
         "strategies": cards,
         "open": [trade(row) for row in open_rows],
