@@ -88,8 +88,8 @@
                             {% if optimization.candidates|default([]) %}
                                 {% for candidate in optimization.candidates %}
                                 {% set metrics = candidate.validation %}
-                                <tr class="{% if loop.first %}is-selected{% endif %}">
-                                    <td><strong>{{ candidate.stop_pct|int }}%</strong>{% if loop.first %}<span>выбран</span>{% endif %}</td>
+                                <tr class="{% if loop.first %}is-selected{% endif %}"{% if loop.first %} title="Оптимальный вариант выбран только на старых 70% данных"{% endif %}>
+                                    <td><strong>{{ candidate.stop_pct|int }}%</strong>{% if loop.first %}<span>оптимальный</span>{% endif %}</td>
                                     <td><strong>{{ candidate.target_pct|int }}%</strong></td>
                                     <td class="{% if metrics.profit_factor >= 1 %}positive{% else %}negative{% endif %}">{{ '%.2f'|format(metrics.profit_factor) }}</td>
                                     <td>{{ '%.0f'|format(metrics.win_rate) }}%</td>

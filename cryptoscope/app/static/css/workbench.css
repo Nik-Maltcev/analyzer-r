@@ -5952,8 +5952,16 @@ html[data-view-mode='beginner'] .signals-page {
 }
 
 .stl-equity-sltp-table tr.is-selected {
-    background: color-mix(in srgb, var(--accent) 6%, transparent);
-    box-shadow: inset 2px 0 0 var(--accent);
+    background: color-mix(in srgb, var(--accent) 11%, transparent);
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.stl-equity-sltp-table tr.is-selected td {
+    border-bottom-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+}
+
+.stl-equity-sltp-table tr.is-selected td:first-child strong {
+    color: var(--accent);
 }
 
 .stl-equity-sltp-rankings > footer {
