@@ -33,7 +33,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v58"
+CALCULATION_VERSION = "short-term-lab-v59"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -78,6 +78,7 @@ def ensure_short_term_schema(conn: sqlite3.Connection) -> None:
         conn.execute(statement)
     migrations = {
         "short_term_backtest_trades": {
+            "reporting_windows": "TEXT",
             "hedge_ticker": "TEXT",
             "hedge_direction": "TEXT",
             "hedge_ratio": "REAL",
@@ -1934,28 +1935,79 @@ def _select_non_overlapping_candidates(events: list[dict]) -> list[dict]:
     return selected
 
 
-def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[list[dict], dict]:
-    by_ticker = {ticker: group for ticker, group in candles.groupby("ticker", sort=False)}
-    trades: list[dict] = []
-    eligible_counts: dict[str, int] = {}
-    missing_counts: dict[str, int] = {}
+def _candidate_identity(event: dict) -> tuple[str, str, str, int]:
+    return (
+        str(event["strategy"]),
+        str(event["ticker"]),
+        str(event["direction"]),
+        int(event["signal_time"]),
+    )
+
+
+def _select_candidates_by_window(
+    candidates: dict[str, list[dict]], *, latest_time: int
+) -> dict[tuple[str, int], list[dict]]:
+    """Select non-overlapping trades independently inside every report window.
+
+    Starting the greedy selection before a reporting window makes the result of
+    that window depend on how much older history happens to be loaded. Keeping
+    each window independent makes, for example, the trailing 365-day result
+    invariant when a third year of history is prepended.
+    """
+    selected: dict[tuple[str, int], list[dict]] = {}
+    day_ms = 24 * 60 * 60 * 1000
     for strategy, events in candidates.items():
-        selected = _select_non_overlapping_candidates(events)
-        eligible_counts[strategy] = len(selected)
-        missing_counts[strategy] = 0
+        for days in BACKTEST_WINDOWS_DAYS:
+            cutoff = int(latest_time) - int(days) * day_ms
+            in_window = [
+                event for event in events
+                if int(event["signal_time"]) >= cutoff
+                and int(event["signal_time"]) <= int(latest_time)
+            ]
+            selected[(strategy, days)] = _select_non_overlapping_candidates(in_window)
+    return selected
+
+
+def backtest(
+    candles: pd.DataFrame,
+    candidates: dict[str, list[dict]],
+    *,
+    latest_time: int | None = None,
+) -> tuple[list[dict], dict]:
+    by_ticker = {ticker: group for ticker, group in candles.groupby("ticker", sort=False)}
+    latest_time = int(
+        latest_time
+        if latest_time is not None
+        else (candles["open_time"].max() if not candles.empty else 0)
+    )
+    selected_by_window = _select_candidates_by_window(
+        candidates, latest_time=latest_time
+    )
+    simulated: dict[tuple[str, str, str, int], dict | None] = {}
+    reporting_windows: dict[tuple[str, str, str, int], set[int]] = {}
+
+    for (strategy, days), selected in selected_by_window.items():
         for event in selected:
+            identity = _candidate_identity(event)
+            reporting_windows.setdefault(identity, set()).add(days)
+            if identity in simulated:
+                continue
             ticker_bars = by_ticker.get(event["ticker"])
             if ticker_bars is None:
-                missing_counts[strategy] += 1
+                simulated[identity] = None
                 continue
             hedge_bars = by_ticker.get(event.get("hedge_ticker"))
             trade = _simulate(event, ticker_bars, hedge_bars)
-            if trade is None:
-                missing_counts[strategy] += 1
-                continue
-            trades.append(trade)
+            simulated[identity] = trade
+
+    trades: list[dict] = []
+    for identity, windows in reporting_windows.items():
+        trade = simulated.get(identity)
+        if trade is not None:
+            trades.append({**trade, "reporting_windows": sorted(windows)})
+    trades.sort(key=lambda trade: (int(trade["entry_time"]), trade["strategy"], trade["ticker"]))
+
     metrics: dict[str, dict] = {}
-    latest_time = int(candles["open_time"].max()) if not candles.empty else 0
     earliest_time = int(candles["open_time"].min()) if not candles.empty else 0
     coverage_days = (
         int((latest_time - earliest_time) // (24 * 60 * 60 * 1000)) + 1
@@ -1963,11 +2015,12 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
     )
     for strategy in candidates:
         for days in BACKTEST_WINDOWS_DAYS:
-            cutoff = latest_time - days * 24 * 60 * 60 * 1000
+            selected = selected_by_window.get((strategy, days), [])
+            selected_ids = {_candidate_identity(event) for event in selected}
             subset = [
-                trade for trade in trades
-                if trade["strategy"] == strategy
-                and int(trade["entry_time"]) >= cutoff
+                simulated[identity]
+                for identity in selected_ids
+                if simulated.get(identity) is not None
             ]
             values = [float(trade["cash_result"]) for trade in subset]
             wins = [value for value in values if value > 0]
@@ -1977,8 +2030,8 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
                 "strategy": strategy,
                 "coverage_days": coverage_days,
                 "is_complete": coverage_days >= days,
-                "eligible_candidates": eligible_counts.get(strategy, 0),
-                "missing_executions": missing_counts.get(strategy, 0),
+                "eligible_candidates": len(selected),
+                "missing_executions": len(selected) - len(subset),
                 "trades": len(subset),
                 "trades_per_day": len(subset) / days if days else 0.0,
                 "wins": len(wins),
@@ -1990,7 +2043,7 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
             }
             if days == THREE_YEAR_WINDOW_DAYS:
                 metric["annual_stability"] = _build_annual_stability(
-                    trades,
+                    subset,
                     strategy=strategy,
                     latest_time=latest_time,
                     coverage_days=coverage_days,
@@ -2361,15 +2414,15 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                         and int(event["signal_time"])
                         + int(event["hold_minutes"]) * 60_000 < completed_before
                     ]
-                    all_eligible[strategy] = (
-                        _select_non_overlapping_candidates(eligible)
-                        if eligible else []
-                    )
-                flat_candidates = [
-                    candidate
-                    for candidates in all_eligible.values()
-                    for candidate in candidates
-                ]
+                    all_eligible[strategy] = eligible
+                selected_by_window = _select_candidates_by_window(
+                    all_eligible, latest_time=completed_before
+                )
+                execution_candidates: dict[tuple[str, str, str, int], dict] = {}
+                for selected in selected_by_window.values():
+                    for candidate in selected:
+                        execution_candidates[_candidate_identity(candidate)] = candidate
+                flat_candidates = list(execution_candidates.values())
                 # Free large DataFrames before download to avoid OOM on memory-constrained hosts.
                 del candles, historical_candles, funding, perp_candles
                 import gc; gc.collect()
@@ -2394,7 +2447,9 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 )
                 candles = _load_candles(conn, since_ms=earliest_signal)
                 print(f"[Short-Term Lab] step 9/10: backtest (5min candles={len(candles)})", flush=True)
-                trades, metrics = backtest(candles, all_eligible)
+                trades, metrics = backtest(
+                    candles, all_eligible, latest_time=completed_before
+                )
                 print(f"[Short-Term Lab] step 9/10 done: trades={len(trades)}, metrics={len(metrics)}", flush=True)
                 for metric in metrics.values():
                     metric["coverage_days"] = coverage_days
@@ -2442,16 +2497,18 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                     run_id, strategy, ticker, direction, signal_time, entry_time,
                     entry_price, exit_time, exit_price, exit_reason, score, confidence,
                     gross_return_pct, cost_pct, net_return_pct, cash_result,
+                    reporting_windows,
                     hedge_ticker, hedge_direction, hedge_ratio, hedge_entry_price,
                     hedge_exit_price
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [(run_id, trade["strategy"], trade["ticker"], trade["direction"],
                   trade["signal_time"], trade["entry_time"], trade["entry_price"],
                   trade["exit_time"], trade["exit_price"], trade["exit_reason"],
-                  trade["score"], trade["confidence"], trade["gross_return_pct"],
-                  trade["cost_pct"], trade["net_return_pct"], trade["cash_result"],
-                  trade.get("hedge_ticker"), trade.get("hedge_direction"),
+                   trade["score"], trade["confidence"], trade["gross_return_pct"],
+                   trade["cost_pct"], trade["net_return_pct"], trade["cash_result"],
+                   json.dumps(trade.get("reporting_windows") or []),
+                   trade.get("hedge_ticker"), trade.get("hedge_direction"),
                   trade.get("hedge_ratio"), trade.get("hedge_entry_price"),
                   trade.get("hedge_exit_price"))
                  for trade in trades],
@@ -2676,7 +2733,7 @@ def _recalc_short_term_report_impl(
         run = (
             conn.execute(
                 """
-                SELECT id, metrics_json FROM short_term_runs
+                SELECT id, metrics_json, data_end FROM short_term_runs
                 WHERE id=? AND calculation_version=? AND status='completed'
                 """,
                 (run_id, CALCULATION_VERSION),
@@ -2689,7 +2746,8 @@ def _recalc_short_term_report_impl(
         rows = conn.execute(
             """
             SELECT strategy, ticker, direction, entry_time, entry_price, score,
-                   confidence, cost_pct, hedge_ticker, hedge_direction, hedge_ratio
+                   confidence, cost_pct, reporting_windows, hedge_ticker,
+                   hedge_direction, hedge_ratio
             FROM short_term_backtest_trades
             WHERE run_id=?
             """,
@@ -2733,6 +2791,14 @@ def _recalc_short_term_report_impl(
                 hedge_bars = None
                 trade = _simulate(candidate, ticker_bars, hedge_bars)
                 if trade is not None:
+                    try:
+                        windows = [
+                            int(value)
+                            for value in json.loads(t.get("reporting_windows") or "[]")
+                        ]
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        windows = []
+                    trade["reporting_windows"] = windows
                     trades.append(trade)
             del ticker_bars
             gc.collect()
@@ -2810,7 +2876,8 @@ def _scan_short_term_sl_tp_impl(
             raise ValueError("Завершённого расчёта ещё нет — сначала запустите «Обновить расчёт»")
         rows = conn.execute(
             """
-            SELECT strategy, ticker, direction, entry_time, cost_pct, hedge_ticker
+            SELECT strategy, ticker, direction, entry_time, cost_pct,
+                   reporting_windows, hedge_ticker
             FROM short_term_backtest_trades
             WHERE run_id=?
             """,
@@ -2821,6 +2888,25 @@ def _scan_short_term_sl_tp_impl(
             coverage_days = int((json.loads(run["metrics_json"] or "{}")).get("coverage_days") or 0)
         except Exception:
             pass
+        if not rows:
+            return {"strategies": {}}
+
+        # A row can belong to one or more independently selected reporting
+        # windows. SL/TP search uses only the largest window, otherwise its
+        # candidate set would be a mixture of four different selection phases.
+        full_history_rows = []
+        for row in rows:
+            raw_windows = row["reporting_windows"]
+            if not raw_windows:  # Legacy rows created before v59.
+                full_history_rows.append(row)
+                continue
+            try:
+                windows = {int(value) for value in json.loads(raw_windows)}
+            except (TypeError, ValueError, json.JSONDecodeError):
+                windows = set()
+            if THREE_YEAR_WINDOW_DAYS in windows:
+                full_history_rows.append(row)
+        rows = full_history_rows
         if not rows:
             return {"strategies": {}}
 
@@ -3019,11 +3105,17 @@ def _build_recalc_metrics(
     for strategy in strategies:
         for days in BACKTEST_WINDOWS_DAYS:
             cutoff = latest_time - days * 24 * 60 * 60 * 1000
-            subset = [
-                trade for trade in trades
-                if trade["strategy"] == strategy
-                and int(trade["entry_time"]) >= cutoff
-            ]
+            subset = []
+            for trade in trades:
+                if trade["strategy"] != strategy:
+                    continue
+                windows = trade.get("reporting_windows") or []
+                if windows:
+                    if days in {int(value) for value in windows}:
+                        subset.append(trade)
+                elif int(trade["entry_time"]) >= cutoff:
+                    # Backward compatibility for rows produced before v59.
+                    subset.append(trade)
             values = [float(trade["cash_result"]) for trade in subset]
             wins = [value for value in values if value > 0]
             losses = [value for value in values if value < 0]
@@ -3043,7 +3135,7 @@ def _build_recalc_metrics(
             }
             if days == THREE_YEAR_WINDOW_DAYS:
                 metric["annual_stability"] = _build_annual_stability(
-                    trades,
+                    subset,
                     strategy=strategy,
                     latest_time=latest_time,
                     coverage_days=coverage_days,

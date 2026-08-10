@@ -814,6 +814,7 @@ CREATE TABLE IF NOT EXISTS short_term_backtest_trades (
     cost_pct         REAL NOT NULL,
     net_return_pct   REAL NOT NULL,
     cash_result      REAL NOT NULL,
+    reporting_windows TEXT,
     hedge_ticker     TEXT,
     hedge_direction  TEXT,
     hedge_ratio      REAL,

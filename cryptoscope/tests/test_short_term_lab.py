@@ -20,6 +20,8 @@ from app.core.short_term_lab import (
     _latest_full_backtest_run,
     _record_scan_result,
     _scan_split_time,
+    _candidate_identity,
+    _select_candidates_by_window,
     _select_non_overlapping_candidates,
     _simulate,
     backtest,
@@ -94,7 +96,7 @@ def test_dual_momentum_uses_closed_hourly_history_and_market_tails():
     events = _dual_momentum(_bars(rows))
     final = [event for event in events if event["signal_time"] == 30 * hour]
 
-    assert CALCULATION_VERSION == "short-term-lab-v58"
+    assert CALCULATION_VERSION == "short-term-lab-v59"
     assert len(final) == 6
     assert {event["direction"] for event in final} == {"long", "short"}
     assert all(event["signal_time"] % (6 * hour) == 0 for event in events)
@@ -181,6 +183,40 @@ def test_backtest_builds_all_reporting_windows():
     }
     assert metrics["dual_momentum_90d"]["window_days"] == 90
     assert all(not metrics[key]["is_complete"] for key in metrics)
+
+
+def test_reporting_window_selection_is_invariant_to_older_history():
+    day = 24 * 60 * 60 * 1000
+    latest_time = 2_000 * day
+    cutoff_365 = latest_time - 365 * day
+
+    def event(signal_time, hold_days=2):
+        return {
+            "strategy": "rs_low_cost",
+            "ticker": "BTC/USD",
+            "direction": "long",
+            "signal_time": signal_time,
+            "hold_minutes": hold_days * 24 * 60,
+        }
+
+    recent = [
+        event(cutoff_365 + day),
+        event(cutoff_365 + 4 * day),
+    ]
+    # This older trade overlaps the first recent signal. A global greedy
+    # selection would therefore rewrite the trailing 365-day result.
+    older = event(cutoff_365 - day, hold_days=4)
+
+    recent_only = _select_candidates_by_window(
+        {"rs_low_cost": recent}, latest_time=latest_time
+    )[("rs_low_cost", 365)]
+    with_older_history = _select_candidates_by_window(
+        {"rs_low_cost": [older, *recent]}, latest_time=latest_time
+    )[("rs_low_cost", 365)]
+
+    assert [_candidate_identity(item) for item in with_older_history] == [
+        _candidate_identity(item) for item in recent_only
+    ]
 
 
 def test_annual_stability_uses_three_adjacent_non_overlapping_years():
