@@ -12,6 +12,7 @@ from app.core.short_term_lab import (
     _advance_forward,
     _aggregate,
     _barrier_exit,
+    _build_annual_stability,
     _dual_momentum,
     _directional_return,
     _effective_round_trip_cost,
@@ -93,7 +94,7 @@ def test_dual_momentum_uses_closed_hourly_history_and_market_tails():
     events = _dual_momentum(_bars(rows))
     final = [event for event in events if event["signal_time"] == 30 * hour]
 
-    assert CALCULATION_VERSION == "short-term-lab-v57"
+    assert CALCULATION_VERSION == "short-term-lab-v58"
     assert len(final) == 6
     assert {event["direction"] for event in final} == {"long", "short"}
     assert all(event["signal_time"] % (6 * hour) == 0 for event in events)
@@ -164,7 +165,7 @@ def test_strategies_share_the_same_hourly_backtest_parameters():
         assert settings["hold"] >= 24 * 60, f"{key}: hold"
 
 
-def test_dual_momentum_backtest_has_only_90_day_window():
+def test_backtest_builds_all_reporting_windows():
     candles = _bars([
         ("BTC/USD", 0, 100, 101, 99, 100, 1, 100),
         ("BTC/USD", 300_000, 100, 101, 99, 100, 1, 100),
@@ -172,13 +173,40 @@ def test_dual_momentum_backtest_has_only_90_day_window():
 
     _, metrics = backtest(candles, {"dual_momentum": []})
 
-    assert BACKTEST_WINDOWS_DAYS == (30, 90, 180, 365)
+    assert BACKTEST_WINDOWS_DAYS == (30, 90, 180, 365, 1095)
     assert set(metrics) == {
         "dual_momentum_30d", "dual_momentum_90d",
         "dual_momentum_180d", "dual_momentum_365d",
+        "dual_momentum_1095d",
     }
     assert metrics["dual_momentum_90d"]["window_days"] == 90
     assert all(not metrics[key]["is_complete"] for key in metrics)
+
+
+def test_annual_stability_uses_three_adjacent_non_overlapping_years():
+    day = 24 * 60 * 60 * 1000
+    latest_time = 1_800 * day
+    trades = [
+        {
+            "strategy": "rs_low_cost",
+            "entry_time": latest_time - age_days * day,
+            "cash_result": cash_result,
+        }
+        for age_days, cash_result in ((900, 5.0), (500, -2.0), (100, 3.0))
+    ]
+
+    result = _build_annual_stability(
+        trades,
+        strategy="rs_low_cost",
+        latest_time=latest_time,
+        coverage_days=1095,
+    )
+
+    assert result["complete_years"] == 3
+    assert result["profitable_years"] == 2
+    assert result["label"] == "Неоднородна"
+    assert [period["trades"] for period in result["periods"]] == [1, 1, 1]
+    assert [period["net_cash"] for period in result["periods"]] == [5.0, -2.0, 3.0]
 
 
 def test_intraday_universe_uses_all_100_configured_crypto_tickers():

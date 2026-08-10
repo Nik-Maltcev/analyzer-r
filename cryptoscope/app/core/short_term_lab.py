@@ -7,7 +7,7 @@ import gc
 import json
 import math
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from threading import Lock
 
 import numpy as np
@@ -33,12 +33,13 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v57"
+CALCULATION_VERSION = "short-term-lab-v58"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
-BACKTEST_WINDOWS_DAYS = (30, 90, 180, 365)
+THREE_YEAR_WINDOW_DAYS = 365 * 3
+BACKTEST_WINDOWS_DAYS = (30, 90, 180, 365, THREE_YEAR_WINDOW_DAYS)
 STRATEGIES = {
     "rs_low_cost": {
         "name": "RS vs BTC",
@@ -1971,7 +1972,7 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
             values = [float(trade["cash_result"]) for trade in subset]
             wins = [value for value in values if value > 0]
             losses = [value for value in values if value < 0]
-            metrics[f"{strategy}_{days}d"] = {
+            metric = {
                 "window_days": days,
                 "strategy": strategy,
                 "coverage_days": coverage_days,
@@ -1987,7 +1988,81 @@ def backtest(candles: pd.DataFrame, candidates: dict[str, list[dict]]) -> tuple[
                 "average_net_pct": sum(float(trade["net_return_pct"]) for trade in subset) / len(subset) if subset else 0.0,
                 "profit_factor": sum(wins) / abs(sum(losses)) if losses else (999.0 if wins else 0.0),
             }
+            if days == THREE_YEAR_WINDOW_DAYS:
+                metric["annual_stability"] = _build_annual_stability(
+                    trades,
+                    strategy=strategy,
+                    latest_time=latest_time,
+                    coverage_days=coverage_days,
+                )
+            metrics[f"{strategy}_{days}d"] = metric
     return trades, metrics
+
+
+def _build_annual_stability(
+    trades: list[dict],
+    *,
+    strategy: str,
+    latest_time: int,
+    coverage_days: int,
+) -> dict:
+    """Summarize three adjacent trailing years without overlapping trades."""
+    if not latest_time:
+        return {
+            "periods": [],
+            "complete_years": 0,
+            "profitable_years": 0,
+            "label": "Недостаточно данных",
+        }
+
+    day_ms = 24 * 60 * 60 * 1000
+    anchor_end = latest_time + HOUR_MS
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+
+    def format_timestamp(timestamp_ms: int) -> str:
+        return (epoch + timedelta(milliseconds=timestamp_ms)).strftime("%d.%m.%Y")
+
+    periods: list[dict] = []
+    for position, years_ago in enumerate((2, 1, 0), start=1):
+        period_start = anchor_end - (years_ago + 1) * 365 * day_ms
+        period_end = anchor_end - years_ago * 365 * day_ms
+        subset = [
+            trade for trade in trades
+            if trade["strategy"] == strategy
+            and period_start <= int(trade["entry_time"]) < period_end
+        ]
+        values = [float(trade["cash_result"]) for trade in subset]
+        wins = [value for value in values if value > 0]
+        losses = [value for value in values if value < 0]
+        required_coverage_days = (years_ago + 1) * 365
+        periods.append({
+            "number": position,
+            "start_label": format_timestamp(period_start),
+            "end_label": format_timestamp(period_end - 1),
+            "required_coverage_days": required_coverage_days,
+            "is_complete": coverage_days >= required_coverage_days,
+            "trades": len(subset),
+            "win_rate": len(wins) / len(subset) * 100 if subset else 0.0,
+            "net_cash": sum(values),
+            "profit_factor": sum(wins) / abs(sum(losses)) if losses else (999.0 if wins else 0.0),
+        })
+
+    complete = [period for period in periods if period["is_complete"]]
+    profitable_years = sum(period["net_cash"] > 0 for period in complete)
+    if len(complete) < 3:
+        label = "История загружается"
+    elif profitable_years == 3:
+        label = "Стабильна по годам"
+    elif profitable_years == 2:
+        label = "Неоднородна"
+    else:
+        label = "Нестабильна"
+    return {
+        "periods": periods,
+        "complete_years": len(complete),
+        "profitable_years": profitable_years,
+        "label": label,
+    }
 
 
 def _advance_forward(conn: sqlite3.Connection, candles: pd.DataFrame) -> dict:
@@ -2326,6 +2401,29 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                     metric["is_complete"] = coverage_days >= int(
                         metric.get("window_days") or 0
                     )
+                    stability = metric.get("annual_stability")
+                    if stability:
+                        for period in stability.get("periods", []):
+                            period["is_complete"] = coverage_days >= int(
+                                period.get("required_coverage_days") or 0
+                            )
+                        complete = [
+                            period for period in stability.get("periods", [])
+                            if period.get("is_complete")
+                        ]
+                        stability["complete_years"] = len(complete)
+                        stability["profitable_years"] = sum(
+                            float(period.get("net_cash") or 0) > 0
+                            for period in complete
+                        )
+                        if len(complete) < 3:
+                            stability["label"] = "История загружается"
+                        elif stability["profitable_years"] == 3:
+                            stability["label"] = "Стабильна по годам"
+                        elif stability["profitable_years"] == 2:
+                            stability["label"] = "Неоднородна"
+                        else:
+                            stability["label"] = "Нестабильна"
             else:
                 previous = conn.execute(
                     """
@@ -2401,7 +2499,7 @@ async def refresh_short_term_lab(db_path: str, *, include_backtest: bool = True)
 def _build_strategy_cards(strategy_metrics: dict) -> list[dict]:
     strategy_cards = []
     for strategy_key, settings in STRATEGIES.items():
-        for days in (30, 90, 180, 365):
+        for days in BACKTEST_WINDOWS_DAYS:
             key = f"{strategy_key}_{days}d"
             card = {
                 "key": key,
@@ -2409,7 +2507,11 @@ def _build_strategy_cards(strategy_metrics: dict) -> list[dict]:
                 "stop_pct": settings["stop"],
                 "target_pct": settings["target"],
                 **settings,
-                "short_name": f"{settings['short_name']} · {days} дн.",
+                "short_name": (
+                    f"{settings['short_name']} · 3 года"
+                    if days == THREE_YEAR_WINDOW_DAYS
+                    else f"{settings['short_name']} · {days} дн."
+                ),
             }
             card.update(strategy_metrics.get(key, {}))
             strategy_cards.append(card)
@@ -2496,7 +2598,7 @@ def _latest_full_backtest_run(conn: sqlite3.Connection) -> sqlite3.Row | None:
     """
     return conn.execute(
         """
-        SELECT r.id, r.metrics_json
+        SELECT r.id, r.metrics_json, r.data_end
         FROM short_term_runs AS r
         WHERE r.calculation_version=? AND r.status='completed'
           AND EXISTS (
@@ -2636,10 +2738,11 @@ def _recalc_short_term_report_impl(
             gc.collect()
         if not trades:
             return {"strategies": {}}
-        metrics = _build_recalc_metrics(trades)
-        for metric in metrics.values():
-            metric["coverage_days"] = coverage_days
-            metric["is_complete"] = coverage_days >= int(metric.get("window_days") or 0)
+        metrics = _build_recalc_metrics(
+            trades,
+            coverage_days=coverage_days,
+            latest_time=int(run["data_end"] or 0),
+        )
         return {"strategies": metrics, "coverage_days": coverage_days}
     finally:
         conn.close()
@@ -2896,15 +2999,21 @@ def build_scan_cards(strategy_cells: dict[str, list[dict]], top_n: int = 5) -> l
     return cards
 
 
-def _build_recalc_metrics(trades: list[dict]) -> dict:
+def _build_recalc_metrics(
+    trades: list[dict],
+    *,
+    coverage_days: int | None = None,
+    latest_time: int | None = None,
+) -> dict:
     if not trades:
         return {}
-    latest_time = max(int(trade["entry_time"]) for trade in trades)
+    latest_time = int(latest_time or max(int(trade["entry_time"]) for trade in trades))
     earliest_time = min(int(trade["entry_time"]) for trade in trades)
-    coverage_days = (
+    trade_coverage_days = (
         int((latest_time - earliest_time) // (24 * 60 * 60 * 1000)) + 1
         if latest_time and earliest_time else 0
     )
+    coverage_days = int(coverage_days if coverage_days is not None else trade_coverage_days)
     metrics: dict[str, dict] = {}
     strategies = sorted({trade["strategy"] for trade in trades})
     for strategy in strategies:
@@ -2918,7 +3027,7 @@ def _build_recalc_metrics(trades: list[dict]) -> dict:
             values = [float(trade["cash_result"]) for trade in subset]
             wins = [value for value in values if value > 0]
             losses = [value for value in values if value < 0]
-            metrics[f"{strategy}_{days}d"] = {
+            metric = {
                 "window_days": days,
                 "strategy": strategy,
                 "coverage_days": coverage_days,
@@ -2932,6 +3041,14 @@ def _build_recalc_metrics(trades: list[dict]) -> dict:
                 "average_net_pct": sum(float(trade["net_return_pct"]) for trade in subset) / len(subset) if subset else 0.0,
                 "profit_factor": sum(wins) / abs(sum(losses)) if losses else (999.0 if wins else 0.0),
             }
+            if days == THREE_YEAR_WINDOW_DAYS:
+                metric["annual_stability"] = _build_annual_stability(
+                    trades,
+                    strategy=strategy,
+                    latest_time=latest_time,
+                    coverage_days=coverage_days,
+                )
+            metrics[f"{strategy}_{days}d"] = metric
     return metrics
 
 

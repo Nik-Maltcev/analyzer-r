@@ -11,7 +11,7 @@
         <div>
             <span class="section-kicker">ADMIN · FORWARD RESEARCH</span>
             <h2>Short-Term Lab</h2>
-            <p>Relative Strength vs BTC: сигнал 60 мин, исполнение 5 мин, проверка на 30/90/180/365 днях + среднее за неделю.</p>
+            <p>Relative Strength vs BTC: сигнал 60 мин, исполнение 5 мин, проверка на 30/90/180/365 днях и трёхлетняя устойчивость.</p>
         </div>
         <button class="btn btn-secondary" type="button"
                 hx-get="/tab/short-term?market=crypto&refresh=true"
@@ -25,7 +25,7 @@
     {% if report.running %}
     <div class="stl-notice is-running">
         <strong>Синхронизируем завершённые свечи MEXC</strong>
-        <span>Первый расчёт догружает часовую историю для проверки за 365 дней и может занять несколько минут. Ниже пока показан предыдущий завершённый расчёт.</span>
+        <span>Первый расчёт догружает часовую историю за три года и может занять 10–20 минут. Последующие расчёты загружают только новые свечи. Ниже пока показан предыдущий завершённый расчёт.</span>
     </div>
     {% elif report.latest and report.latest.status == 'failed' %}
     <div class="stl-notice is-error">

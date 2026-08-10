@@ -6112,7 +6112,7 @@ html[data-view-mode='beginner'] .signals-page {
 
 .stl-strategy-group {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .stl-strategy {
@@ -6166,6 +6166,44 @@ html[data-view-mode='beginner'] .signals-page {
 .stl-strategy dd {
     margin: 0;
     font: 600 16px var(--font-mono);
+}
+
+.stl-annual-stability {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.stl-annual-stability > header,
+.stl-annual-period {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 10px;
+    align-items: baseline;
+}
+
+.stl-annual-stability > header {
+    margin-bottom: 8px;
+}
+
+.stl-annual-stability > header span,
+.stl-annual-period span,
+.stl-annual-period small {
+    color: var(--text-muted);
+    font-size: 9px;
+}
+
+.stl-annual-period {
+    padding: 7px 0;
+    border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.stl-annual-period small {
+    grid-column: 1 / -1;
+}
+
+.stl-annual-period.is-incomplete {
+    opacity: .65;
 }
 
 .stl-panel {

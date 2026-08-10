@@ -22,7 +22,9 @@ INTERVAL_MS = 5 * 60 * 1000
 # Five-minute candles are only needed for live entries and exits. Historical
 # comparisons use the separate hourly store below.
 HISTORY_DAYS = 10
-SHORT_TERM_HISTORY_DAYS = 370
+# Keep a small indicator warm-up buffer beyond the three-year report window.
+# The loader is incremental, so only the first refresh needs the full backfill.
+SHORT_TERM_HISTORY_DAYS = 1125
 # MEXC documents 1000 as the maximum, but the live endpoint currently caps
 # kline responses at 500. Pagination must use the effective limit; otherwise a
 # 500-row response looks like the final page and leaves the dataset stale.
