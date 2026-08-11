@@ -525,6 +525,61 @@ def test_latest_full_backtest_run_skips_newer_lightweight_run(tmp_path):
     assert selected["id"] != lightweight_run_id
 
 
+def test_report_uses_full_backtest_metrics_after_lightweight_run(tmp_path):
+    db_path = tmp_path / "short-term.db"
+    conn = sqlite3.connect(db_path)
+    ensure_short_term_schema(conn)
+    strategies = {
+        f"{strategy}_1095d": {
+            "window_days": 1095,
+            "coverage_days": 1126,
+            "is_complete": True,
+            "trades": 10,
+        }
+        for strategy in STRATEGIES
+    }
+    full_run_id = conn.execute(
+        """
+        INSERT INTO short_term_runs(calculation_version, status, metrics_json)
+        VALUES (?, 'completed', ?)
+        """,
+        (CALCULATION_VERSION, json.dumps({
+            "coverage_days": 1126,
+            "strategies": strategies,
+        })),
+    ).lastrowid
+    conn.execute(
+        """
+        INSERT INTO short_term_backtest_trades (
+            run_id, strategy, ticker, direction, signal_time, entry_time,
+            entry_price, exit_time, exit_price, exit_reason, score, confidence,
+            gross_return_pct, cost_pct, net_return_pct, cash_result
+        ) VALUES (?, 'rs_low_cost', 'BTC/USD', 'long', 0, 300000,
+                  100, 600000, 101, 'time', 2, 'high', 1, 0.3, 0.7, 0.7)
+        """,
+        (full_run_id,),
+    )
+    conn.execute(
+        """
+        INSERT INTO short_term_runs(calculation_version, status, metrics_json)
+        VALUES (?, 'completed', ?)
+        """,
+        (CALCULATION_VERSION, json.dumps({"strategies": {}})),
+    )
+    conn.commit()
+    conn.close()
+
+    report = get_short_term_report(str(db_path))
+
+    assert report["metrics_run_id"] == full_run_id
+    assert report["three_year_calculated"] is True
+    assert report["missing_three_year_keys"] == []
+    assert any(
+        card["window_days"] == 1095 and card["is_complete"]
+        for card in report["strategies"]
+    )
+
+
 def test_strategy_cards_keep_three_year_placeholder_when_metric_is_missing():
     cards = build_strategy_cards_for_report({})
     three_year = next(card for card in cards if card["key"].endswith("_1095d"))

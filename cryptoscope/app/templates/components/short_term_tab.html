@@ -150,7 +150,11 @@
         var LS_LEV = 'stl-lev';
         var LS_STOP = 'stl-stop';
         var LS_TARGET = 'stl-target';
-        var LS_CACHE = 'stl-recalc-cache';
+        // Version the cached result because a hard refresh does not clear
+        // localStorage. Old cached markup predates the three-year cards and
+        // would otherwise replace the fresh server-rendered report.
+        var LS_CACHE = 'stl-recalc-cache-{{ report.version }}-3y';
+        try { localStorage.removeItem('stl-recalc-cache'); } catch (e) {}
         try {
             var s = localStorage.getItem(LS_STAKE);
             var l = localStorage.getItem(LS_LEV);
@@ -288,8 +292,10 @@
                 try {
                     cached = JSON.parse(localStorage.getItem(LS_CACHE) || 'null');
                 } catch (e) {}
+                var hasThreeYearCard = cached && cached.html &&
+                    /is-three-year/.test(cached.html);
                 if (cached && Math.abs(cached.stop - wantStop) < 1e-9 && Math.abs(cached.target - wantTarget) < 1e-9 && cached.html
-                        && !/stl-notice is-error/.test(cached.html)) {
+                        && !/stl-notice is-error/.test(cached.html) && hasThreeYearCard) {
                     var tmp = document.createElement('div');
                     tmp.innerHTML = cached.html;
                     var fresh = tmp.querySelector('.stl-strategies');
@@ -299,6 +305,7 @@
                     }
                     recalc();
                 } else if (recalcStatus) {
+                    try { localStorage.removeItem(LS_CACHE); } catch (e) {}
                     // Values changed but results are missing locally; show a
                     // hint instead of firing a backtest on every refresh.
                     recalcStatus.textContent = 'Нажмите «Пересчитать» для SL/TP ' +

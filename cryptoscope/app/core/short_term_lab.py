@@ -2518,17 +2518,13 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                         else:
                             stability["label"] = "Нестабильна"
             else:
-                previous = conn.execute(
-                    """
-                    SELECT metrics_json FROM short_term_runs
-                    WHERE calculation_version=? AND status='completed'
-                      AND metrics_json IS NOT NULL
-                    ORDER BY id DESC LIMIT 1
-                    """,
-                    (CALCULATION_VERSION,),
-                ).fetchone()
+                # Lightweight monitoring runs do not persist the historical
+                # trade ledger. Always inherit metrics from the newest full
+                # backtest so a lightweight run cannot erase the 1095-day
+                # result from subsequent reports.
+                previous = _latest_full_backtest_run(conn)
                 if previous:
-                    metrics = json.loads(previous[0] or "{}").get("strategies", {})
+                    metrics = json.loads(previous["metrics_json"] or "{}").get("strategies", {})
             conn.executemany(
                 """
                 INSERT OR IGNORE INTO short_term_backtest_trades (
@@ -3212,7 +3208,12 @@ def get_short_term_report(db_path: str) -> dict:
         """,
         (CALCULATION_VERSION,),
     ).fetchone()
-    metrics = json.loads(completed["metrics_json"] or "{}") if completed else {}
+    full_backtest = _latest_full_backtest_run(conn)
+    metrics_source = full_backtest or completed
+    metrics = (
+        json.loads(metrics_source["metrics_json"] or "{}")
+        if metrics_source else {}
+    )
     open_rows = conn.execute(
         """
         SELECT * FROM short_term_forward_trades
@@ -3277,6 +3278,7 @@ def get_short_term_report(db_path: str) -> dict:
         "needs_history_refresh": bool(completed and missing_three_year_keys),
         "three_year_calculated": bool(completed and not missing_three_year_keys),
         "missing_three_year_keys": missing_three_year_keys,
+        "metrics_run_id": int(metrics_source["id"]) if metrics_source else None,
         "strategies": strategy_cards,
         "open": [trade_dict(row) for row in open_rows if row["strategy"] in STRATEGIES],
         "closed": [trade_dict(row) for row in closed_rows if row["strategy"] in STRATEGIES],
