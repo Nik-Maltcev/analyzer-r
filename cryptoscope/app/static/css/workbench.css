@@ -6125,6 +6125,37 @@ html[data-view-mode='beginner'] .signals-page {
     border-right: 0;
 }
 
+.stl-strategy.is-three-year {
+    grid-column: 1 / -1;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.stl-three-year-label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 10px;
+    padding: 9px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
+.stl-three-year-label strong {
+    color: var(--accent);
+}
+
+.stl-three-year-label span {
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
+.stl-strategy.is-three-year > p {
+    min-height: 0;
+}
+
 .stl-group-delim {
     grid-column: 1 / -1;
     height: 6px;
@@ -6204,6 +6235,16 @@ html[data-view-mode='beginner'] .signals-page {
 
 .stl-annual-period.is-incomplete {
     opacity: .65;
+}
+
+.stl-strategy.is-three-year .stl-annual-stability {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0 18px;
+}
+
+.stl-strategy.is-three-year .stl-annual-stability > header {
+    grid-column: 1 / -1;
 }
 
 .stl-panel {
@@ -6314,6 +6355,16 @@ html[data-view-mode='beginner'] .signals-page {
     }
 
     .stl-strategy-group {
+        grid-template-columns: 1fr;
+    }
+
+    .stl-three-year-label {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .stl-strategy.is-three-year .stl-annual-stability {
         grid-template-columns: 1fr;
     }
 

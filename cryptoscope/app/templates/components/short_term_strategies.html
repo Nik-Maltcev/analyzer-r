@@ -12,11 +12,17 @@
             {% elif strategy.strategy_key != strategies[loop.index0 - 1].strategy_key %}
             <div class="stl-group-delim"></div>
             {% endif %}
-            <article class="stl-strategy">
+            <article class="stl-strategy{% if strategy.window_days|default(0) == 1095 %} is-three-year{% endif %}">
                 <div class="stl-strategy-head">
                     <span>{{ strategy.strategy_key|replace('_', ' ') }}</span>
                     <strong>{{ strategy.short_name }}</strong>
                 </div>
+                {% if strategy.window_days|default(0) == 1095 %}
+                <div class="stl-three-year-label">
+                    <strong>Проверка за 3 года</strong>
+                    <span>1095 дней истории · отдельно показан результат каждого года</span>
+                </div>
+                {% endif %}
                 <p>{{ strategy.description }}</p>
                 {% if not strategy.is_complete|default(false) %}
                 <div class="stl-incomplete">

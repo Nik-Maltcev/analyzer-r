@@ -40,6 +40,7 @@ FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
 THREE_YEAR_WINDOW_DAYS = 365 * 3
 BACKTEST_WINDOWS_DAYS = (30, 90, 180, 365, THREE_YEAR_WINDOW_DAYS)
+REPORT_WINDOW_DAYS = (THREE_YEAR_WINDOW_DAYS, 30, 90, 180, 365)
 STRATEGIES = {
     "rs_low_cost": {
         "name": "RS vs BTC",
@@ -2556,7 +2557,9 @@ async def refresh_short_term_lab(db_path: str, *, include_backtest: bool = True)
 def _build_strategy_cards(strategy_metrics: dict) -> list[dict]:
     strategy_cards = []
     for strategy_key, settings in STRATEGIES.items():
-        for days in BACKTEST_WINDOWS_DAYS:
+        # Lead with the long-history result so the expensive 3-year check is
+        # visible immediately instead of being buried below shorter windows.
+        for days in REPORT_WINDOW_DAYS:
             key = f"{strategy_key}_{days}d"
             card = {
                 "key": key,

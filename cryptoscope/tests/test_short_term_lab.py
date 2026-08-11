@@ -7,6 +7,7 @@ import pytest
 from app.core.short_term_lab import (
     BACKTEST_WINDOWS_DAYS,
     CALCULATION_VERSION,
+    REPORT_WINDOW_DAYS,
     ROUND_TRIP_COST_PCT,
     STRATEGIES,
     _advance_forward,
@@ -176,6 +177,7 @@ def test_backtest_builds_all_reporting_windows():
     _, metrics = backtest(candles, {"dual_momentum": []})
 
     assert BACKTEST_WINDOWS_DAYS == (30, 90, 180, 365, 1095)
+    assert REPORT_WINDOW_DAYS == (1095, 30, 90, 180, 365)
     assert set(metrics) == {
         "dual_momentum_30d", "dual_momentum_90d",
         "dual_momentum_180d", "dual_momentum_365d",
