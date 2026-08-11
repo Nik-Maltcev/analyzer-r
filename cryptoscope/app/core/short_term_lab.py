@@ -2610,6 +2610,17 @@ def _build_strategy_cards(strategy_metrics: dict) -> list[dict]:
                 ),
             }
             card.update(strategy_metrics.get(key, {}))
+            # Stored metrics are calculation output, not card identity. Older
+            # cached payloads may contain stale identity fields and must not
+            # turn the canonical 1095-day report into another window.
+            card.update(
+                {
+                    "key": key,
+                    "strategy_key": strategy_key,
+                    "window_days": days,
+                    "is_three_year": days == THREE_YEAR_WINDOW_DAYS,
+                }
+            )
             strategy_cards.append(card)
         # Average per week across all data (365d)
         full_key = f"{strategy_key}_365d"

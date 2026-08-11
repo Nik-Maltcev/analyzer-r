@@ -6115,6 +6115,15 @@ html[data-view-mode='beginner'] .signals-page {
     grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.stl-three-year-reports {
+    display: grid;
+    grid-template-columns: 1fr;
+}
+
+.stl-three-year-reports:empty {
+    display: none;
+}
+
 .stl-strategy {
     min-width: 0;
     padding: 16px;

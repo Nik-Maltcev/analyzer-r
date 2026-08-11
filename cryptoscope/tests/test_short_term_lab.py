@@ -589,6 +589,27 @@ def test_strategy_cards_keep_three_year_placeholder_when_metric_is_missing():
     assert three_year["is_complete"] is False
 
 
+def test_strategy_cards_preserve_canonical_three_year_identity():
+    cards = build_strategy_cards_for_report(
+        {
+            "rs_low_cost_1095d": {
+                "key": "legacy-cache-key",
+                "strategy_key": "legacy_strategy",
+                "window_days": 365,
+                "coverage_days": 1095,
+                "is_complete": True,
+            }
+        }
+    )
+    three_year = next(card for card in cards if card["key"] == "rs_low_cost_1095d")
+
+    assert three_year["strategy_key"] == "rs_low_cost"
+    assert three_year["window_days"] == 1095
+    assert three_year["is_three_year"] is True
+    assert three_year["coverage_days"] == 1095
+    assert three_year["is_complete"] is True
+
+
 def test_legacy_completed_report_requests_three_year_migration(tmp_path):
     db_path = tmp_path / "short-term.db"
     conn = sqlite3.connect(db_path)

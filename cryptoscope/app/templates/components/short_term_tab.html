@@ -150,11 +150,13 @@
         var LS_LEV = 'stl-lev';
         var LS_STOP = 'stl-stop';
         var LS_TARGET = 'stl-target';
-        // Version the cached result because a hard refresh does not clear
-        // localStorage. Old cached markup predates the three-year cards and
-        // would otherwise replace the fresh server-rendered report.
-        var LS_CACHE = 'stl-recalc-cache-{{ report.version }}-3y';
-        try { localStorage.removeItem('stl-recalc-cache'); } catch (e) {}
+        // Computed HTML belongs to the server. Remove every legacy fragment so
+        // browser storage can never replace a fresh report after HTMX renders.
+        try {
+            Object.keys(localStorage).forEach(function(key) {
+                if (key.indexOf('stl-recalc-cache') === 0) localStorage.removeItem(key);
+            });
+        } catch (e) {}
         try {
             var s = localStorage.getItem(LS_STAKE);
             var l = localStorage.getItem(LS_LEV);
@@ -245,20 +247,7 @@
                         strategiesSection.replaceWith(fresh);
                         strategiesSection = fresh;
                     }
-                    // Never cache error responses: a stale cached error would
-                    // keep showing even after a server-side fix.
                     var isError = /stl-notice is-error/.test(html);
-                    if (!isError) {
-                        try {
-                            localStorage.setItem(LS_CACHE, JSON.stringify({
-                                stop: stop,
-                                target: target,
-                                html: html
-                            }));
-                        } catch (e) {}
-                    } else {
-                        try { localStorage.removeItem(LS_CACHE); } catch (e) {}
-                    }
                     if (recalcStatus) recalcStatus.textContent = isError ? 'Ошибка на сервере' : 'Готово ✓';
                     // re-run stake scaling on the new node
                     recalc();
@@ -269,11 +258,9 @@
                 .finally(function() { recalcBtn.disabled = false; });
         }
 
-        // Restore the user's last SL/TP selection after every HTMX re-render.
-        // If the computed cards are cached locally for these values, re-insert
-        // them without hitting the server. We never re-run the (expensive)
-        // backtest automatically here - that happens only on an explicit click,
-        // so auto-refreshes cannot hammer the container into 503s.
+        // Restore only the user's inputs after an HTMX render. Results are
+        // always server-rendered; changing saved values requires an explicit
+        // click and never swaps in stale markup from browser storage.
         var serverStop = parseFloat(strategiesSection ? strategiesSection.getAttribute('data-stop') : 4.0) || 4.0;
         var serverTarget = parseFloat(strategiesSection ? strategiesSection.getAttribute('data-target') : 6.0) || 6.0;
         var savedStop = null, savedTarget = null;
@@ -288,26 +275,7 @@
             if (targetInput) targetInput.value = wantTarget;
             if (strategiesSection &&
                 (Math.abs(wantStop - serverStop) > 1e-9 || Math.abs(wantTarget - serverTarget) > 1e-9)) {
-                var cached = null;
-                try {
-                    cached = JSON.parse(localStorage.getItem(LS_CACHE) || 'null');
-                } catch (e) {}
-                var hasThreeYearCard = cached && cached.html &&
-                    /is-three-year/.test(cached.html);
-                if (cached && Math.abs(cached.stop - wantStop) < 1e-9 && Math.abs(cached.target - wantTarget) < 1e-9 && cached.html
-                        && !/stl-notice is-error/.test(cached.html) && hasThreeYearCard) {
-                    var tmp = document.createElement('div');
-                    tmp.innerHTML = cached.html;
-                    var fresh = tmp.querySelector('.stl-strategies');
-                    if (fresh) {
-                        strategiesSection.replaceWith(fresh);
-                        strategiesSection = fresh;
-                    }
-                    recalc();
-                } else if (recalcStatus) {
-                    try { localStorage.removeItem(LS_CACHE); } catch (e) {}
-                    // Values changed but results are missing locally; show a
-                    // hint instead of firing a backtest on every refresh.
+                if (recalcStatus) {
                     recalcStatus.textContent = 'Нажмите «Пересчитать» для SL/TP ' +
                         (wantStop || 0).toFixed(1) + '/' + (wantTarget || 0).toFixed(1);
                 }

@@ -1,3 +1,65 @@
+{% macro strategy_card(strategy) -%}
+{% set is_three_year = strategy.is_three_year|default(false) or strategy.window_days|default(0)|int == 1095 %}
+<article
+    class="stl-strategy{% if is_three_year %} is-three-year{% endif %}"
+    data-short-term-card="true"
+    data-window-days="{{ strategy.window_days|default(0)|int }}"
+    data-strategy-key="{{ strategy.strategy_key }}"
+>
+    <div class="stl-strategy-head">
+        <span>{{ strategy.strategy_key|replace('_', ' ') }}</span>
+        <strong>{{ strategy.short_name }}</strong>
+    </div>
+    {% if is_three_year %}
+    <div class="stl-three-year-label">
+        <strong>Проверка за 3 года</strong>
+        <span>1095 дней истории · отдельно показан результат каждого года</span>
+    </div>
+    {% endif %}
+    <p>{{ strategy.description }}</p>
+    {% if not strategy.is_complete|default(false) %}
+    <div class="stl-incomplete">
+        <strong>История ещё загружается</strong>
+        <span>{{ strategy.coverage_days|default(0) }} из {{ strategy.window_days }} дн.</span>
+    </div>
+    {% else %}
+    <dl>
+        <div><dt>Сделок</dt><dd>{{ strategy.trades|default(0) }}</dd></div>
+        <div><dt>Сделок/день</dt><dd>{{ '%.2f'|format(strategy.trades_per_day|default(0)) }}</dd></div>
+        <div><dt>В плюсе</dt><dd>{{ '%.1f'|format(strategy.win_rate|default(0)) }}%</dd></div>
+        {% if strategy.is_weekly_avg|default(false) %}
+        <div><dt>Итог (365д)</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-cash="{{ strategy.net_cash|default(0) }}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
+        <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-weekly="{{ strategy.avg_weekly_cash|default(0) }}"><strong>{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</strong></dd></div>
+        {% else %}
+        <div><dt>Итог</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-cash="{{ strategy.net_cash|default(0) }}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
+        <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-weekly="{{ strategy.avg_weekly_cash|default(0) }}">{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</dd></div>
+        {% endif %}
+        <div><dt>Profit factor</dt><dd>{{ '%.2f'|format(strategy.profit_factor|default(0)) }}</dd></div>
+    </dl>
+    {% endif %}
+    {% if is_three_year and strategy.annual_stability %}
+    <div class="stl-annual-stability">
+        <header>
+            <strong>{{ strategy.annual_stability.label }}</strong>
+            <span>{{ strategy.annual_stability.profitable_years }} из {{ strategy.annual_stability.complete_years }} полных лет в плюсе</span>
+        </header>
+        {% for period in strategy.annual_stability.periods %}
+        <div class="stl-annual-period{% if not period.is_complete %} is-incomplete{% endif %}">
+            <span>{{ period.start_label }}–{{ period.end_label }}</span>
+            {% if period.is_complete %}
+            <strong class="{% if period.net_cash >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(period.net_cash) }} $</strong>
+            <small>{{ period.trades }} сделок · PF {{ '%.2f'|format(period.profit_factor) }}</small>
+            {% else %}
+            <strong>загружается</strong>
+            <small>{{ strategy.coverage_days|default(0) }} / {{ period.required_coverage_days }} дн.</small>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</article>
+{%- endmacro %}
+
 <section class="stl-strategies" aria-label="Сравнение исторических периодов" data-stake="{{ stake|default(100) }}" data-stop="{{ stop|default(4.0) }}" data-target="{{ target|default(6.0) }}">
     {% if error %}
     <div class="stl-notice is-error" style="grid-column: 1 / -1;">
@@ -5,67 +67,22 @@
         <span>{{ error }}</span>
     </div>
     {% elif strategies %}
-        <div class="stl-strategy-group">
-            {% for strategy in strategies %}
-            {% if loop.first %}
-            <div class="stl-group-delim"></div>
-            {% elif strategy.strategy_key != strategies[loop.index0 - 1].strategy_key %}
-            <div class="stl-group-delim"></div>
-            {% endif %}
-            <article class="stl-strategy{% if strategy.window_days|default(0) == 1095 %} is-three-year{% endif %}">
-                <div class="stl-strategy-head">
-                    <span>{{ strategy.strategy_key|replace('_', ' ') }}</span>
-                    <strong>{{ strategy.short_name }}</strong>
-                </div>
-                {% if strategy.window_days|default(0) == 1095 %}
-                <div class="stl-three-year-label">
-                    <strong>Проверка за 3 года</strong>
-                    <span>1095 дней истории · отдельно показан результат каждого года</span>
-                </div>
-                {% endif %}
-                <p>{{ strategy.description }}</p>
-                {% if not strategy.is_complete|default(false) %}
-                <div class="stl-incomplete">
-                    <strong>История ещё загружается</strong>
-                    <span>{{ strategy.coverage_days|default(0) }} из {{ strategy.window_days }} дн.</span>
-                </div>
-                {% else %}
-                <dl>
-                    <div><dt>Сделок</dt><dd>{{ strategy.trades|default(0) }}</dd></div>
-                    <div><dt>Сделок/день</dt><dd>{{ '%.2f'|format(strategy.trades_per_day|default(0)) }}</dd></div>
-                    <div><dt>В плюсе</dt><dd>{{ '%.1f'|format(strategy.win_rate|default(0)) }}%</dd></div>
-                    {% if strategy.is_weekly_avg|default(false) %}
-                    <div><dt>Итог (365д)</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-cash="{{ strategy.net_cash|default(0) }}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
-                    <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-weekly="{{ strategy.avg_weekly_cash|default(0) }}"><strong>{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</strong></dd></div>
-                    {% else %}
-                    <div><dt>Итог</dt><dd class="{% if strategy.net_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-cash="{{ strategy.net_cash|default(0) }}">{{ '%+.2f'|format(strategy.net_cash|default(0)) }} $</dd></div>
-                    <div><dt>Ср./неделю</dt><dd class="{% if strategy.avg_weekly_cash|default(0) >= 0 %}positive{% else %}negative{% endif %}" data-weekly="{{ strategy.avg_weekly_cash|default(0) }}">{{ '%+.2f'|format(strategy.avg_weekly_cash|default(0)) }} $</dd></div>
-                    {% endif %}
-                    <div><dt>Profit factor</dt><dd>{{ '%.2f'|format(strategy.profit_factor|default(0)) }}</dd></div>
-                </dl>
-                {% endif %}
-                {% if strategy.window_days|default(0) == 1095 and strategy.annual_stability %}
-                <div class="stl-annual-stability">
-                    <header>
-                        <strong>{{ strategy.annual_stability.label }}</strong>
-                        <span>{{ strategy.annual_stability.profitable_years }} из {{ strategy.annual_stability.complete_years }} полных лет в плюсе</span>
-                    </header>
-                    {% for period in strategy.annual_stability.periods %}
-                    <div class="stl-annual-period{% if not period.is_complete %} is-incomplete{% endif %}">
-                        <span>{{ period.start_label }}–{{ period.end_label }}</span>
-                        {% if period.is_complete %}
-                        <strong class="{% if period.net_cash >= 0 %}positive{% else %}negative{% endif %}">{{ '%+.2f'|format(period.net_cash) }} $</strong>
-                        <small>{{ period.trades }} сделок · PF {{ '%.2f'|format(period.profit_factor) }}</small>
-                        {% else %}
-                        <strong>загружается</strong>
-                        <small>{{ strategy.coverage_days|default(0) }} / {{ period.required_coverage_days }} дн.</small>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </div>
-                {% endif %}
-            </article>
-            {% endfor %}
-        </div>
+    <div class="stl-three-year-reports" data-three-year-report="server-rendered">
+        {% for strategy in strategies %}
+        {% set is_three_year = strategy.is_three_year|default(false) or strategy.window_days|default(0)|int == 1095 %}
+        {% if is_three_year %}{{ strategy_card(strategy) }}{% endif %}
+        {% endfor %}
+    </div>
+    <div class="stl-strategy-group">
+        {% set group = namespace(previous='') %}
+        {% for strategy in strategies %}
+        {% set is_three_year = strategy.is_three_year|default(false) or strategy.window_days|default(0)|int == 1095 %}
+        {% if not is_three_year %}
+        {% if group.previous != strategy.strategy_key %}<div class="stl-group-delim"></div>{% endif %}
+        {{ strategy_card(strategy) }}
+        {% set group.previous = strategy.strategy_key %}
+        {% endif %}
+        {% endfor %}
+    </div>
     {% endif %}
 </section>
