@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 import numpy as np
@@ -26,9 +27,11 @@ from app.core.short_term_lab import (
     _select_non_overlapping_candidates,
     _simulate,
     backtest,
+    build_strategy_cards_for_report,
     build_scan_cards,
     ensure_short_term_schema,
     generate_candidates,
+    get_short_term_report,
 )
 from app.data.mexc_intraday import INTRADAY_TICKERS
 from app.data.tickers import CRYPTO_TICKERS
@@ -520,6 +523,48 @@ def test_latest_full_backtest_run_skips_newer_lightweight_run(tmp_path):
     assert selected is not None
     assert selected["id"] == full_run_id
     assert selected["id"] != lightweight_run_id
+
+
+def test_strategy_cards_keep_three_year_placeholder_when_metric_is_missing():
+    cards = build_strategy_cards_for_report({})
+    three_year = next(card for card in cards if card["key"].endswith("_1095d"))
+
+    assert three_year["window_days"] == 1095
+    assert three_year["coverage_days"] == 0
+    assert three_year["is_complete"] is False
+
+
+def test_legacy_completed_report_requests_three_year_migration(tmp_path):
+    db_path = tmp_path / "short-term.db"
+    conn = sqlite3.connect(db_path)
+    ensure_short_term_schema(conn)
+    conn.execute(
+        """
+        INSERT INTO short_term_runs(calculation_version, status, metrics_json)
+        VALUES (?, 'completed', ?)
+        """,
+        (
+            CALCULATION_VERSION,
+            json.dumps({
+                "strategies": {
+                    "rs_low_cost_365d": {
+                        "window_days": 365,
+                        "coverage_days": 365,
+                        "is_complete": True,
+                    },
+                },
+            }),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    report = get_short_term_report(str(db_path))
+
+    assert report["is_ready"] is True
+    assert report["needs_history_refresh"] is True
+    assert report["three_year_calculated"] is False
+    assert any(key.endswith("_1095d") for key in report["missing_three_year_keys"])
 
 
 def test_scan_split_is_chronological_and_does_not_use_returns():

@@ -2564,6 +2564,9 @@ def _build_strategy_cards(strategy_metrics: dict) -> list[dict]:
             card = {
                 "key": key,
                 "strategy_key": strategy_key,
+                "window_days": days,
+                "coverage_days": 0,
+                "is_complete": False,
                 "stop_pct": settings["stop"],
                 "target_pct": settings["target"],
                 **settings,
@@ -3217,12 +3220,26 @@ def get_short_term_report(db_path: str) -> dict:
         completed_dict["data_label"] = _format_time(completed_dict.get("data_end"))
         completed_dict["coverage_days"] = int(metrics.get("coverage_days") or 0)
     strategy_metrics = metrics.get("strategies", {})
+    required_three_year_keys = {
+        f"{strategy_key}_{THREE_YEAR_WINDOW_DAYS}d"
+        for strategy_key in STRATEGIES
+    }
+    missing_three_year_keys = sorted(
+        required_three_year_keys.difference(strategy_metrics)
+    )
     strategy_cards = _build_strategy_cards(strategy_metrics)
     return {
         "version": CALCULATION_VERSION,
         "latest": latest_dict,
         "completed": completed_dict,
         "is_ready": completed is not None,
+        # A completed lightweight/legacy run may carry otherwise valid metrics
+        # without the newly added 1095-day window.  Keep that report visible,
+        # but request one full migration backtest instead of silently omitting
+        # the three-year card.
+        "needs_history_refresh": bool(completed and missing_three_year_keys),
+        "three_year_calculated": bool(completed and not missing_three_year_keys),
+        "missing_three_year_keys": missing_three_year_keys,
         "strategies": strategy_cards,
         "open": [trade_dict(row) for row in open_rows if row["strategy"] in STRATEGIES],
         "closed": [trade_dict(row) for row in closed_rows if row["strategy"] in STRATEGIES],

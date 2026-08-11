@@ -79,8 +79,17 @@ async def short_term_tab(
     latest = report.get("latest") or {}
     latest_status = latest.get("status")
     persisted_run_active = latest_status == "running" and not latest.get("is_stale")
-    migration_refresh = bool(report.get("needs_optimizer_refresh"))
-    if refresh or ((not report["is_ready"] or migration_refresh) and not persisted_run_active):
+    migration_refresh = bool(
+        report.get("needs_optimizer_refresh")
+        or report.get("needs_history_refresh")
+    )
+    # Retry a failed migration only after an explicit click. Otherwise the
+    # minute poll would continuously restart an expensive three-year backtest.
+    migration_can_start = migration_refresh and latest_status != "failed"
+    if refresh or (
+        (not report["is_ready"] or migration_can_start)
+        and not persisted_run_active
+    ):
         _start_refresh(market)
         await asyncio.sleep(0)
     task = _REFRESH_TASKS.get(market)

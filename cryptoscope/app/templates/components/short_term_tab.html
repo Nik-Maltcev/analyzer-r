@@ -32,6 +32,11 @@
         <strong>Последний расчёт не завершён</strong>
         <span>{{ report.latest.error }}</span>
     </div>
+    {% elif report.needs_history_refresh %}
+    <div class="stl-notice is-running">
+        <strong>Трёхлетняя проверка ещё не рассчитана</strong>
+        <span>Ниже сохранён предыдущий отчёт. Полный расчёт запускается в фоне; если он не стартовал, нажмите «Обновить расчёт» один раз.</span>
+    </div>
     {% endif %}
 
     {% if report.is_ready %}
