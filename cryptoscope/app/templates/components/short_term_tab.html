@@ -49,6 +49,11 @@
         <span>Версия {{ report.version }}</span>
     </div>
 
+    <div class="stl-notice stl-method-note">
+        <strong>Методика event-study</strong>
+        <span>Каждый подтверждённый сигнал считается отдельной модельной сделкой на $100. Перекрывающиеся сигналы одной монеты не исключаются, поэтому результат не зависит от глубины загруженной истории.</span>
+    </div>
+
     <div class="stl-calculator" id="stl-calculator">
         <label>Сумма ($)<input type="number" id="stl-stake" min="0.01" step="0.01" value="100"></label>
         <label>Плечо (×)<input type="number" id="stl-leverage" min="0.1" step="0.1" value="1"></label>

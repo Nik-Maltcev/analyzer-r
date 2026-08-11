@@ -24,7 +24,6 @@ from app.core.short_term_lab import (
     _scan_split_time,
     _candidate_identity,
     _select_candidates_by_window,
-    _select_non_overlapping_candidates,
     _simulate,
     backtest,
     build_strategy_cards_for_report,
@@ -100,7 +99,7 @@ def test_dual_momentum_uses_closed_hourly_history_and_market_tails():
     events = _dual_momentum(_bars(rows))
     final = [event for event in events if event["signal_time"] == 30 * hour]
 
-    assert CALCULATION_VERSION == "short-term-lab-v59"
+    assert CALCULATION_VERSION == "short-term-lab-v60"
     assert len(final) == 6
     assert {event["direction"] for event in final} == {"long", "short"}
     assert all(event["signal_time"] % (6 * hour) == 0 for event in events)
@@ -372,7 +371,7 @@ def test_same_five_minute_candle_uses_conservative_stop_first():
     assert barrier == ("stop", 95.0)
 
 
-def test_non_overlapping_selection_uses_full_24_hour_holding_period():
+def test_reporting_windows_keep_overlapping_signals_as_independent_events():
     base = {
         "strategy": "dual_momentum", "ticker": "BTC/USD", "direction": "long",
         "signal_price": 100.0, "score": 2.0, "confidence": "high",
@@ -385,9 +384,16 @@ def test_non_overlapping_selection_uses_full_24_hour_holding_period():
         {**base, "signal_time": 24 * 60 * 60_000},
     ]
 
-    selected = _select_non_overlapping_candidates(events)
+    selected = _select_candidates_by_window(
+        {"dual_momentum": events},
+        latest_time=24 * 60 * 60_000,
+    )[("dual_momentum", 30)]
 
-    assert [event["signal_time"] for event in selected] == [0, 24 * 60 * 60_000]
+    assert [event["signal_time"] for event in selected] == [
+        0,
+        6 * 60 * 60_000,
+        24 * 60 * 60_000,
+    ]
 
 
 def test_forward_trade_with_disabled_levels_closes_only_at_horizon(tmp_path):

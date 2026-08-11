@@ -33,7 +33,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v59"
+CALCULATION_VERSION = "short-term-lab-v60"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -1923,20 +1923,6 @@ def _simulate(
     }
 
 
-def _select_non_overlapping_candidates(events: list[dict]) -> list[dict]:
-    selected: list[dict] = []
-    next_free: dict[str, int] = {}
-    for event in sorted(events, key=lambda item: (item["signal_time"], item["ticker"])):
-        if int(event["signal_time"]) < next_free.get(event["ticker"], 0):
-            continue
-        selected.append(event)
-        next_free[event["ticker"]] = (
-            int(event["signal_time"])
-            + int(event["hold_minutes"]) * 60_000
-        )
-    return selected
-
-
 def _candidate_identity(event: dict) -> tuple[str, str, str, int]:
     return (
         str(event["strategy"]),
@@ -1949,12 +1935,12 @@ def _candidate_identity(event: dict) -> tuple[str, str, str, int]:
 def _select_candidates_by_window(
     candidates: dict[str, list[dict]], *, latest_time: int
 ) -> dict[tuple[str, int], list[dict]]:
-    """Select non-overlapping trades independently inside every report window.
+    """Build deterministic event-study cohorts for every reporting window.
 
-    Starting the greedy selection before a reporting window makes the result of
-    that window depend on how much older history happens to be loaded. Keeping
-    each window independent makes, for example, the trailing 365-day result
-    invariant when a third year of history is prepended.
+    Every confirmed signal is one independent hypothetical trade. We do not
+    discard overlapping signals for the same ticker: a greedy portfolio-style
+    selector makes the result depend on the first candle loaded and can change
+    a trailing window when older history is prepended.
     """
     selected: dict[tuple[str, int], list[dict]] = {}
     day_ms = 24 * 60 * 60 * 1000
@@ -1966,7 +1952,14 @@ def _select_candidates_by_window(
                 if int(event["signal_time"]) >= cutoff
                 and int(event["signal_time"]) <= int(latest_time)
             ]
-            selected[(strategy, days)] = _select_non_overlapping_candidates(in_window)
+            selected[(strategy, days)] = sorted(
+                in_window,
+                key=lambda item: (
+                    int(item["signal_time"]),
+                    str(item["ticker"]),
+                    str(item["direction"]),
+                ),
+            )
     return selected
 
 
