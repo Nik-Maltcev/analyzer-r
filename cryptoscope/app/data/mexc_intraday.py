@@ -29,6 +29,8 @@ SHORT_TERM_HISTORY_DAYS = 1125
 # kline responses at 500. Pagination must use the effective limit; otherwise a
 # 500-row response looks like the final page and leaves the dataset stale.
 PAGE_LIMIT = 500
+HISTORICAL_PAGE_ATTEMPTS = 4
+HISTORICAL_RETRY_BASE_SECONDS = 1.0
 
 
 async def refresh_reversal_candles(
@@ -306,8 +308,14 @@ async def refresh_short_term_hourly_candles(
     now = now or datetime.now(UTC)
     interval_ms = 60 * 60 * 1000
     completed_before = int(now.timestamp() * 1000) // interval_ms * interval_ms
-    initial_start = int(
+    raw_initial_start = int(
         (now - timedelta(days=SHORT_TERM_HISTORY_DAYS)).timestamp() * 1000
+    )
+    # Klines are aligned to whole hours. Starting at an arbitrary minute leaves
+    # a final partial-hour request on the next refresh; MEXC correctly returns
+    # no candle for it, which used to look like a broken historical backfill.
+    initial_start = (
+        (raw_initial_start + interval_ms - 1) // interval_ms * interval_ms
     )
     coverage = {
         str(row[0]): (int(row[1]), int(row[2]))
@@ -365,28 +373,48 @@ async def refresh_short_term_hourly_candles(
             ticker for ticker in INTRADAY_TICKERS
             if normalize_mexc_symbol(ticker) in available
         ]
+        # BTC defines the report's historical coverage. Load it first so an
+        # interrupted backfill fails early instead of doing work for every alt.
+        eligible_tickers.sort(key=lambda ticker: ticker != "BTC/USD")
         for ticker in eligible_tickers:
             symbol = normalize_mexc_symbol(ticker)
             try:
                 async def fetch_page(page_start: int, page_end: int) -> list:
                     nonlocal request_at
-                    delay = 0.10 - (time.monotonic() - request_at)
-                    if delay > 0:
-                        await asyncio.sleep(delay)
-                    response = await client.get(
-                        f"{MEXC_REST_URL}/klines",
-                        params={
-                            "symbol": symbol,
-                            "interval": "60m",
-                            "startTime": page_start,
-                            "endTime": page_end - 1,
-                            "limit": PAGE_LIMIT,
-                        },
+                    last_error: Exception | None = None
+                    for attempt in range(HISTORICAL_PAGE_ATTEMPTS):
+                        delay = 0.10 - (time.monotonic() - request_at)
+                        if delay > 0:
+                            await asyncio.sleep(delay)
+                        try:
+                            response = await client.get(
+                                f"{MEXC_REST_URL}/klines",
+                                params={
+                                    "symbol": symbol,
+                                    "interval": "60m",
+                                    "startTime": page_start,
+                                    "endTime": page_end - 1,
+                                    "limit": PAGE_LIMIT,
+                                },
+                            )
+                            request_at = time.monotonic()
+                            response.raise_for_status()
+                            payload = response.json()
+                            if isinstance(payload, list) and payload:
+                                return payload
+                            last_error = RuntimeError("MEXC returned an empty page")
+                        except (httpx.HTTPError, ValueError) as exc:
+                            last_error = exc
+                        if attempt + 1 < HISTORICAL_PAGE_ATTEMPTS:
+                            await asyncio.sleep(
+                                HISTORICAL_RETRY_BASE_SECONDS * (2 ** attempt)
+                            )
+                    if isinstance(last_error, RuntimeError):
+                        return []
+                    raise RuntimeError(
+                        "MEXC historical page failed after retries: "
+                        f"{last_error or 'invalid response'}"
                     )
-                    request_at = time.monotonic()
-                    response.raise_for_status()
-                    payload = response.json()
-                    return payload if isinstance(payload, list) else []
 
                 if ticker in coverage:
                     earliest, latest = coverage[ticker]
@@ -411,22 +439,116 @@ async def refresh_short_term_hourly_candles(
                     )
                     payload = await fetch_page(page_start, backfill_end)
                     if not payload:
+                        if ticker == "BTC/USD":
+                            start_label = datetime.fromtimestamp(
+                                page_start / 1000, tz=UTC
+                            ).isoformat()
+                            end_label = datetime.fromtimestamp(
+                                backfill_end / 1000, tz=UTC
+                            ).isoformat()
+                            raise RuntimeError(
+                                "MEXC returned no BTC hourly history for "
+                                f"{start_label}..{end_label}; saved progress is intact"
+                            )
+                        # A recently listed altcoin legitimately has no candles
+                        # before its listing date. Its shorter history must not
+                        # block the BTC-defined three-year report window.
                         break
                     inserted += upsert(payload, ticker, backfill_end)
                     backfill_end = page_start
+                if ticker == "BTC/USD":
+                    # A previous interrupted request can leave a hole between
+                    # the oldest and newest stored candle. The forward/backward
+                    # cursors only extend the edges, so explicitly repair every
+                    # missing hour before declaring the three-year history ready.
+                    btc_open_times = [
+                        int(row[0])
+                        for row in conn.execute(
+                            "SELECT open_time FROM short_term_hourly_candles "
+                            "WHERE ticker='BTC/USD' AND open_time>=? AND open_time<? "
+                            "ORDER BY open_time",
+                            (initial_start, completed_before),
+                        ).fetchall()
+                    ]
+                    missing_ranges: list[tuple[int, int]] = []
+                    expected_open = initial_start
+                    for open_time in btc_open_times:
+                        if open_time > expected_open:
+                            missing_ranges.append((expected_open, open_time))
+                        expected_open = max(expected_open, open_time + interval_ms)
+                    if expected_open < completed_before:
+                        missing_ranges.append((expected_open, completed_before))
+
+                    if missing_ranges:
+                        missing_hours = sum(
+                            (gap_end - gap_start) // interval_ms
+                            for gap_start, gap_end in missing_ranges
+                        )
+                        print(
+                            "[MEXC 1h] repairing BTC history: "
+                            f"{missing_hours} missing hours in "
+                            f"{len(missing_ranges)} ranges",
+                            flush=True,
+                        )
+                    for gap_start, gap_end in missing_ranges:
+                        cursor = gap_start
+                        while cursor < gap_end:
+                            page_end = min(
+                                gap_end, cursor + PAGE_LIMIT * interval_ms
+                            )
+                            payload = await fetch_page(cursor, page_end)
+                            if not payload:
+                                start_label = datetime.fromtimestamp(
+                                    cursor / 1000, tz=UTC
+                                ).isoformat()
+                                end_label = datetime.fromtimestamp(
+                                    page_end / 1000, tz=UTC
+                                ).isoformat()
+                                raise RuntimeError(
+                                    "MEXC returned no BTC candles while repairing "
+                                    f"{start_label}..{end_label}; saved progress is intact"
+                                )
+                            inserted += upsert(payload, ticker, page_end)
+                            cursor = page_end
+
+                    btc_range = conn.execute(
+                        "SELECT MIN(open_time), MAX(open_time) "
+                        "FROM short_term_hourly_candles WHERE ticker='BTC/USD'"
+                    ).fetchone()
+                    if btc_range and btc_range[0] is not None and btc_range[1] is not None:
+                        btc_days = int(
+                            (int(btc_range[1]) - int(btc_range[0]))
+                            // (24 * interval_ms)
+                        ) + 1
+                        print(
+                            f"[MEXC 1h] BTC history saved: {btc_days} days",
+                            flush=True,
+                        )
             except Exception as exc:
                 failures.append(f"{ticker}: {str(exc)[:120]}")
+                if ticker == "BTC/USD":
+                    break
 
     count, ticker_count, minimum, maximum = conn.execute(
         "SELECT COUNT(*), COUNT(DISTINCT ticker), MIN(open_time), MAX(open_time) "
         "FROM short_term_hourly_candles"
     ).fetchone()
     btc = conn.execute(
-        "SELECT MIN(open_time), MAX(open_time) FROM short_term_hourly_candles "
-        "WHERE ticker='BTC/USD'"
+        "SELECT MIN(open_time), MAX(open_time), "
+        "SUM(CASE WHEN open_time>=? AND open_time<? THEN 1 ELSE 0 END) "
+        "FROM short_term_hourly_candles WHERE ticker='BTC/USD'",
+        (initial_start, completed_before),
     ).fetchone()
     btc_start = int(btc[0]) if btc and btc[0] is not None else None
     btc_end = int(btc[1]) if btc and btc[1] is not None else None
+    btc_candle_count = int(btc[2] or 0) if btc else 0
+    btc_expected_candle_count = max(
+        0, (completed_before - initial_start) // interval_ms
+    )
+    btc_coverage_ratio = (
+        btc_candle_count / btc_expected_candle_count
+        if btc_expected_candle_count else 0.0
+    )
     coverage_days = (
         int((btc_end - btc_start) // (24 * interval_ms)) + 1
         if btc_start is not None and btc_end is not None else 0
@@ -440,6 +562,9 @@ async def refresh_short_term_hourly_candles(
         "data_end": maximum,
         "btc_start": btc_start,
         "btc_end": btc_end,
+        "btc_candle_count": btc_candle_count,
+        "btc_expected_candle_count": btc_expected_candle_count,
+        "btc_coverage_ratio": btc_coverage_ratio,
         "coverage_days": coverage_days,
         "failures": failures,
     }

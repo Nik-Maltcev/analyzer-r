@@ -38,6 +38,7 @@ STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
+MIN_BTC_HOURLY_COVERAGE_RATIO = 0.999
 THREE_YEAR_WINDOW_DAYS = 365 * 3
 BACKTEST_WINDOWS_DAYS = (30, 90, 180, 365, THREE_YEAR_WINDOW_DAYS)
 REPORT_WINDOW_DAYS = (THREE_YEAR_WINDOW_DAYS, 30, 90, 180, 365)
@@ -2334,7 +2335,35 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
             refresh = await refresh_reversal_candles(conn)
             print("[Short-Term Lab] step 2/10: refresh_short_term_hourly_candles", flush=True)
             historical_refresh = await refresh_short_term_hourly_candles(conn)
-            print(f"[Short-Term Lab] step 2/10 done: coverage_days={historical_refresh.get('coverage_days')}, inserted={historical_refresh.get('inserted')}", flush=True)
+            print(
+                "[Short-Term Lab] step 2/10 done: "
+                f"coverage_days={historical_refresh.get('coverage_days')}, "
+                f"btc_coverage={float(historical_refresh.get('btc_coverage_ratio') or 0):.2%}, "
+                f"inserted={historical_refresh.get('inserted')}",
+                flush=True,
+            )
+            required_history_days = max(BACKTEST_WINDOWS_DAYS)
+            loaded_history_days = int(historical_refresh.get("coverage_days") or 0)
+            btc_coverage_ratio = float(
+                historical_refresh.get("btc_coverage_ratio") or 0.0
+            )
+            if (
+                loaded_history_days < required_history_days
+                or btc_coverage_ratio < MIN_BTC_HOURLY_COVERAGE_RATIO
+            ):
+                failure_details = "; ".join(
+                    str(item) for item in (historical_refresh.get("failures") or [])[:3]
+                )
+                detail_suffix = f" Cause: {failure_details}" if failure_details else ""
+                raise RuntimeError(
+                    "Hourly history backfill is incomplete: "
+                    f"{loaded_history_days}/{required_history_days} days, "
+                    f"BTC candles {int(historical_refresh.get('btc_candle_count') or 0)}/"
+                    f"{int(historical_refresh.get('btc_expected_candle_count') or 0)} "
+                    f"({btc_coverage_ratio:.2%}). "
+                    "Downloaded candles were saved and the next refresh will resume."
+                    f"{detail_suffix}"
+                )
             print("[Short-Term Lab] step 3/10: refresh_short_term_funding_rates", flush=True)
             funding_refresh = await refresh_short_term_funding_rates(conn)
             print("[Short-Term Lab] step 4/10: refresh_short_term_perp_candles", flush=True)
@@ -2396,10 +2425,18 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 total_candidates = sum(len(v) for v in historical_candidates.values())
                 print(f"[Short-Term Lab] historical candidates total={total_candidates}", flush=True)
                 coverage_days = int(historical_refresh.get("coverage_days") or 0)
-                min_window = min(BACKTEST_WINDOWS_DAYS)
-                if coverage_days < min_window:
+                required_window = max(BACKTEST_WINDOWS_DAYS)
+                btc_coverage_ratio = float(
+                    historical_refresh.get("btc_coverage_ratio") or 0.0
+                )
+                if (
+                    coverage_days < required_window
+                    or btc_coverage_ratio < MIN_BTC_HOURLY_COVERAGE_RATIO
+                ):
                     raise RuntimeError(
-                        f"Hourly history is incomplete: {coverage_days}/{min_window} days"
+                        "Hourly history is incomplete: "
+                        f"{coverage_days}/{required_window} days, "
+                        f"BTC coverage {btc_coverage_ratio:.2%}"
                     )
                 completed_before = (
                     int(datetime.now(UTC).timestamp() * 1000)
