@@ -72,7 +72,12 @@ async def lifespan(app: FastAPI):
             from app.core.short_term_lab import refresh_short_term_lab
 
             await asyncio.sleep(30)
-            full_backtest_due = True
+            # A deploy must stay cheap and responsive. Full three-year research
+            # remains available through the explicit "refresh calculation" action.
+            full_backtest_due = (
+                os.getenv("SHORT_TERM_FULL_BACKTEST_ON_STARTUP", "false").lower()
+                == "true"
+            )
             while True:
                 try:
                     print("[Short-Term Lab] refresh starting...", flush=True)

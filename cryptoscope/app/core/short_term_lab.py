@@ -2049,25 +2049,17 @@ def _build_executable_ledger(
     return ledger, missing, suppressed
 
 
-def backtest(
-    candles: pd.DataFrame,
+def _summarize_backtest(
     candidates: dict[str, list[dict]],
+    ledger: list[dict],
+    missing_ids: set[tuple[str, str, str, int]],
+    suppressed_ids: set[tuple[str, str, str, int]],
     *,
-    latest_time: int | None = None,
+    latest_time: int,
+    earliest_time: int,
 ) -> tuple[list[dict], dict]:
-    by_ticker = {ticker: group for ticker, group in candles.groupby("ticker", sort=False)}
-    latest_time = int(
-        latest_time
-        if latest_time is not None
-        else (candles["open_time"].max() if not candles.empty else 0)
-    )
     selected_by_window = _select_candidates_by_window(
         candidates, latest_time=latest_time
-    )
-    ledger, missing_ids, suppressed_ids = _build_executable_ledger(
-        by_ticker,
-        candidates,
-        latest_time=latest_time,
     )
     day_ms = 24 * 60 * 60 * 1000
     trades: list[dict] = []
@@ -2079,9 +2071,7 @@ def backtest(
         ]
         if windows:
             trades.append({**trade, "reporting_windows": windows})
-
     metrics: dict[str, dict] = {}
-    earliest_time = int(candles["open_time"].min()) if not candles.empty else 0
     coverage_days = (
         int((latest_time - earliest_time) // (24 * 60 * 60 * 1000)) + 1
         if latest_time and earliest_time else 0
@@ -2163,6 +2153,108 @@ def backtest(
                 )
             metrics[f"{strategy}_{days}d"] = metric
     return trades, metrics
+
+
+def backtest(
+    candles: pd.DataFrame,
+    candidates: dict[str, list[dict]],
+    *,
+    latest_time: int | None = None,
+) -> tuple[list[dict], dict]:
+    by_ticker = {ticker: group for ticker, group in candles.groupby("ticker", sort=False)}
+    latest_time = int(
+        latest_time
+        if latest_time is not None
+        else (candles["open_time"].max() if not candles.empty else 0)
+    )
+    ledger, missing_ids, suppressed_ids = _build_executable_ledger(
+        by_ticker,
+        candidates,
+        latest_time=latest_time,
+    )
+    earliest_time = int(candles["open_time"].min()) if not candles.empty else 0
+    return _summarize_backtest(
+        candidates,
+        ledger,
+        missing_ids,
+        suppressed_ids,
+        latest_time=latest_time,
+        earliest_time=earliest_time,
+    )
+
+
+def _backtest_from_db(
+    conn: sqlite3.Connection,
+    candidates: dict[str, list[dict]],
+    *,
+    latest_time: int,
+    earliest_time: int,
+) -> tuple[list[dict], dict]:
+    """Build the canonical ledger without loading the full 5-minute DB into RAM."""
+    events_by_ticker: dict[str, dict[str, list[dict]]] = {}
+    for strategy, events in candidates.items():
+        for event in events:
+            events_by_ticker.setdefault(str(event["ticker"]), {}).setdefault(
+                strategy, []
+            ).append(event)
+
+    ledger: list[dict] = []
+    missing_ids: set[tuple[str, str, str, int]] = set()
+    suppressed_ids: set[tuple[str, str, str, int]] = set()
+    total = len(events_by_ticker)
+    for position, (ticker, ticker_candidates) in enumerate(
+        sorted(events_by_ticker.items()), start=1
+    ):
+        ticker_events = [
+            event for events in ticker_candidates.values() for event in events
+        ]
+        ticker_since = min(int(event["signal_time"]) for event in ticker_events)
+        required_tickers = {ticker}
+        required_tickers.update(
+            str(event["hedge_ticker"])
+            for event in ticker_events
+            if event.get("hedge_ticker")
+        )
+        frames = {
+            required: _load_candles_for_ticker(
+                conn, required, since_ms=ticker_since
+            )
+            for required in required_tickers
+        }
+        ticker_ledger, ticker_missing, ticker_suppressed = (
+            _build_executable_ledger(
+                frames,
+                ticker_candidates,
+                latest_time=latest_time,
+            )
+        )
+        ledger.extend(ticker_ledger)
+        missing_ids.update(ticker_missing)
+        suppressed_ids.update(ticker_suppressed)
+        del frames
+        if position % 10 == 0 or position == total:
+            gc.collect()
+            print(
+                f"[Short-Term Lab] backtest tickers {position}/{total}, "
+                f"trades={len(ledger)}",
+                flush=True,
+            )
+
+    ledger.sort(
+        key=lambda trade: (
+            int(trade["entry_time"]),
+            str(trade["strategy"]),
+            str(trade["ticker"]),
+        )
+    )
+    return _summarize_backtest(
+        candidates,
+        ledger,
+        missing_ids,
+        suppressed_ids,
+        latest_time=latest_time,
+        earliest_time=earliest_time,
+    )
 
 
 def _build_annual_stability(
@@ -2574,7 +2666,8 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 flat_candidates = list(execution_candidates.values())
                 # Free large DataFrames before download to avoid OOM on memory-constrained hosts.
                 del candles, historical_candles, funding, perp_candles
-                import gc; gc.collect()
+                del historical_candidates
+                gc.collect()
                 print(f"[Short-Term Lab] step 8/10: download execution candles for {len(flat_candidates)} candidates", flush=True)
                 execution_refresh = await refresh_short_term_execution_candles(
                     conn, flat_candidates
@@ -2590,14 +2683,15 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                     # These candidates are skipped by _simulate (counted in
                     # missing_executions) — they do not invalidate the whole run.
                     pass
-                earliest_signal = min(
-                    (int(c["signal_time"]) for c in flat_candidates),
-                    default=0,
+                print(
+                    "[Short-Term Lab] step 9/10: streaming backtest by ticker",
+                    flush=True,
                 )
-                candles = _load_candles(conn, since_ms=earliest_signal)
-                print(f"[Short-Term Lab] step 9/10: backtest (5min candles={len(candles)})", flush=True)
-                trades, metrics = backtest(
-                    candles, all_eligible, latest_time=completed_before
+                trades, metrics = _backtest_from_db(
+                    conn,
+                    all_eligible,
+                    latest_time=completed_before,
+                    earliest_time=hc_data_start,
                 )
                 print(f"[Short-Term Lab] step 9/10 done: trades={len(trades)}, metrics={len(metrics)}", flush=True)
                 for metric in metrics.values():
