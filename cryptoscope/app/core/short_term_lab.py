@@ -63,6 +63,16 @@ STRATEGIES = {
         "cost_pct": ROUND_TRIP_COST_PCT,
         "description": "Только LONG при BTC ≥0% (24ч), только SHORT при BTC ≤0%. Направленческий фильтр.",
     },
+    "momentum": {
+        "name": "Momentum",
+        "short_name": "Momentum",
+        "timeframe": 60,
+        "hold": 24 * 60,
+        "stop": 0.0,
+        "target": 0.0,
+        "cost_pct": ROUND_TRIP_COST_PCT,
+        "description": "Импульс за 3 / 7 / 14 дней; решение каждые 4 часа, выход через 24 часа.",
+    },
 }
 _REFRESH_LOCK = Lock()
 
@@ -1717,6 +1727,7 @@ def generate_candidates(
     return {
         "rs_low_cost": _wrap_rs("rs_low_cost", _rs_btc_signals(hourly), count=1),
         "rs_regime_filter": _wrap_rs("rs_regime_filter", _rs_btc_filter_signals(hourly), count=1),
+        "momentum": _wrap_rs("momentum", _momentum_signals(hourly), count=1),
     }
 
 

@@ -20,6 +20,8 @@ from app.core.short_term_lab import (
     _effective_round_trip_cost,
     _finalize_scan_sample,
     _latest_full_backtest_run,
+    _insert_latest_candidates,
+    _momentum_signals,
     _record_scan_result,
     _scan_split_time,
     _candidate_identity,
@@ -49,28 +51,89 @@ def _bars(rows):
 @pytest.fixture(autouse=True)
 def _register_legacy_strategies(monkeypatch):
     """Retired strategies stay importable for their point-in-time tests."""
-    for key in ("dual_momentum", "volatility_breakout", "momentum"):
+    for key in ("dual_momentum", "volatility_breakout"):
         monkeypatch.setitem(STRATEGIES, key, {
             "name": key, "short_name": key, "timeframe": 60,
             "hold": 24 * 60, "stop": 0.0, "target": 0.0,
         })
 
 
-def test_active_crypto_short_term_strategies_are_rs_only():
-    legacy_test_strategies = {"dual_momentum", "volatility_breakout", "momentum"}
+def test_momentum_is_added_without_removing_active_rs_strategies():
+    legacy_test_strategies = {"dual_momentum", "volatility_breakout"}
 
     assert set(STRATEGIES) - legacy_test_strategies == {
         "rs_low_cost",
         "rs_regime_filter",
+        "momentum",
     }
 
 
-def test_active_rs_baselines_use_timed_exit_without_hidden_barriers():
-    for key in ("rs_low_cost", "rs_regime_filter"):
+def test_active_baselines_use_timed_exit_without_hidden_barriers():
+    for key in ("rs_low_cost", "rs_regime_filter", "momentum"):
         assert STRATEGIES[key]["hold"] == 24 * 60
         assert STRATEGIES[key]["stop"] == 0.0
         assert STRATEGIES[key]["target"] == 0.0
         assert STRATEGIES[key]["cost_pct"] == ROUND_TRIP_COST_PCT
+
+
+def test_momentum_uses_closed_hourly_candle_and_next_five_minute_entry():
+    hour = 60 * 60_000
+    rows = []
+    for index in range(337):
+        btc_price = 100.0
+        alt_price = 100.0 * (1.0 + 0.0005 * index)
+        rows.extend([
+            ("BTC/USD", index * hour, btc_price, btc_price, btc_price, btc_price, 1, btc_price),
+            ("ALT/USD", index * hour, alt_price, alt_price, alt_price, alt_price, 1, alt_price),
+        ])
+
+    hourly = _bars(rows)
+    raw = _momentum_signals(hourly)
+    assert raw
+    assert raw[-1]["signal_time"] == 336 * hour
+
+    candidates = generate_candidates(hourly, already_hourly=True)["momentum"]
+    candidate = candidates[-1]
+    assert candidate["signal_time"] == 337 * hour
+    assert candidate["signal_price"] == pytest.approx(
+        hourly.loc[
+            (hourly["ticker"] == "ALT/USD")
+            & (hourly["open_time"] == 336 * hour),
+            "close",
+        ].iloc[0]
+    )
+
+
+def test_adding_momentum_candidate_keeps_existing_rs_forward_trade(tmp_path):
+    conn = sqlite3.connect(tmp_path / "short-term.db")
+    ensure_short_term_schema(conn)
+    conn.execute(
+        """
+        INSERT INTO short_term_forward_trades (
+            calculation_version, strategy, ticker, direction, signal_time,
+            signal_price, score, confidence, timeframe_minutes, hold_minutes,
+            stop_pct, target_pct
+        ) VALUES (?, 'rs_low_cost', 'ALT/USD', 'long', 0,
+                  100, 2.5, 'high', 60, 1440, 0, 0)
+        """,
+        (CALCULATION_VERSION,),
+    )
+    momentum = {
+        "momentum": [{
+            "strategy": "momentum", "ticker": "MOM/USD", "direction": "long",
+            "signal_time": 60 * 60_000, "signal_price": 10.0, "score": 4.0,
+            "confidence": "high", "timeframe_minutes": 60,
+            "hold_minutes": 1440, "stop_pct": 0.0, "target_pct": 0.0,
+        }],
+    }
+
+    assert _insert_latest_candidates(conn, momentum, 60 * 60_000) == 1
+    saved = conn.execute(
+        "SELECT strategy, ticker FROM short_term_forward_trades ORDER BY strategy"
+    ).fetchall()
+    conn.close()
+
+    assert saved == [("momentum", "MOM/USD"), ("rs_low_cost", "ALT/USD")]
 
 
 def test_aggregate_uses_only_fully_closed_bars():
@@ -699,6 +762,53 @@ def test_legacy_completed_report_requests_three_year_migration(tmp_path):
     assert report["needs_history_refresh"] is True
     assert report["three_year_calculated"] is False
     assert any(key.endswith("_1095d") for key in report["missing_three_year_keys"])
+
+
+def test_existing_rs_report_is_preserved_while_momentum_requests_refresh(tmp_path):
+    db_path = tmp_path / "short-term.db"
+    conn = sqlite3.connect(db_path)
+    ensure_short_term_schema(conn)
+    existing_rs = {
+        f"{strategy}_1095d": {
+            "window_days": 1095,
+            "coverage_days": 1095,
+            "is_complete": True,
+            "trades": 42,
+            "net_cash": 12.34,
+        }
+        for strategy in ("rs_low_cost", "rs_regime_filter")
+    }
+    run_id = conn.execute(
+        """
+        INSERT INTO short_term_runs(calculation_version, status, metrics_json)
+        VALUES (?, 'completed', ?)
+        """,
+        (
+            CALCULATION_VERSION,
+            json.dumps({"coverage_days": 1095, "strategies": existing_rs}),
+        ),
+    ).lastrowid
+    conn.execute(
+        """
+        INSERT INTO short_term_backtest_trades (
+            run_id, strategy, ticker, direction, signal_time, entry_time,
+            entry_price, exit_time, exit_price, exit_reason, score, confidence,
+            gross_return_pct, cost_pct, net_return_pct, cash_result
+        ) VALUES (?, 'rs_low_cost', 'BTC/USD', 'long', 0, 300000,
+                  100, 600000, 101, 'time', 2, 'high', 1, 0.3, 0.7, 0.7)
+        """,
+        (run_id,),
+    )
+    conn.commit()
+    conn.close()
+
+    report = get_short_term_report(str(db_path))
+    cards = {card["key"]: card for card in report["strategies"]}
+
+    assert cards["rs_low_cost_1095d"]["net_cash"] == pytest.approx(12.34)
+    assert cards["rs_regime_filter_1095d"]["net_cash"] == pytest.approx(12.34)
+    assert "momentum_1095d" in report["missing_three_year_keys"]
+    assert report["needs_history_refresh"] is True
 
 
 def test_scan_split_is_chronological_and_does_not_use_returns():
