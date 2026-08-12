@@ -65,6 +65,14 @@ def test_active_crypto_short_term_strategies_are_rs_only():
     }
 
 
+def test_active_rs_baselines_use_timed_exit_without_hidden_barriers():
+    for key in ("rs_low_cost", "rs_regime_filter"):
+        assert STRATEGIES[key]["hold"] == 24 * 60
+        assert STRATEGIES[key]["stop"] == 0.0
+        assert STRATEGIES[key]["target"] == 0.0
+        assert STRATEGIES[key]["cost_pct"] == ROUND_TRIP_COST_PCT
+
+
 def test_aggregate_uses_only_fully_closed_bars():
     candles = _bars([
         ("BTC/USD", 0, 100, 101, 99, 100, 1, 100),
@@ -99,7 +107,7 @@ def test_dual_momentum_uses_closed_hourly_history_and_market_tails():
     events = _dual_momentum(_bars(rows))
     final = [event for event in events if event["signal_time"] == 30 * hour]
 
-    assert CALCULATION_VERSION == "short-term-lab-v60"
+    assert CALCULATION_VERSION == "short-term-lab-v61"
     assert len(final) == 6
     assert {event["direction"] for event in final} == {"long", "short"}
     assert all(event["signal_time"] % (6 * hour) == 0 for event in events)
@@ -371,7 +379,7 @@ def test_same_five_minute_candle_uses_conservative_stop_first():
     assert barrier == ("stop", 95.0)
 
 
-def test_reporting_windows_keep_overlapping_signals_as_independent_events():
+def test_reporting_windows_keep_overlapping_raw_signals_before_execution_filter():
     base = {
         "strategy": "dual_momentum", "ticker": "BTC/USD", "direction": "long",
         "signal_price": 100.0, "score": 2.0, "confidence": "high",
@@ -394,6 +402,50 @@ def test_reporting_windows_keep_overlapping_signals_as_independent_events():
         6 * 60 * 60_000,
         24 * 60 * 60_000,
     ]
+
+
+def test_backtest_builds_one_executable_ledger_and_reconciles_every_signal():
+    five_minutes = 5 * 60_000
+    hour = 60 * 60_000
+    latest_time = 48 * hour
+    rows = []
+    for open_time in range(0, latest_time + five_minutes, five_minutes):
+        price = 100.0 + 10.0 * open_time / latest_time
+        rows.append(
+            ("BTC/USD", open_time, price, price, price, price, 1, price)
+        )
+    base = {
+        "strategy": "dual_momentum", "ticker": "BTC/USD", "direction": "long",
+        "signal_price": 100.0, "score": 2.0, "confidence": "high",
+        "timeframe_minutes": 60, "hold_minutes": 24 * 60,
+        "stop_pct": 0.0, "target_pct": 0.0,
+        "cost_pct": ROUND_TRIP_COST_PCT,
+    }
+    candidates = {
+        "dual_momentum": [
+            {**base, "signal_time": 0},
+            {**base, "signal_time": 6 * hour},
+            {**base, "signal_time": 24 * hour},
+        ]
+    }
+
+    trades, metrics = backtest(
+        _bars(rows), candidates, latest_time=latest_time
+    )
+
+    assert [trade["signal_time"] for trade in trades] == [0, 24 * hour]
+    assert all(trade["exit_reason"] == "time" for trade in trades)
+    assert all(trade["exit_time"] - trade["entry_time"] == 24 * hour for trade in trades)
+    metric = metrics["dual_momentum_30d"]
+    assert metric["eligible_candidates"] == 3
+    assert metric["trades"] == 2
+    assert metric["suppressed_overlaps"] == 1
+    assert metric["missing_executions"] == 0
+    assert metric["accounted_candidates"] == 3
+    assert metric["reconciliation"]["ok"] is True
+    assert metric["net_cash"] == pytest.approx(
+        sum(trade["cash_result"] for trade in trades)
+    )
 
 
 def test_forward_trade_with_disabled_levels_closes_only_at_horizon(tmp_path):

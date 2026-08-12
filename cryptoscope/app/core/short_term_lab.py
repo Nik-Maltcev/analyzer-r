@@ -33,7 +33,7 @@ from app.db.schema import (
     CREATE_SHORT_TERM_RUNS,
 )
 
-CALCULATION_VERSION = "short-term-lab-v60"
+CALCULATION_VERSION = "short-term-lab-v61"
 STAKE_USD = 100.0
 ROUND_TRIP_COST_PCT = 0.30
 FIVE_MINUTES_MS = 5 * 60 * 1000
@@ -48,8 +48,8 @@ STRATEGIES = {
         "short_name": "RS low cost",
         "timeframe": 60,
         "hold": 24 * 60,
-        "stop": 4.0,
-        "target": 6.0,
+        "stop": 0.0,
+        "target": 0.0,
         "cost_pct": ROUND_TRIP_COST_PCT,
         "description": "Базовый вариант: расходы 0.30% за полный круг, выход по времени через 24 часа.",
     },
@@ -58,8 +58,8 @@ STRATEGIES = {
         "short_name": "RS regime",
         "timeframe": 60,
         "hold": 24 * 60,
-        "stop": 4.0,
-        "target": 6.0,
+        "stop": 0.0,
+        "target": 0.0,
         "cost_pct": ROUND_TRIP_COST_PCT,
         "description": "Только LONG при BTC ≥0% (24ч), только SHORT при BTC ≤0%. Направленческий фильтр.",
     },
@@ -1935,12 +1935,11 @@ def _candidate_identity(event: dict) -> tuple[str, str, str, int]:
 def _select_candidates_by_window(
     candidates: dict[str, list[dict]], *, latest_time: int
 ) -> dict[tuple[str, int], list[dict]]:
-    """Build deterministic event-study cohorts for every reporting window.
+    """Build deterministic raw-signal cohorts for every reporting window.
 
-    Every confirmed signal is one independent hypothetical trade. We do not
-    discard overlapping signals for the same ticker: a greedy portfolio-style
-    selector makes the result depend on the first candle loaded and can change
-    a trailing window when older history is prepended.
+    This function does not decide which signals can be executed. The canonical
+    ledger applies position-state rules once, before all reporting windows are
+    calculated, so every card remains a view over the same trade journal.
     """
     selected: dict[tuple[str, int], list[dict]] = {}
     day_ms = 24 * 60 * 60 * 1000
@@ -1963,6 +1962,82 @@ def _select_candidates_by_window(
     return selected
 
 
+def _build_executable_ledger(
+    candles_by_ticker: dict[str, pd.DataFrame],
+    candidates: dict[str, list[dict]],
+    *,
+    latest_time: int,
+) -> tuple[list[dict], set[tuple[str, str, str, int]], set[tuple[str, str, str, int]]]:
+    """Simulate one deterministic, executable journal for every report window.
+
+    A strategy cannot open another position in the same ticker before its
+    previous position closes. Events just before the largest report window are
+    included as warm-up so that the first in-window decision has the correct
+    position state.
+    """
+    all_events = [event for events in candidates.values() for event in events]
+    if not all_events:
+        return [], set(), set()
+
+    max_hold_ms = max(
+        int(event.get("hold_minutes", 0)) * 60_000 for event in all_events
+    )
+    day_ms = 24 * 60 * 60 * 1000
+    warmup_cutoff = (
+        int(latest_time)
+        - max(BACKTEST_WINDOWS_DAYS) * day_ms
+        - max_hold_ms
+    )
+    unique_events: dict[tuple[str, str, str, int], dict] = {}
+    for event in all_events:
+        signal_time = int(event["signal_time"])
+        if warmup_cutoff <= signal_time <= int(latest_time):
+            unique_events.setdefault(_candidate_identity(event), event)
+
+    ordered = sorted(
+        unique_events.values(),
+        key=lambda event: (
+            int(event["signal_time"]),
+            str(event["strategy"]),
+            str(event["ticker"]),
+            str(event["direction"]),
+        ),
+    )
+    busy_until: dict[tuple[str, str], int] = {}
+    missing: set[tuple[str, str, str, int]] = set()
+    suppressed: set[tuple[str, str, str, int]] = set()
+    ledger: list[dict] = []
+
+    for event in ordered:
+        identity = _candidate_identity(event)
+        position_key = (str(event["strategy"]), str(event["ticker"]))
+        if int(event["signal_time"]) < busy_until.get(position_key, -1):
+            suppressed.add(identity)
+            continue
+
+        ticker_bars = candles_by_ticker.get(event["ticker"])
+        if ticker_bars is None:
+            missing.add(identity)
+            continue
+        hedge_bars = candles_by_ticker.get(event.get("hedge_ticker"))
+        trade = _simulate(event, ticker_bars, hedge_bars)
+        if trade is None:
+            missing.add(identity)
+            continue
+
+        busy_until[position_key] = int(trade["exit_time"])
+        ledger.append(trade)
+
+    ledger.sort(
+        key=lambda trade: (
+            int(trade["entry_time"]),
+            str(trade["strategy"]),
+            str(trade["ticker"]),
+        )
+    )
+    return ledger, missing, suppressed
+
+
 def backtest(
     candles: pd.DataFrame,
     candidates: dict[str, list[dict]],
@@ -1978,29 +2053,21 @@ def backtest(
     selected_by_window = _select_candidates_by_window(
         candidates, latest_time=latest_time
     )
-    simulated: dict[tuple[str, str, str, int], dict | None] = {}
-    reporting_windows: dict[tuple[str, str, str, int], set[int]] = {}
-
-    for (strategy, days), selected in selected_by_window.items():
-        for event in selected:
-            identity = _candidate_identity(event)
-            reporting_windows.setdefault(identity, set()).add(days)
-            if identity in simulated:
-                continue
-            ticker_bars = by_ticker.get(event["ticker"])
-            if ticker_bars is None:
-                simulated[identity] = None
-                continue
-            hedge_bars = by_ticker.get(event.get("hedge_ticker"))
-            trade = _simulate(event, ticker_bars, hedge_bars)
-            simulated[identity] = trade
-
+    ledger, missing_ids, suppressed_ids = _build_executable_ledger(
+        by_ticker,
+        candidates,
+        latest_time=latest_time,
+    )
+    day_ms = 24 * 60 * 60 * 1000
     trades: list[dict] = []
-    for identity, windows in reporting_windows.items():
-        trade = simulated.get(identity)
-        if trade is not None:
-            trades.append({**trade, "reporting_windows": sorted(windows)})
-    trades.sort(key=lambda trade: (int(trade["entry_time"]), trade["strategy"], trade["ticker"]))
+    for trade in ledger:
+        windows = [
+            days for days in BACKTEST_WINDOWS_DAYS
+            if int(trade["signal_time"]) >= latest_time - days * day_ms
+            and int(trade["signal_time"]) <= latest_time
+        ]
+        if windows:
+            trades.append({**trade, "reporting_windows": windows})
 
     metrics: dict[str, dict] = {}
     earliest_time = int(candles["open_time"].min()) if not candles.empty else 0
@@ -2013,28 +2080,68 @@ def backtest(
             selected = selected_by_window.get((strategy, days), [])
             selected_ids = {_candidate_identity(event) for event in selected}
             subset = [
-                simulated[identity]
-                for identity in selected_ids
-                if simulated.get(identity) is not None
+                trade for trade in trades
+                if trade["strategy"] == strategy
+                and days in trade["reporting_windows"]
             ]
+            executed_ids = {_candidate_identity(trade) for trade in subset}
+            missing_selected = selected_ids & missing_ids
+            suppressed_selected = selected_ids & suppressed_ids
+            accounted_ids = executed_ids | missing_selected | suppressed_selected
+            category_count = (
+                len(executed_ids)
+                + len(missing_selected)
+                + len(suppressed_selected)
+            )
+            if accounted_ids != selected_ids or category_count != len(accounted_ids):
+                raise RuntimeError(
+                    f"Short-term candidate reconciliation failed for {strategy} "
+                    f"over {days} days: selected={len(selected_ids)}, "
+                    f"executed={len(executed_ids)}, missing={len(missing_selected)}, "
+                    f"suppressed={len(suppressed_selected)}"
+                )
             values = [float(trade["cash_result"]) for trade in subset]
             wins = [value for value in values if value > 0]
             losses = [value for value in values if value < 0]
+            net_cash = math.fsum(values)
+            expected_cash = math.fsum(
+                STAKE_USD * float(trade["net_return_pct"]) / 100
+                for trade in subset
+            )
+            reconciliation_difference = net_cash - expected_cash
+            if (
+                not math.isfinite(net_cash)
+                or not math.isfinite(expected_cash)
+                or not math.isclose(
+                    net_cash, expected_cash, rel_tol=0.0, abs_tol=1e-9
+                )
+            ):
+                raise RuntimeError(
+                    f"Short-term ledger reconciliation failed for {strategy} "
+                    f"over {days} days: {reconciliation_difference}"
+                )
             metric = {
                 "window_days": days,
                 "strategy": strategy,
                 "coverage_days": coverage_days,
                 "is_complete": coverage_days >= days,
-                "eligible_candidates": len(selected),
-                "missing_executions": len(selected) - len(subset),
+                "eligible_candidates": len(selected_ids),
+                "accounted_candidates": category_count,
+                "missing_executions": len(missing_selected),
+                "suppressed_overlaps": len(suppressed_selected),
                 "trades": len(subset),
                 "trades_per_day": len(subset) / days if days else 0.0,
                 "wins": len(wins),
                 "win_rate": len(wins) / len(subset) * 100 if subset else 0.0,
-                "net_cash": sum(values),
-                "avg_weekly_cash": sum(values) * 7 / days if days else 0.0,
-                "average_net_pct": sum(float(trade["net_return_pct"]) for trade in subset) / len(subset) if subset else 0.0,
-                "profit_factor": sum(wins) / abs(sum(losses)) if losses else (999.0 if wins else 0.0),
+                "net_cash": net_cash,
+                "avg_weekly_cash": net_cash * 7 / days if days else 0.0,
+                "average_net_pct": math.fsum(float(trade["net_return_pct"]) for trade in subset) / len(subset) if subset else 0.0,
+                "profit_factor": math.fsum(wins) / abs(math.fsum(losses)) if losses else (999.0 if wins else 0.0),
+                "reconciliation": {
+                    "journal_cash": expected_cash,
+                    "difference": reconciliation_difference,
+                    "ok": True,
+                },
             }
             if days == THREE_YEAR_WINDOW_DAYS:
                 metric["annual_stability"] = _build_annual_stability(
@@ -2054,7 +2161,7 @@ def _build_annual_stability(
     latest_time: int,
     coverage_days: int,
 ) -> dict:
-    """Summarize three adjacent trailing years without overlapping trades."""
+    """Summarize three adjacent trailing years from the canonical ledger."""
     if not latest_time:
         return {
             "periods": [],
@@ -2091,8 +2198,8 @@ def _build_annual_stability(
             "is_complete": coverage_days >= required_coverage_days,
             "trades": len(subset),
             "win_rate": len(wins) / len(subset) * 100 if subset else 0.0,
-            "net_cash": sum(values),
-            "profit_factor": sum(wins) / abs(sum(losses)) if losses else (999.0 if wins else 0.0),
+            "net_cash": math.fsum(values),
+            "profit_factor": math.fsum(wins) / abs(math.fsum(losses)) if losses else (999.0 if wins else 0.0),
         })
 
     complete = [period for period in periods if period["is_complete"]]
