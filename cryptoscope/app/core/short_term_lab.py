@@ -2536,58 +2536,101 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
         try:
             print("[Short-Term Lab] step 1/10: refresh_reversal_candles", flush=True)
             refresh = await refresh_reversal_candles(conn)
-            print("[Short-Term Lab] step 2/10: refresh_short_term_hourly_candles", flush=True)
-            historical_refresh = await refresh_short_term_hourly_candles(conn)
-            print(
-                "[Short-Term Lab] step 2/10 done: "
-                f"coverage_days={historical_refresh.get('coverage_days')}, "
-                f"btc_coverage={float(historical_refresh.get('btc_coverage_ratio') or 0):.2%}, "
-                f"inserted={historical_refresh.get('inserted')}",
-                flush=True,
-            )
-            required_history_days = max(BACKTEST_WINDOWS_DAYS)
-            loaded_history_days = int(historical_refresh.get("coverage_days") or 0)
-            btc_coverage_ratio = float(
-                historical_refresh.get("btc_coverage_ratio") or 0.0
-            )
-            if (
-                loaded_history_days < required_history_days
-                or btc_coverage_ratio < MIN_BTC_HOURLY_COVERAGE_RATIO
-            ):
-                failure_details = "; ".join(
-                    str(item) for item in (historical_refresh.get("failures") or [])[:3]
-                )
-                detail_suffix = f" Cause: {failure_details}" if failure_details else ""
-                raise RuntimeError(
-                    "Hourly history backfill is incomplete: "
-                    f"{loaded_history_days}/{required_history_days} days, "
-                    f"BTC candles {int(historical_refresh.get('btc_candle_count') or 0)}/"
-                    f"{int(historical_refresh.get('btc_expected_candle_count') or 0)} "
-                    f"({btc_coverage_ratio:.2%}). "
-                    "Downloaded candles were saved and the next refresh will resume."
-                    f"{detail_suffix}"
-                )
-            print("[Short-Term Lab] step 3/10: refresh_short_term_funding_rates", flush=True)
-            funding_refresh = await refresh_short_term_funding_rates(conn)
-            print("[Short-Term Lab] step 4/10: refresh_short_term_perp_candles", flush=True)
-            perp_refresh = await refresh_short_term_perp_candles(conn)
-            print("[Short-Term Lab] step 5/10: loading candles from DB", flush=True)
             live_window_ms = 12 * 24 * 60 * 60 * 1000
             now_ms = int(datetime.now(UTC).timestamp() * 1000)
+            previous_full_run = None
+            execution_refresh = None
+            historical_candles = None
+            funding = None
+            perp_candles = None
+
+            if include_backtest:
+                print("[Short-Term Lab] step 2/10: refresh_short_term_hourly_candles", flush=True)
+                historical_refresh = await refresh_short_term_hourly_candles(conn)
+                print(
+                    "[Short-Term Lab] step 2/10 done: "
+                    f"coverage_days={historical_refresh.get('coverage_days')}, "
+                    f"btc_coverage={float(historical_refresh.get('btc_coverage_ratio') or 0):.2%}, "
+                    f"inserted={historical_refresh.get('inserted')}",
+                    flush=True,
+                )
+                required_history_days = max(BACKTEST_WINDOWS_DAYS)
+                loaded_history_days = int(historical_refresh.get("coverage_days") or 0)
+                btc_coverage_ratio = float(
+                    historical_refresh.get("btc_coverage_ratio") or 0.0
+                )
+                if (
+                    loaded_history_days < required_history_days
+                    or btc_coverage_ratio < MIN_BTC_HOURLY_COVERAGE_RATIO
+                ):
+                    failure_details = "; ".join(
+                        str(item) for item in (historical_refresh.get("failures") or [])[:3]
+                    )
+                    detail_suffix = f" Cause: {failure_details}" if failure_details else ""
+                    raise RuntimeError(
+                        "Hourly history backfill is incomplete: "
+                        f"{loaded_history_days}/{required_history_days} days, "
+                        f"BTC candles {int(historical_refresh.get('btc_candle_count') or 0)}/"
+                        f"{int(historical_refresh.get('btc_expected_candle_count') or 0)} "
+                        f"({btc_coverage_ratio:.2%}). "
+                        "Downloaded candles were saved and the next refresh will resume."
+                        f"{detail_suffix}"
+                    )
+                print("[Short-Term Lab] step 3/10: refresh_short_term_funding_rates", flush=True)
+                funding_refresh = await refresh_short_term_funding_rates(conn)
+                print("[Short-Term Lab] step 4/10: refresh_short_term_perp_candles", flush=True)
+                perp_refresh = await refresh_short_term_perp_candles(conn)
+            else:
+                # The 15-minute monitor only needs recent spot candles. Reusing
+                # metadata from the last full run avoids repeatedly loading the
+                # multi-year hourly, funding and perpetual tables into pandas.
+                previous_full_run = _latest_full_backtest_run(conn)
+                previous_payload = (
+                    json.loads(previous_full_run["metrics_json"] or "{}")
+                    if previous_full_run else {}
+                )
+                historical_refresh = dict(
+                    previous_payload.get("historical_refresh") or {}
+                )
+                historical_refresh.update(
+                    {"status": "skipped_lightweight", "inserted": 0}
+                )
+                funding_refresh = {"status": "skipped_lightweight"}
+                perp_refresh = {"status": "skipped_lightweight"}
+
+            print("[Short-Term Lab] step 5/10: loading recent candles from DB", flush=True)
             candles = _load_candles(conn, since_ms=now_ms - live_window_ms)
-            historical_candles = _load_hourly_candles(conn)
-            funding = _load_funding_rates(conn)
-            perp_candles = _load_perp_candles(conn)
-            print(f"[Short-Term Lab] candles loaded: 5min={len(candles)}, 1h={len(historical_candles)}, perp={len(perp_candles)}", flush=True)
             if candles.empty:
                 raise RuntimeError("MEXC did not return completed 5-minute candles")
-            if historical_candles.empty:
-                raise RuntimeError("MEXC did not return completed hourly candles")
-            hc_data_start = int(historical_candles["open_time"].min())
-            hc_data_end = int(historical_candles["open_time"].max())
-            hc_count = int(len(historical_candles))
-            if perp_candles.empty:
-                raise RuntimeError("MEXC did not return perpetual-futures candles")
+            if include_backtest:
+                historical_candles = _load_hourly_candles(conn)
+                funding = _load_funding_rates(conn)
+                perp_candles = _load_perp_candles(conn)
+                print(
+                    "[Short-Term Lab] candles loaded: "
+                    f"5min={len(candles)}, 1h={len(historical_candles)}, "
+                    f"perp={len(perp_candles)}",
+                    flush=True,
+                )
+                if historical_candles.empty:
+                    raise RuntimeError("MEXC did not return completed hourly candles")
+                if perp_candles.empty:
+                    raise RuntimeError("MEXC did not return perpetual-futures candles")
+                hc_data_start = int(historical_candles["open_time"].min())
+                hc_data_end = int(historical_candles["open_time"].max())
+                hc_count = int(len(historical_candles))
+            elif previous_full_run:
+                hc_data_start = int(previous_full_run["data_start"] or 0)
+                hc_data_end = int(previous_full_run["data_end"] or 0)
+                hc_count = int(previous_full_run["candle_count"] or 0)
+                print(
+                    "[Short-Term Lab] lightweight monitor: multi-year tables skipped",
+                    flush=True,
+                )
+            else:
+                hc_data_start = 0
+                hc_data_end = 0
+                hc_count = 0
             latest = int(candles["open_time"].max())
             age_minutes = (datetime.now(UTC).timestamp() * 1000 - latest) / 60_000
             if age_minutes > 20:
@@ -2608,8 +2651,7 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
             print("[Short-Term Lab] step 6/10: generate live candidates", flush=True)
             live_cutoff = latest - 10 * 24 * 60 * 60 * 1000
             live_candidates = generate_candidates(
-                candles[candles["open_time"] >= live_cutoff],
-                funding=funding, perp=perp_candles,
+                candles[candles["open_time"] >= live_cutoff]
             )
             inserted = _insert_latest_candidates(
                 conn,
@@ -2727,9 +2769,11 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 # trade ledger. Always inherit metrics from the newest full
                 # backtest so a lightweight run cannot erase the 1095-day
                 # result from subsequent reports.
-                previous = _latest_full_backtest_run(conn)
+                previous = previous_full_run or _latest_full_backtest_run(conn)
                 if previous:
                     metrics = json.loads(previous["metrics_json"] or "{}").get("strategies", {})
+                del candles, live_candidates
+                gc.collect()
             conn.executemany(
                 """
                 INSERT OR IGNORE INTO short_term_backtest_trades (
@@ -2759,7 +2803,7 @@ async def _refresh_short_term_lab(db_path: str, *, include_backtest: bool = True
                 "historical_refresh": historical_refresh,
                 "funding_refresh": funding_refresh,
                 "perp_refresh": perp_refresh,
-                "execution_refresh": execution_refresh if include_backtest else None,
+                "execution_refresh": execution_refresh,
             }
             conn.execute(
                 """
@@ -2910,7 +2954,7 @@ def _latest_full_backtest_run(conn: sqlite3.Connection) -> sqlite3.Row | None:
     """
     return conn.execute(
         """
-        SELECT r.id, r.metrics_json, r.data_end
+        SELECT r.id, r.metrics_json, r.data_start, r.data_end, r.candle_count
         FROM short_term_runs AS r
         WHERE r.calculation_version=? AND r.status='completed'
           AND EXISTS (
