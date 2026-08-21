@@ -11,6 +11,7 @@ from app.core.backtest import (
     attach_pair_returns,
     backtest_stats,
     compute_spread_sd_pct,
+    estimate_roundtrip_cost_pct,
     run_backtest,
 )
 
@@ -181,3 +182,73 @@ class TestSpreadSD:
         pb = np.array([50.0] * 10)
         sd = compute_spread_sd_pct(pa, pb, hedge_ratio=1.0)
         assert sd is None
+
+    def test_window_uses_trailing_observations(self):
+        # Volatile ramp in the past, flat recent regime.
+        pa = np.array(list(np.linspace(100, 200, 200)) + [200.0] * 100)
+        pb = np.array([50.0] * 300)
+
+        full = compute_spread_sd_pct(pa, pb, hedge_ratio=1.0)
+        windowed = compute_spread_sd_pct(pa, pb, hedge_ratio=1.0, window=100)
+
+        assert full > 0.1
+        assert np.isclose(windowed, 0.0)
+
+
+class TestBacktestCosts:
+    def test_roundtrip_cost_model(self):
+        # 2 legs x (entry + exit) = 4 commissions; funding charged every 8h
+        assert np.isclose(estimate_roundtrip_cost_pct(0), 0.08)
+        assert np.isclose(
+            estimate_roundtrip_cost_pct(5, funding_rate_8h_pct=0.01), 0.23
+        )
+        assert estimate_roundtrip_cost_pct(
+            5, taker_fee_pct=0.0, funding_rate_8h_pct=0.0
+        ) == 0.0
+
+    def test_net_return_subtracts_costs(self):
+        trades = pd.DataFrame(
+            [{
+                "entry_idx": 0,
+                "exit_idx": 1,
+                "pnl_sigma": 9.0,
+                "days": 2,
+                "type": "long",
+            }]
+        )
+
+        priced = attach_pair_returns(
+            trades,
+            np.array([100.0, 110.0]),
+            np.array([200.0, 190.0]),
+            hedge_ratio=1.0,
+            taker_fee_pct=0.02,
+            funding_rate_8h_pct=0.01,
+        )
+
+        assert np.isclose(priced.iloc[0]["return_pct"], 7.5)
+        assert np.isclose(priced.iloc[0]["net_return_pct"], 7.5 - 0.08 - 0.06)
+
+    def test_stats_expose_net_average(self):
+        trades = pd.DataFrame(
+            [{
+                "entry_idx": 0,
+                "exit_idx": 1,
+                "pnl_sigma": 9.0,
+                "days": 2,
+                "type": "long",
+            }]
+        )
+        priced = attach_pair_returns(
+            trades,
+            np.array([100.0, 110.0]),
+            np.array([200.0, 190.0]),
+            hedge_ratio=1.0,
+            taker_fee_pct=0.02,
+            funding_rate_8h_pct=0.01,
+        )
+
+        stats = backtest_stats(priced, spread_sd_pct=0.50)
+
+        assert np.isclose(stats["avg_pnl_pct"], 7.5)
+        assert np.isclose(stats["avg_net_pnl_pct"], 7.36)

@@ -141,22 +141,32 @@ def determine_signal(
     ticker_a: str,
     ticker_b: str,
     hedge_ratio: float = 1.0,
+    z_prev: float | None = None,
 ) -> dict:
     """
     Determine trading signal from Z-score and forecast.
 
+    Args:
+        z_prev: previous session Z-score. Comparing it with z_now shows
+            whether the spread started reverting (entering on the turn is
+            safer than catching a still-widening spread).
+
     Returns:
-        dict with signal, signal_type, strength
+        dict with signal, signal_type, z_turning
     """
     signal = "Ждать"
     signal_type = "wait"
-    strength = "Нет"
 
     if z_now is None and z_forecast is None:
-        return {"signal": signal, "signal_type": signal_type, "strength": strength}
+        return {"signal": signal, "signal_type": signal_type, "z_turning": None}
 
     z_cur = z_now if z_now is not None else 0
     z_hat = z_forecast if z_forecast is not None else 0
+
+    z_turning = None
+    if z_now is not None and z_prev is not None:
+        # The spread turns back toward its mean when |Z| stops growing.
+        z_turning = bool(abs(z_now) < abs(z_prev))
 
     try:
         beta_is_negative = float(hedge_ratio) < 0
@@ -172,16 +182,27 @@ def determine_signal(
         signal = f"Лонг {ticker_a} / {side_b} {ticker_b}"
         signal_type = "long_a"
 
-    return {"signal": signal, "signal_type": signal_type}
+    return {"signal": signal, "signal_type": signal_type, "z_turning": z_turning}
 
 
-def determine_strength(is_coint: bool, z_now: float | None, z_forecast: float | None) -> str:
-    """Determine signal strength category."""
+def determine_strength(
+    is_coint: bool,
+    z_now: float | None,
+    z_forecast: float | None,
+    z_turning: bool | None = None,
+) -> str:
+    """Determine signal strength category.
+
+    A cointegrated pair at |Z| >= 2 earns the top grade only once the spread
+    starts reverting (z_turning). A still-widening spread stays "Формируется":
+    entering early is how traders catch falling knives. z_turning=None means
+    the previous Z is unknown and does not affect the grade.
+    """
     z_cur = abs(z_now) if z_now is not None else 0
     z_hat = abs(z_forecast) if z_forecast is not None else 0
 
     if is_coint and z_cur >= 2:
-        return "Сильный"
+        return "Формируется" if z_turning is False else "Сильный"
     elif z_hat >= 2:
         return "Прогнозный"
     elif z_cur >= 1.5:
@@ -189,13 +210,30 @@ def determine_strength(is_coint: bool, z_now: float | None, z_forecast: float | 
     return "Нет"
 
 
-def compute_pair_score(corr: float, is_coint: bool, halflife: int | None) -> float:
-    """Compute composite pair score for ranking."""
+def compute_pair_score(
+    corr: float,
+    is_coint: bool,
+    halflife: int | None,
+    coint_stability: float | None = None,
+    backtest_win_rate: float | None = None,
+    backtest_validated: bool = False,
+) -> float:
+    """Compute composite pair score for ranking.
+
+    Base terms are the correlation and the half-life band. Cointegration is
+    counted continuously when a multi-window stability percentage is known
+    (0–100), falling back to the binary flag. A validated out-of-sample
+    backtest adds up to +0.2 scaled by the win rate above a coin flip.
+    """
     score = abs(corr)
-    if is_coint:
+    if coint_stability is not None:
+        score += 0.3 * (coint_stability / 100.0)
+    elif is_coint:
         score += 0.3
     if halflife is not None and 5 <= halflife <= 60:
         score += 0.3
+    if backtest_validated and backtest_win_rate is not None:
+        score += 0.2 * max(0.0, (backtest_win_rate - 50.0) / 50.0)
     return round(float(score), 4)
 
 

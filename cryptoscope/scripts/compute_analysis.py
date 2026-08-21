@@ -31,6 +31,13 @@ from app.data.tickers import ALL_MARKETS
 from app.db.schema import PAIR_COLUMN_MIGRATIONS
 
 DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
+# Trailing window for the spread mean/sd used by the Z-score. A full-history
+# normalization goes stale after a regime shift; 120 days tracks the current
+# regime while staying statistically meaningful.
+Z_SCORE_WINDOW = 120
+# Significance threshold for cointegration tests. Thousands of pairs per
+# market at p<=0.05 would yield hundreds of false positives by chance alone.
+COINT_MAX_PVALUE = 0.01
 ENABLED_MARKETS = {
     market.strip()
     for market in os.environ.get(
@@ -99,6 +106,9 @@ def compute_market_pairs(
 
     prices_mat = wide.values
     market_risk = assess_market_regime(prices_mat)
+    # Execution cost assumptions match the calculator defaults: 0.02% taker
+    # per leg transaction; perpetual funding 0.01% per 8h for crypto only.
+    fee_pct, funding_pct = (0.02, 0.01) if market_name == "crypto" else (0.02, 0.0)
     results = []
 
     for i in range(n):
@@ -112,10 +122,12 @@ def compute_market_pairs(
             # A one-year model reacts faster to regime changes on MOEX.
             model_pa = pa[-252:] if market_name == "ru" else pa
             model_pb = pb[-252:] if market_name == "ru" else pb
-            cg = engle_granger(model_pa, model_pb)
+            cg = engle_granger(model_pa, model_pb, max_pvalue=COINT_MAX_PVALUE)
             if cg["is_coint"]:
                 if market_name in {"crypto", "ru"}:
-                    stability = assess_cointegration_stability(pa, pb)
+                    stability = assess_cointegration_stability(
+                        pa, pb, max_pvalue=COINT_MAX_PVALUE
+                    )
                 else:
                     # Daily equities need a medium-term confirmation. Requiring
                     # the 60-day test as well eliminated every equity signal.
@@ -126,6 +138,7 @@ def compute_market_pairs(
                         minimum_passed=1,
                         require_recent=False,
                         enforce_ratio_stability=False,
+                        max_pvalue=COINT_MAX_PVALUE,
                     )
             else:
                 stability = {
@@ -151,16 +164,36 @@ def compute_market_pairs(
                     "event_risk_reason": None,
                 }
 
-            # Z-score
-            zres = compute_zscore(model_pa, model_pb, cg["hedge_ratio"])
+            # Z-score normalized on the trailing window (current regime).
+            # The hedge ratio is also refit on that window: the long-window
+            # test above validates the relationship, while the recent beta
+            # keeps the spread anchored to how the pair trades now.
+            z_hedge = cg["hedge_ratio"]
+            if len(model_pa) >= 60:
+                recent_fit = engle_granger(
+                    model_pa[-Z_SCORE_WINDOW:], model_pb[-Z_SCORE_WINDOW:], min_obs=60
+                )
+                if recent_fit["hedge_ratio"] is not None:
+                    z_hedge = recent_fit["hedge_ratio"]
+            zres = compute_zscore(
+                model_pa, model_pb, z_hedge, window=Z_SCORE_WINDOW
+            )
             z_now_val = zres["z_now"]
+            z_prev_val = zres["z_prev"]
             spread_sd_pct = (
-                compute_spread_sd_pct(model_pa, model_pb, cg["hedge_ratio"])
-                if cg["hedge_ratio"] is not None
+                compute_spread_sd_pct(
+                    model_pa, model_pb, z_hedge, window=Z_SCORE_WINDOW
+                )
+                if z_hedge is not None
                 else None
             )
             backtest = (
-                out_of_sample_backtest(pa, pb)
+                out_of_sample_backtest(
+                    pa,
+                    pb,
+                    taker_fee_pct=fee_pct,
+                    funding_rate_8h_pct=funding_pct,
+                )
                 if stability["is_coint_stable"]
                 else {"n_trades": 0, "validated": False}
             )
@@ -168,11 +201,11 @@ def compute_market_pairs(
                 backtest.get("validated") and backtest.get("model_is_coint")
             )
 
-            # AR(1) forecast
+            # AR(1) forecast fitted on the same regime window as the Z-score
             z_forecast_val = None
             forecast_resid_sd = None
             if zres["zscores"] is not None:
-                fc = forecast_zscore(zres["zscores"])
+                fc = forecast_zscore(zres["zscores"][-Z_SCORE_WINDOW:])
                 z_forecast_val = fc["z_forecast"]
                 forecast_resid_sd = fc["resid_sd"]
             scenario = forecast_scenario(
@@ -187,10 +220,13 @@ def compute_market_pairs(
                 z_forecast_val,
                 ta,
                 tb,
-                hedge_ratio=cg["hedge_ratio"],
+                hedge_ratio=z_hedge,
+                z_prev=z_prev_val,
             )
             coint_for_strength = stability["is_coint_stable"]
-            strength = determine_strength(coint_for_strength, z_now_val, z_forecast_val)
+            strength = determine_strength(
+                coint_for_strength, z_now_val, z_forecast_val, sig.get("z_turning")
+            )
             guarded = guard_signal(
                 market_name,
                 sig,
@@ -199,7 +235,14 @@ def compute_market_pairs(
                 event_gap,
                 market_risk["market_regime"],
             )
-            score = compute_pair_score(corr_val, coint_for_strength, cg["halflife"])
+            score = compute_pair_score(
+                corr_val,
+                coint_for_strength,
+                cg["halflife"],
+                coint_stability=stability["coint_stability"],
+                backtest_win_rate=backtest.get("win_rate"),
+                backtest_validated=backtest_validated,
+            )
             previous = previous_pairs.get((ta, tb), {})
             signal_started_at = resolve_signal_started_at(
                 current_signal_type=guarded["signal_type"],
@@ -221,6 +264,12 @@ def compute_market_pairs(
                 and market_risk["market_regime"] != "normal"
             ):
                 risk_reason = market_risk["market_regime_reason"]
+            if (
+                risk_reason is None
+                and guarded["signal_type"] != "wait"
+                and sig.get("z_turning") is False
+            ):
+                risk_reason = "Спред ещё расширяется — разворот Z не подтверждён"
 
             results.append({
                 "market": market_name,
@@ -232,17 +281,19 @@ def compute_market_pairs(
                 "coint_pvalue": round(cg["p_value"], 6) if cg["p_value"] is not None else None,
                 "coint_critical_5pct": round(cg["critical_5pct"], 4) if cg["critical_5pct"] is not None else None,
                 "is_coint": int(cg["is_coint"]),
-                "hedge_ratio": round(cg["hedge_ratio"], 4) if cg["hedge_ratio"] is not None else None,
+                "hedge_ratio": round(z_hedge, 4) if z_hedge is not None else None,
                 "ar_phi": round(cg["ar_phi"], 6) if cg["ar_phi"] is not None else None,
                 "spread_sd_pct": round(spread_sd_pct, 8) if spread_sd_pct is not None else None,
                 "backtest_trades": int(backtest.get("n_trades", 0)),
                 "backtest_win_rate": backtest.get("win_rate"),
                 "backtest_avg_pnl_pct": backtest.get("avg_pnl_pct"),
+                "backtest_avg_net_pnl_pct": backtest.get("avg_net_pnl_pct"),
                 "backtest_avg_pnl_sigma": backtest.get("avg_pnl_sigma"),
                 "backtest_avg_hold_days": backtest.get("avg_hold"),
                 "backtest_validated": int(backtest_validated),
                 "score": round(float(score), 4),
                 "z_now": round(z_now_val, 4) if z_now_val is not None else None,
+                "z_prev": round(z_prev_val, 4) if z_prev_val is not None else None,
                 "z_forecast": round(z_forecast_val, 4) if z_forecast_val is not None else None,
                 **scenario,
                 "signal": guarded["signal"],

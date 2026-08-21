@@ -18,15 +18,18 @@ def _empty_cointegration_result() -> dict:
     }
 
 
-def engle_granger(pa: np.ndarray, pb: np.ndarray, min_obs: int = 60) -> dict:
+def engle_granger(pa: np.ndarray, pb: np.ndarray, min_obs: int = 60, max_pvalue: float = 0.05) -> dict:
     """
     Engle-Granger two-step cointegration test.
-    
+
     Args:
         pa: log prices of asset A
         pb: log prices of asset B
         min_obs: minimum overlapping valid observations
-        
+        max_pvalue: significance threshold. Testing thousands of pairs at
+            p<=0.05 guarantees hundreds of false positives by chance alone;
+            the batch pipeline passes a stricter value to control this.
+
     Returns:
         dict with halflife, t_stat, is_coint, hedge_ratio
     """
@@ -57,7 +60,7 @@ def engle_granger(pa: np.ndarray, pb: np.ndarray, min_obs: int = 60) -> dict:
         is_coint = bool(
             np.isfinite(t_stat)
             and np.isfinite(p_value)
-            and float(p_value) <= 0.05
+            and float(p_value) <= max_pvalue
             and float(t_stat) <= critical_5pct
         )
 
@@ -97,18 +100,27 @@ def engle_granger(pa: np.ndarray, pb: np.ndarray, min_obs: int = 60) -> dict:
         return _empty_cointegration_result()
 
 
-def compute_zscore(pa: np.ndarray, pb: np.ndarray, hedge_ratio: Optional[float] = None, min_obs: int = 30) -> dict:
+def compute_zscore(
+    pa: np.ndarray,
+    pb: np.ndarray,
+    hedge_ratio: Optional[float] = None,
+    min_obs: int = 30,
+    window: Optional[int] = None,
+) -> dict:
     """
     Compute Z-score series for a pair spread.
-    
+
     Args:
         pa: log prices of asset A
         pb: log prices of asset B
         hedge_ratio: hedge ratio from cointegration (default 1.0)
         min_obs: minimum valid observations
-        
+        window: trailing observations used for the spread mean/sd. Normalizing
+            on a recent window keeps the Z-score anchored to the current
+            regime instead of the full (possibly drifted) history.
+
     Returns:
-        dict with zscores (np.array), z_now, sd, mean
+        dict with zscores (np.array), z_now, z_prev, sd, mean
     """
     try:
         pa = np.asarray(pa, dtype=float)
@@ -122,23 +134,32 @@ def compute_zscore(pa: np.ndarray, pb: np.ndarray, hedge_ratio: Optional[float] 
         ok = np.isfinite(pa) & np.isfinite(pb) & (pa > 0) & (pb > 0)
         la = np.log(pa[ok])
         lb = np.log(pb[ok])
-        
+
         if len(la) < min_obs:
-            return {"zscores": None, "z_now": None, "sd": None, "mean": None, "n": len(la)}
-        
+            return {"zscores": None, "z_now": None, "z_prev": None, "sd": None, "mean": None, "n": len(la)}
+
         spread = la - hr * lb
-        mn = float(np.mean(spread))
-        sd = float(np.std(spread, ddof=0))
-        
+        reference = spread[-window:] if window else spread
+        mn = float(np.mean(reference))
+        sd = float(np.std(reference, ddof=0))
+
         if sd <= 0 or np.isnan(sd):
-            return {"zscores": None, "z_now": None, "sd": sd, "mean": mn, "n": len(la)}
-        
+            return {"zscores": None, "z_now": None, "z_prev": None, "sd": sd, "mean": mn, "n": len(la)}
+
         zscores = (spread - mn) / sd
         z_now = float(zscores[-1])
-        
-        return {"zscores": zscores, "z_now": z_now, "sd": sd, "mean": mn, "n": len(la)}
+        z_prev = float(zscores[-2]) if len(zscores) >= 2 else None
+
+        return {
+            "zscores": zscores,
+            "z_now": z_now,
+            "z_prev": z_prev,
+            "sd": sd,
+            "mean": mn,
+            "n": len(la),
+        }
     except Exception:
-        return {"zscores": None, "z_now": None, "sd": None, "mean": None, "n": 0}
+        return {"zscores": None, "z_now": None, "z_prev": None, "sd": None, "mean": None, "n": 0}
 
 
 def fit_fixed_zscore_model(

@@ -61,6 +61,16 @@ class TestEngleGranger:
         assert result["is_coint"] is False
         assert result["halflife"] is None
 
+    def test_max_pvalue_controls_significance(self, sample_prices):
+        pa, pb = sample_prices
+
+        strict = engle_granger(pa, pb, max_pvalue=0.0)
+        assert strict["is_coint"] is False  # p <= 0 is impossible
+
+        default = engle_granger(pa, pb)
+        if default["p_value"] is not None and default["p_value"] <= 0.05:
+            assert default["is_coint"] is True
+
     def test_hedge_ratio_is_finite(self, sample_prices):
         pa, pb = sample_prices
         result = engle_granger(pa, pb)
@@ -203,6 +213,44 @@ class TestZScore:
         assert result["zscores"] is not None
         assert result["n"] == len(pa) - 3
         assert np.isfinite(result["z_now"])
+
+    def _regime_shifted_prices(self):
+        """Deterministic pair whose spread shifts level 120 sessions ago."""
+        n = 300
+        t = np.arange(n, dtype=float)
+        la = np.log(100.0) + 0.01 * np.sin(t)
+        lb = np.log(50.0) + 0.02 * np.cos(t)
+        la[-120:] += 1.0
+        return np.exp(la), np.exp(lb)
+
+    def test_zscore_window_normalizes_on_trailing_window(self):
+        pa, pb = self._regime_shifted_prices()
+
+        result = compute_zscore(pa, pb, 1.0, window=120)
+
+        trailing = result["zscores"][-120:]
+        assert abs(float(np.mean(trailing))) < 1e-9
+        assert float(np.std(trailing)) == pytest.approx(1.0)
+        assert result["z_prev"] == pytest.approx(float(result["zscores"][-2]))
+
+    def test_zscore_window_reacts_to_regime_shift(self):
+        pa, pb = self._regime_shifted_prices()
+
+        full = compute_zscore(pa, pb, 1.0)
+        windowed = compute_zscore(pa, pb, 1.0, window=120)
+
+        # Full-history normalization treats the whole recent regime as abnormal:
+        assert float(np.mean(full["zscores"][-120:])) > 1.0
+        # Windowed normalization is centered on the current regime instead:
+        assert abs(float(np.mean(windowed["zscores"][-120:]))) < 1e-9
+        assert abs(windowed["z_now"]) < 2.0
+
+    def test_zscore_without_window_keeps_full_history(self):
+        pa, pb = self._regime_shifted_prices()
+
+        result = compute_zscore(pa, pb, 1.0)
+
+        assert abs(float(np.mean(result["zscores"]))) < 1e-9
 
 
 class TestForecast:

@@ -76,8 +76,8 @@
                 </div>
                 <div class="beginner-metric">
                     <span>Исторический ход</span>
-                    <strong>{% if t.backtest_validated %}{{ "%+.2f"|format(t.avg_pnl_pct) }}%{% else %}—{% endif %}</strong>
-                    <small>{% if t.backtest_validated %}по отложенной истории{% else %}недостаточно истории{% endif %}</small>
+                    <strong>{% if t.backtest_validated %}{{ "%+.2f"|format(t.avg_net_pnl_pct if t.avg_net_pnl_pct is not none else t.avg_pnl_pct) }}%{% else %}—{% endif %}</strong>
+                    <small>{% if t.backtest_validated %}{% if t.avg_net_pnl_pct is not none %}после комиссий и фандинга{% else %}по отложенной истории{% endif %}{% else %}недостаточно истории{% endif %}</small>
                 </div>
             </div>
             <p class="beginner-plain-note">

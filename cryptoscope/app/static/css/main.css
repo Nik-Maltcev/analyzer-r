@@ -1826,6 +1826,67 @@ html[data-view-mode='beginner'] .signal-card {
     opacity: 0.5;
 }
 
+.watchlist-note {
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1.45;
+    margin: -4px 0 12px;
+    max-width: 640px;
+}
+
+.watchlist-card {
+    border-style: dashed;
+    opacity: 0.85;
+}
+
+.watchlist-card:hover {
+    opacity: 1;
+}
+
+.watchlist-metrics {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(3, 1fr);
+    margin: 10px 0;
+}
+
+.watchlist-metric span {
+    color: var(--text-muted);
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.watchlist-metric strong {
+    color: var(--text-bright);
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 15px;
+    margin-top: 3px;
+}
+
+.leg-hotspots {
+    align-items: flex-start;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    border-radius: 8px;
+    color: var(--orange-bright);
+    display: flex;
+    font-size: 13px;
+    gap: 10px;
+    line-height: 1.45;
+    margin: 0 0 12px;
+    padding: 10px 14px;
+}
+
+.leg-hotspots svg {
+    flex-shrink: 0;
+    height: 16px;
+    margin-top: 2px;
+    width: 16px;
+}
+
 .access-gate {
     align-items: center;
     display: flex;

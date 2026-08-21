@@ -63,6 +63,7 @@ def _backtest_metrics(row) -> dict:
     n_trades = _finite_int(row.get("backtest_trades"), 0)
     win_rate = _finite_float(row.get("backtest_win_rate"))
     avg_pnl_pct = _finite_float(row.get("backtest_avg_pnl_pct"))
+    avg_net_pnl_pct = _finite_float(row.get("backtest_avg_net_pnl_pct"))
     avg_hold_days = _finite_float(row.get("backtest_avg_hold_days"))
     validated = bool(
         _finite_bool(row.get("backtest_validated"))
@@ -79,6 +80,9 @@ def _backtest_metrics(row) -> dict:
         ),
         "avg_pnl_pct": (
             avg_pnl_pct if validated else None
+        ),
+        "avg_net_pnl_pct": (
+            avg_net_pnl_pct if validated else None
         ),
         "avg_hold_days": (
             avg_hold_days if validated else None

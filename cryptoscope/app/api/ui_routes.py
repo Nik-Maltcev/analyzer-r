@@ -125,6 +125,7 @@ def _backtest_metrics(row) -> dict:
     n_trades = _finite_int(row.get("backtest_trades"), 0)
     win_rate = _finite_float(row.get("backtest_win_rate"))
     avg_pnl_pct = _finite_float(row.get("backtest_avg_pnl_pct"))
+    avg_net_pnl_pct = _finite_float(row.get("backtest_avg_net_pnl_pct"))
     avg_hold_days = _finite_float(row.get("backtest_avg_hold_days"))
     validated = bool(
         _finite_bool(row.get("backtest_validated"))
@@ -141,6 +142,9 @@ def _backtest_metrics(row) -> dict:
         ),
         "avg_pnl_pct": (
             avg_pnl_pct if validated else None
+        ),
+        "avg_net_pnl_pct": (
+            avg_net_pnl_pct if validated else None
         ),
         "avg_hold_days": (
             avg_hold_days if validated else None
@@ -216,6 +220,41 @@ def _make_signal_cards(pairs, market="crypto", fav_pairs=None):
             "is_favorite": pair_id in fav_set,
         })
     return signals
+
+
+def _make_watchlist(signals, limit=6):
+    """Pairs closest to a signal but not actionable yet (observation only)."""
+    def _z_extreme(card):
+        return max(
+            abs(card.get("z_now") or 0.0),
+            abs(card.get("z_forecast") or 0.0),
+        )
+
+    near = [
+        s for s in signals
+        if s.get("signal_type") == "wait" and _z_extreme(s) >= 1.5
+    ]
+    near.sort(key=_z_extreme, reverse=True)
+    return near[:limit]
+
+
+def _annotate_leg_clusters(active_cards):
+    """Flag tickers shared by several active signals.
+
+    Five signals with a common BTC leg are one concentrated bet, not five
+    independent trades. Returns the exposure hotspots ({ticker: count}) and
+    adds ``shared_legs`` to each affected card.
+    """
+    counts = {}
+    for card in active_cards:
+        for leg in (card["ticker_a"], card["ticker_b"]):
+            counts[leg] = counts.get(leg, 0) + 1
+    hotspots = {leg: n for leg, n in counts.items() if n > 1}
+    for card in active_cards:
+        card["shared_legs"] = [
+            leg for leg in (card["ticker_a"], card["ticker_b"]) if leg in hotspots
+        ]
+    return hotspots
 
 
 def _include_active_pairs(filtered_pairs, active_pairs):
@@ -509,8 +548,13 @@ async def tab_signals(
 
         signals = _make_signal_cards(pairs, market, fav_pair_ids)
         active = [s for s in signals if s["signal_type"] != "wait"]
+        leg_hotspots = _annotate_leg_clusters(active)
         market_regime = signals[0]["market_regime"] if signals else "normal"
         market_volatility = signals[0]["market_volatility"] if signals else None
+        watchlist = _make_watchlist(signals) if not active else []
+        last_analysis = None
+        if "computed_at" in pairs.columns and not pairs["computed_at"].isna().all():
+            last_analysis = str(pairs["computed_at"].max())[:16]
 
         if mode == "forecast":
             active_pairs = pairs[pairs["signal_type"] != "wait"]
@@ -551,6 +595,9 @@ async def tab_signals(
             "n_active": len(active), "min_corr": min_corr, "max_days": max_days,
             "market_regime": market_regime,
             "market_volatility": market_volatility,
+            "watchlist": watchlist,
+            "last_analysis": last_analysis,
+            "leg_hotspots": leg_hotspots,
         })
 
     except Exception as e:

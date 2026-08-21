@@ -80,6 +80,12 @@
         <small>ограничение по полупериоду пары</small>
     </div>
 </div>
+{% if leg_hotspots is defined and leg_hotspots %}
+<div class="leg-hotspots">
+    <i data-lucide="network"></i>
+    <span>Концентрация экспозиции: {% for leg, n in leg_hotspots.items() %}{{ leg }} ×{{ n }}{% if not loop.last %} · {% endif %}{% endfor %}. Эти сигналы делят общие ноги — суммарный риск выше, чем кажется.</span>
+</div>
+{% endif %}
 <div class="cards-grid">
     {% for s in active %}
     <div class="signal-card signal-{{ s.signal_type }}" id="card-{{ s.pair_id }}"
@@ -153,6 +159,12 @@
         <div class="pair-risk-note {% if s.market_regime == 'stress' %}is-stress{% endif %}">
             <strong>Контроль риска</strong>
             <span>{{ s.risk_reason }}</span>
+        </div>
+        {% endif %}
+        {% if s.shared_legs %}
+        <div class="pair-risk-note">
+            <strong>Общая нога</strong>
+            <span>{{ s.shared_legs|join(", ") }} — этот тикер встречается в нескольких активных сигналах.</span>
         </div>
         {% endif %}
 
@@ -268,13 +280,56 @@
     {% endfor %}
 </div>
 {% else %}
-<div class="empty-state beginner-only actionable-signals-empty">
+<div class="empty-state actionable-signals-empty">
     <span class="empty-icon"><i data-lucide="shield-check"></i></span>
     <p>Сейчас нет пар, прошедших контроль риска.</p>
     <p class="text-dim">
-        Расчёт выполнен: рынок {{ market|upper }} проверен, но подтверждённых сигналов пока нет.
+        Расчёт выполнен{% if last_analysis %}: {{ last_analysis }} UTC{% endif %}.
+        Рынок {{ market|upper }}. Пар проверено: {{ total }}. Подтверждённых сигналов нет.
     </p>
 </div>
+
+{% if watchlist is defined and watchlist %}
+<!-- ============================== WATCHLIST (NEAR-MISS PAIRS) ============================== -->
+<div class="section-header">
+    <h3 class="section-title-with-icon"><i class="section-title-icon" data-lucide="eye"></i>Наблюдение ({{ watchlist|length }})</h3>
+</div>
+<p class="watchlist-note">
+    Ближайшие кандидаты: спред уже отклонён, но торговый сигнал ещё не подтверждён.
+    Это наблюдение, а не рекомендация к входу.
+</p>
+<div class="cards-grid">
+    {% for s in watchlist %}
+    <div class="signal-card signal-wait watchlist-card">
+        <div class="signal-card-header">
+            <div class="ticker-pair">
+                <span class="ticker-logo" data-ticker="{{ s.ticker_a }}"></span>
+                <span class="signal-name">{{ s.ticker_a }} / {{ s.ticker_b }}</span>
+            </div>
+            <span class="badge badge-gray">НАБЛЮДЕНИЕ</span>
+        </div>
+        <div class="watchlist-metrics">
+            <div class="watchlist-metric">
+                <span>Z сейчас</span>
+                <strong>{% if s.z_now is not none %}{{ s.z_now }}{% else %}—{% endif %}</strong>
+            </div>
+            <div class="watchlist-metric">
+                <span>Z прогноз</span>
+                <strong>{% if s.z_forecast is not none %}{{ s.z_forecast }}{% else %}—{% endif %}</strong>
+            </div>
+            <div class="watchlist-metric">
+                <span>Полупериод</span>
+                <strong>{% if s.halflife %}{{ s.halflife }} дн.{% else %}—{% endif %}</strong>
+            </div>
+        </div>
+        <div class="pair-risk-note">
+            <strong>Почему не сигнал</strong>
+            <span>{% if s.risk_reason %}{{ s.risk_reason }}{% else %}Отклонение формируется, но порог сигнала (|Z| ≥ 2) пока не достигнут.{% endif %}</span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
 {% endif %}
 
 <!-- ============================== ALL PAIRS TABLE ============================== -->

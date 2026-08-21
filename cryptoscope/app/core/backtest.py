@@ -113,6 +113,7 @@ def backtest_stats(
     if trades.empty:
         return {
             "n_trades": 0, "win_rate": None, "avg_pnl_pct": None,
+            "avg_net_pnl_pct": None,
             "avg_hold": None, "avg_win": None, "avg_loss": None,
             "has_history": False, "total_pnl_sigma": 0.0,
             "avg_pnl_sigma": None, "validated": False,
@@ -146,6 +147,12 @@ def backtest_stats(
             if avg_pnl_pct is not None
             else None
         ),
+        "avg_net_pnl_pct": (
+            round(float(trades["net_return_pct"].mean()), 2)
+            if "net_return_pct" in trades.columns
+            and len(trades["net_return_pct"].dropna()) > 0
+            else None
+        ),
         "avg_pnl_sigma": round(avg_pnl_sigma, 4),
         "avg_hold": round(float(trades["days"].mean()), 1),
         "avg_win": (
@@ -168,17 +175,39 @@ def compute_spread_sd_pct(
     pa: np.ndarray,
     pb: np.ndarray,
     hedge_ratio: float,
+    window: int | None = None,
 ) -> float | None:
-    """Compute spread standard deviation as percentage."""
+    """Compute spread standard deviation as percentage.
+
+    With ``window`` set, only the trailing observations are used so the
+    estimate matches the current regime (same normalization as the Z-score).
+    """
     try:
         ok = (~np.isnan(pa)) & (~np.isnan(pb)) & (pa > 0) & (pb > 0)
         if ok.sum() < 30:
             return None
         hr = hedge_ratio if not np.isnan(hedge_ratio) else 1.0
         spread = np.log(pa[ok]) - hr * np.log(pb[ok])
+        if window:
+            spread = spread[-window:]
         return float(np.std(spread, ddof=0))
     except Exception:
         return None
+
+
+def estimate_roundtrip_cost_pct(
+    days: float,
+    taker_fee_pct: float = 0.02,
+    funding_rate_8h_pct: float = 0.0,
+) -> float:
+    """Round-trip cost of a pair position in percent of gross notional.
+
+    Two legs x (entry + exit) taker commissions, plus perpetual funding
+    charged every 8 hours while the position is open (crypto only).
+    """
+    fee_cost = 4.0 * float(taker_fee_pct)
+    funding_cost = 3.0 * float(funding_rate_8h_pct) * max(0.0, float(days))
+    return fee_cost + funding_cost
 
 
 def attach_pair_returns(
@@ -186,11 +215,14 @@ def attach_pair_returns(
     price_a: np.ndarray,
     price_b: np.ndarray,
     hedge_ratio: float,
+    taker_fee_pct: float = 0.0,
+    funding_rate_8h_pct: float = 0.0,
 ) -> pd.DataFrame:
     """Attach exact hedge-weighted price returns to backtest trades."""
     if trades.empty:
         result = trades.copy()
         result["return_pct"] = pd.Series(dtype=float)
+        result["net_return_pct"] = pd.Series(dtype=float)
         return result
 
     a = np.asarray(price_a, dtype=float)
@@ -200,6 +232,7 @@ def attach_pair_returns(
     weight_a = 1.0 / (1.0 + hedge_weight)
     weight_b = hedge_weight / (1.0 + hedge_weight)
     returns: list[float] = []
+    net_returns: list[float] = []
 
     for row in trades.itertuples(index=False):
         entry_idx = int(row.entry_idx)
@@ -212,10 +245,18 @@ def attach_pair_returns(
         else:
             leg_a = -return_a
             leg_b = -return_b if hedge < 0 else return_b
-        returns.append(leg_a * weight_a + leg_b * weight_b)
+        gross = leg_a * weight_a + leg_b * weight_b
+        returns.append(gross)
+        net_returns.append(
+            gross
+            - estimate_roundtrip_cost_pct(
+                int(row.days), taker_fee_pct, funding_rate_8h_pct
+            )
+        )
 
     result = trades.copy()
     result["return_pct"] = returns
+    result["net_return_pct"] = net_returns
     return result
 
 
@@ -225,11 +266,14 @@ def out_of_sample_backtest(
     train_fraction: float = 0.7,
     min_train: int = 120,
     min_test: int = 60,
+    taker_fee_pct: float = 0.0,
+    funding_rate_8h_pct: float = 0.0,
 ) -> Dict[str, Any]:
     """Evaluate a pair on prices excluded from model fitting.
 
     The hedge ratio, spread mean and spread deviation are fitted on the first
     part of the history. Trades are then simulated only on the held-out tail.
+    Net returns subtract taker commissions and (for perpetuals) funding.
     """
     a = np.asarray(pa, dtype=float)
     b = np.asarray(pb, dtype=float)
@@ -264,6 +308,8 @@ def out_of_sample_backtest(
         test_a,
         test_b,
         hedge_ratio,
+        taker_fee_pct=taker_fee_pct,
+        funding_rate_8h_pct=funding_rate_8h_pct,
     )
 
     # Spread changes are normalized by total gross notional allocated to both

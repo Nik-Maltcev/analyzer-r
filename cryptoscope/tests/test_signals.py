@@ -17,6 +17,7 @@ from app.core.signals import (
     resolve_signal_started_at,
 )
 import numpy as np
+import pytest
 
 
 class TestDetermineSignal:
@@ -96,6 +97,48 @@ class TestDetermineStrength:
         assert strength == "Нет"
 
 
+class TestReversalEntry:
+    def test_z_turning_true_when_spread_reverts(self):
+        result = determine_signal(
+            z_now=2.2, z_forecast=None, ticker_a="BTC", ticker_b="ETH", z_prev=2.6
+        )
+        assert result["z_turning"] is True
+
+    def test_z_turning_false_when_spread_widens(self):
+        result = determine_signal(
+            z_now=2.6, z_forecast=None, ticker_a="BTC", ticker_b="ETH", z_prev=2.2
+        )
+        assert result["z_turning"] is False
+
+    def test_z_turning_none_without_prev(self):
+        result = determine_signal(
+            z_now=2.6, z_forecast=None, ticker_a="BTC", ticker_b="ETH"
+        )
+        assert result["z_turning"] is None
+
+    def test_expanding_spread_caps_strength(self):
+        strength = determine_strength(
+            is_coint=True, z_now=2.6, z_forecast=1.0, z_turning=False
+        )
+        assert strength == "Формируется"
+
+    def test_turning_spread_allows_strong(self):
+        strength = determine_strength(
+            is_coint=True, z_now=2.2, z_forecast=1.0, z_turning=True
+        )
+        assert strength == "Сильный"
+
+    def test_unknown_turning_keeps_previous_behavior(self):
+        strength = determine_strength(is_coint=True, z_now=2.5, z_forecast=2.1)
+        assert strength == "Сильный"
+
+    def test_forecast_strength_unaffected_by_turning(self):
+        strength = determine_strength(
+            is_coint=False, z_now=1.0, z_forecast=2.5, z_turning=False
+        )
+        assert strength == "Прогнозный"
+
+
 class TestActionableSignal:
     def test_requires_validated_cointegration(self):
         assert is_actionable_signal("long_a", True) is True
@@ -122,6 +165,39 @@ class TestPairScore:
     def test_score_is_float(self):
         score = compute_pair_score(corr=0.5, is_coint=False, halflife=30)
         assert isinstance(score, float)
+
+
+class TestPairScoreRefinements:
+    def test_stability_scales_continuously(self):
+        full = compute_pair_score(0.5, True, None, coint_stability=100)
+        partial = compute_pair_score(0.5, True, None, coint_stability=50)
+
+        assert full == pytest.approx(0.8)
+        assert partial == pytest.approx(0.65)
+
+    def test_binary_flag_still_works_without_stability(self):
+        assert compute_pair_score(0.5, True, None) == pytest.approx(0.8)
+        assert compute_pair_score(0.5, False, None) == pytest.approx(0.5)
+
+    def test_validated_backtest_bonus(self):
+        base = compute_pair_score(0.5, False, None)
+        good = compute_pair_score(
+            0.5, False, None, backtest_win_rate=75.0, backtest_validated=True
+        )
+        coinflip = compute_pair_score(
+            0.5, False, None, backtest_win_rate=50.0, backtest_validated=True
+        )
+        losing = compute_pair_score(
+            0.5, False, None, backtest_win_rate=40.0, backtest_validated=True
+        )
+        unvalidated = compute_pair_score(
+            0.5, False, None, backtest_win_rate=90.0, backtest_validated=False
+        )
+
+        assert good == pytest.approx(base + 0.1)
+        assert coinflip == pytest.approx(base)
+        assert losing == pytest.approx(base)
+        assert unvalidated == pytest.approx(base)
 
 
 class TestSignalTiming:

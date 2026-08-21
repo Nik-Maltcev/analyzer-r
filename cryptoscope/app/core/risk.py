@@ -27,6 +27,7 @@ def assess_cointegration_stability(
     minimum_passed: int = 2,
     require_recent: bool = True,
     enforce_ratio_stability: bool = True,
+    max_pvalue: float = 0.05,
 ) -> dict:
     """Require cointegration to survive both recent and medium-term windows."""
     a, b = _aligned_prices(pa, pb)
@@ -36,7 +37,9 @@ def assess_cointegration_stability(
         if len(a) < window:
             results[str(window)] = None
             continue
-        result = engle_granger(a[-window:], b[-window:], min_obs=min(60, window))
+        result = engle_granger(
+            a[-window:], b[-window:], min_obs=min(60, window), max_pvalue=max_pvalue
+        )
         results[str(window)] = {
             "is_coint": bool(result["is_coint"]),
             "hedge_ratio": result["hedge_ratio"],
