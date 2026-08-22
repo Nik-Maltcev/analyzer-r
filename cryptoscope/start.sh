@@ -125,15 +125,19 @@ start_reverse_tunnel
 ANALYSIS_POLICY_MARKER="/data/.analysis-policy-equity-medium-v1"
 
 # 1. Rebuild DB if needed
+# Data/bootstrap failures must not stop the web service: the app starts in a
+# degraded state (/health/ready reports the gap) and the daily loop retries.
 if [ ! -f "$DB_PATH" ] || [ ! -s "$DB_PATH" ]; then
     echo "DB missing or empty, rebuilding..."
-    python /scripts/build_db.py
+    python /scripts/build_db.py \
+        || echo "[start] build_db failed; the app will start degraded"
 else
     # Check if prices table has data
     ROW_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices;" 2>/dev/null || echo "0")
     if [ "$ROW_COUNT" -lt 1 ] && [ -f "$CSV_PATH" ]; then
         echo "DB has no price data, rebuilding..."
-        python /scripts/build_db.py
+        python /scripts/build_db.py \
+            || echo "[start] build_db failed; the app will start degraded"
     fi
 fi
 
@@ -157,49 +161,60 @@ fi
 PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs;" 2>/dev/null || echo "0")
 if [ "$PAIR_COUNT" -lt 1 ]; then
     echo "No pair analysis, computing..."
-    python /scripts/compute_analysis.py
+    python /scripts/compute_analysis.py \
+        || echo "[start] compute_analysis failed; the daily loop will retry"
 fi
 
 # 3. Load hourly candles
-python /scripts/load_hourly.py
+python /scripts/load_hourly.py \
+    || echo "[start] load_hourly failed; continuing"
 
 # 4. Ensure favorites table and migrations
-python /scripts/load_favorites.py
+python /scripts/load_favorites.py \
+    || echo "[start] load_favorites failed; continuing"
 
 # 5. Load and refresh Russian stocks
 if market_enabled "ru"; then
-    python /scripts/load_ru.py
-    python /scripts/update_ru.py
+    python /scripts/load_ru.py \
+        || echo "[start] load_ru failed; continuing"
+    python /scripts/update_ru.py \
+        || echo "[start] update_ru failed; continuing"
     # Recompute if RU data exists but RU pairs are missing.
     RU_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='ru';" 2>/dev/null || echo "0")
     RU_PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs WHERE market='ru';" 2>/dev/null || echo "0")
     if [ "$RU_COUNT" -gt 0 ] && [ "$RU_PAIR_COUNT" -lt 1 ]; then
-        python /scripts/compute_analysis.py
+        python /scripts/compute_analysis.py \
+            || echo "[start] compute_analysis failed; the daily loop will retry"
     fi
 fi
 
 # 6. Load Brazil B3 stocks
 if market_enabled "br"; then
-    python /scripts/load_brazil.py
+    python /scripts/load_brazil.py \
+        || echo "[start] load_brazil failed; continuing"
     BR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='br';" 2>/dev/null || echo "0")
     BR_PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs WHERE market='br';" 2>/dev/null || echo "0")
     if [ "$BR_COUNT" -gt 0 ] && [ "$BR_PAIR_COUNT" -lt 1 ]; then
-        python /scripts/compute_analysis.py
+        python /scripts/compute_analysis.py \
+            || echo "[start] compute_analysis failed; the daily loop will retry"
     fi
 fi
 
 # 7. Load Indonesia IDX stocks
 if market_enabled "id"; then
-    python /scripts/load_indonesia.py
+    python /scripts/load_indonesia.py \
+        || echo "[start] load_indonesia failed; continuing"
     ID_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prices WHERE market='id';" 2>/dev/null || echo "0")
     ID_PAIR_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pairs WHERE market='id';" 2>/dev/null || echo "0")
     if [ "$ID_COUNT" -gt 0 ] && [ "$ID_PAIR_COUNT" -lt 1 ]; then
-        python /scripts/compute_analysis.py
+        python /scripts/compute_analysis.py \
+            || echo "[start] compute_analysis failed; the daily loop will retry"
     fi
 fi
 
 # 8. Load administrator-only international equity markets
-python /scripts/load_international.py
+python /scripts/load_international.py \
+    || echo "[start] load_international failed; continuing"
 
 # 9. Build the public extension feed before accepting HTTP traffic.
 python /scripts/refresh_extension_feed.py || echo "Extension feed startup refresh failed"

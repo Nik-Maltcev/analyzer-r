@@ -57,4 +57,4 @@ Thumbs.db
 
 .config/
 run_daily_update.R
-scripts/
+/scripts/
