@@ -28,6 +28,10 @@ RUN python /scripts/build_db.py
 
 COPY cryptoscope/app/ /app/app/
 
+# Research tab data (resource_portfolio et al.) is read from /app/data at runtime.
+# Local DB and raw event exports are excluded via .dockerignore.
+COPY cryptoscope/data/ /app/data/
+
 COPY cryptoscope/start.sh /start.sh
 RUN chmod +x /start.sh
 

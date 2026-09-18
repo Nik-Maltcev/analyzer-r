@@ -10,3 +10,9 @@ node_modules/
 *.nix
 scripts/fetch_local.R
 scripts/fetch_remaining.R
+
+# Keep local DB and raw research exports out of the build context
+cryptoscope/data/*.db
+cryptoscope/data/*.db-journal
+cryptoscope/data/*.db-wal
+**/*_events.csv
