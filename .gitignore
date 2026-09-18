@@ -12,6 +12,10 @@ __pycache__/
 
 # dependencies
 node_modules
+.codex-testdeps/
+cryptoscope/.runtime-deps/
+cryptoscope/.server-deps/
+cryptoscope/server_deps/
 
 # IDEs and editors
 /.idea
@@ -58,3 +62,6 @@ Thumbs.db
 .config/
 run_daily_update.R
 /scripts/
+
+# Large raw research artifacts (regenerable by scripts/, not read by the app)
+cryptoscope/data/**/*_events.csv
