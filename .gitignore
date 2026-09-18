@@ -65,3 +65,8 @@ run_daily_update.R
 
 # Large raw research artifacts (regenerable by scripts/, not read by the app)
 cryptoscope/data/**/*_events.csv
+
+# Secrets — never commit environment files (allow examples)
+.env
+.env.*
+!.env.example
