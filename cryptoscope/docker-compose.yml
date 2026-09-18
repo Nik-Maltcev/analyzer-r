@@ -3,6 +3,8 @@ version: '3.8'
 services:
   cryptoscope:
     build: .
+    # Full app configuration (secrets) lives in the untracked .env next to this file
+    env_file: .env
     ports:
       - "3000:3000"
     environment:
