@@ -1,0 +1,2 @@
+window,pair,entry_date,exit_date,days,direction,entry_z,exit_z,exit_reason,gross_return_pct,net_fee_only_pct,net_conservative_pct
+0,DOGE/USD_XLM/USD,2020-11-29,2020-12-01,2.0,long,-6.748799995451314,-6.708407640959149,stop,0.11915379202609255,0.03915379202609255,-0.02084620797390746

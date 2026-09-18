@@ -1,0 +1,97 @@
+portfolio,portfolio_label,horizon_months,rolling_windows,effective_independent_windows,usd_plus_10_count,usd_plus_10_pct,rub_plus_10_pct,real_plus_10_pct,positive_usd_pct,beats_deposit_pct,median_usd_return_pct,median_rub_return_pct,median_real_return_pct,median_final_rub,worst_usd_return_pct,best_usd_return_pct,usd_plus_10_wilson_low_pct,usd_plus_10_familywise_low_pct,formally_over_80
+top5_trend_inverse_vol,"Top-5 trends, inverse volatility",12,165,13,78,47.27,66.67,58.79,69.7,66.67,8.29,20.94,13.68,120942.19,-44.51,94.66,23.21,13.39,False
+top5_trend_inverse_vol,"Top-5 trends, inverse volatility",11,166,15,75,45.18,65.66,54.22,69.88,67.47,7.62,18.62,13.07,118619.1,-43.75,87.53,24.81,14.83,False
+defensive_plus_trend,50% defensive / 50% trend,12,165,13,74,44.85,66.06,53.33,70.3,66.06,6.83,17.26,10.9,117257.55,-27.53,69.37,23.21,13.39,False
+top3_rotation,Top-3 resource momentum rotation,12,165,13,73,44.24,61.21,48.48,63.03,61.21,6.09,16.87,9.57,116872.18,-48.85,139.14,23.21,13.39,False
+top5_trend_equal,Top-5 positive 10-month trends,12,165,13,72,43.64,64.85,55.15,65.45,64.85,5.89,20.42,12.47,120422.29,-46.76,101.52,23.21,13.39,False
+fixed_macro_barbell,Precious / real-assets barbell,12,165,13,71,43.03,58.18,40.61,64.85,58.18,7.21,13.24,6.3,113235.57,-16.02,59.36,23.21,13.39,False
+defensive_plus_trend,50% defensive / 50% trend,11,166,15,70,42.17,63.25,50.0,69.28,63.25,5.88,14.91,9.89,114909.86,-27.8,61.24,19.82,11.46,False
+core_plus_trend,50% macro core / 50% trend,12,165,13,69,41.82,65.45,50.3,72.12,65.45,7.36,16.66,10.07,116663.93,-26.51,74.62,17.71,9.82,False
+top5_trend_equal,Top-5 positive 10-month trends,11,166,15,69,41.57,63.25,51.2,65.06,65.06,6.33,17.08,10.5,117080.89,-43.9,100.11,19.82,11.46,False
+top3_rotation,Top-3 resource momentum rotation,11,166,15,69,41.57,59.64,45.18,62.05,60.84,5.48,14.75,8.48,114751.79,-44.75,130.57,19.82,11.46,False
+core_plus_trend,50% macro core / 50% trend,11,166,15,67,40.36,59.04,50.0,71.08,60.24,6.7,15.41,9.61,115414.33,-27.14,67.51,19.82,11.46,False
+top5_trend_inverse_vol,"Top-5 trends, inverse volatility",10,167,16,67,40.12,61.08,50.9,69.46,64.67,6.34,16.51,10.59,116509.18,-41.71,92.53,18.48,10.69,False
+fixed_macro_barbell,Precious / real-assets barbell,11,166,15,65,39.16,52.41,37.95,65.66,56.02,6.63,10.28,4.49,110280.07,-14.93,56.12,19.82,11.46,False
+core_plus_trend,50% macro core / 50% trend,10,167,16,65,38.92,57.49,44.91,70.66,61.68,6.23,13.39,8.17,113388.22,-24.89,68.32,18.48,10.69,False
+top3_rotation,Top-3 resource momentum rotation,10,167,16,65,38.92,58.68,45.51,61.08,61.08,5.78,13.81,8.16,113813.0,-43.79,153.73,18.48,10.69,False
+top5_trend_equal,Top-5 positive 10-month trends,10,167,16,64,38.32,61.08,48.5,65.87,62.28,4.79,15.38,9.3,115380.27,-42.72,104.36,18.48,10.69,False
+top5_trend_inverse_vol,"Top-5 trends, inverse volatility",9,168,18,63,37.5,58.93,47.62,66.67,64.88,7.65,14.27,8.67,114265.17,-43.43,96.62,20.3,12.16,False
+defensive_plus_trend,50% defensive / 50% trend,10,167,16,62,37.13,59.88,46.71,68.86,61.08,5.83,14.36,8.6,114355.6,-25.72,62.22,18.48,10.69,False
+top3_rotation,Top-3 resource momentum rotation,9,168,18,62,36.9,54.17,44.64,58.93,60.71,4.34,12.0,5.79,112002.07,-43.33,159.1,20.3,12.16,False
+equal_weight_core,Equal-weight diversified resources,11,166,15,61,36.75,51.81,37.95,66.27,52.41,6.18,10.72,5.63,110719.56,-18.8,62.47,19.82,11.46,False
+equal_weight_core,Equal-weight diversified resources,12,165,13,59,35.76,54.55,38.18,65.45,54.55,6.03,12.57,6.11,112569.22,-19.33,65.69,17.71,9.82,False
+top5_trend_inverse_vol,"Top-5 trends, inverse volatility",8,169,21,60,35.5,56.21,42.6,66.27,65.09,5.17,12.52,7.58,112524.11,-41.39,88.36,17.19,10.31,False
+top3_rotation,Top-3 resource momentum rotation,8,169,21,60,35.5,46.15,39.05,59.76,55.03,4.94,8.42,4.11,108424.06,-42.01,153.46,17.19,10.31,False
+core_plus_trend,50% macro core / 50% trend,9,168,18,59,35.12,54.17,41.67,69.64,64.29,5.99,12.37,7.28,112369.23,-26.93,64.04,16.28,9.43,False
+top5_trend_equal,Top-5 positive 10-month trends,9,168,18,58,34.52,57.14,47.62,63.69,61.31,5.4,13.12,8.5,113115.52,-44.23,105.61,16.28,9.43,False
+top5_trend_equal,Top-5 positive 10-month trends,8,169,21,58,34.32,53.25,41.42,62.72,59.17,4.04,11.06,5.71,111064.24,-42.96,96.49,17.19,10.31,False
+equal_weight_core,Equal-weight diversified resources,10,167,16,57,34.13,48.5,35.33,66.47,53.29,5.49,8.87,5.05,108873.69,-17.22,63.87,14.16,7.88,False
+top5_trend_inverse_vol,"Top-5 trends, inverse volatility",7,170,24,57,33.53,50.59,41.18,64.71,63.53,4.84,10.02,6.13,110021.17,-41.38,80.15,17.97,11.09,False
+top3_rotation,Top-3 resource momentum rotation,7,170,24,57,33.53,45.29,37.06,61.18,55.88,3.69,8.05,4.55,108046.58,-43.43,144.25,17.97,11.09,False
+fixed_macro_barbell,Precious / real-assets barbell,10,167,16,54,32.34,46.11,37.72,68.86,52.1,6.07,9.15,3.54,109148.8,-15.0,53.52,14.16,7.88,False
+defensive_plus_trend,50% defensive / 50% trend,9,168,18,54,32.14,54.17,42.86,67.86,64.29,5.4,12.39,6.94,112390.37,-27.84,61.72,16.28,9.43,False
+core_plus_trend,50% macro core / 50% trend,8,169,21,54,31.95,51.48,38.46,69.23,65.09,5.22,10.36,6.35,110355.02,-25.33,57.77,17.19,10.31,False
+top5_trend_equal,Top-5 positive 10-month trends,7,170,24,54,31.76,47.06,41.76,61.18,61.18,3.29,8.89,5.42,108889.88,-43.32,87.32,17.97,11.09,False
+top3_rotation,Top-3 resource momentum rotation,6,171,28,52,30.41,46.2,35.67,57.89,59.65,3.54,8.69,5.15,108689.33,-38.73,130.96,17.93,11.35,False
+fixed_macro_barbell,Precious / real-assets barbell,9,168,18,51,30.36,45.24,35.12,69.05,53.57,5.17,8.02,4.38,108016.42,-18.08,47.22,12.5,6.96,False
+equal_weight_core,Equal-weight diversified resources,9,168,18,51,30.36,46.43,33.33,67.26,55.36,4.94,8.84,4.9,108837.13,-17.61,56.13,12.5,6.96,False
+top5_trend_inverse_vol,"Top-5 trends, inverse volatility",6,171,28,50,29.24,48.54,39.18,63.74,61.99,4.53,9.58,6.57,109576.74,-38.31,71.46,15.25,9.42,False
+fixed_macro_barbell,Precious / real-assets barbell,8,169,21,49,28.99,43.79,30.77,69.23,53.25,4.69,7.77,4.27,107774.51,-15.06,40.85,13.81,8.01,False
+defensive_plus_trend,50% defensive / 50% trend,8,169,21,48,28.4,54.44,37.87,66.86,64.5,4.48,11.39,6.86,111394.55,-25.75,56.48,13.81,8.01,False
+top5_trend_equal,Top-5 positive 10-month trends,6,171,28,48,28.07,49.12,39.18,61.99,61.4,3.79,9.37,5.85,109370.76,-39.95,77.36,15.25,9.42,False
+defensive_trend_barbell,Barbell with trend-to-cash filter,12,165,13,46,27.88,55.15,43.03,72.12,55.15,3.56,12.49,5.87,112488.99,-8.74,49.99,12.68,6.7,False
+core_plus_trend,50% macro core / 50% trend,7,170,24,46,27.06,46.47,35.29,66.47,63.53,4.64,8.69,5.56,108687.37,-28.26,57.66,12.0,6.97,False
+top3_rotation,Top-3 resource momentum rotation,5,172,34,43,25.0,42.44,31.98,54.65,55.81,2.54,6.9,3.57,106898.75,-38.67,96.42,12.44,7.68,False
+top3_rotation,Top-3 resource momentum rotation,4,173,43,43,24.86,35.26,31.21,52.02,52.6,0.87,5.12,2.47,105122.35,-34.31,67.75,14.93,9.83,False
+top5_trend_inverse_vol,"Top-5 trends, inverse volatility",5,172,34,42,24.42,44.19,36.05,59.88,60.47,3.12,7.81,4.52,107810.14,-38.25,54.23,12.44,7.68,False
+top5_trend_equal,Top-5 positive 10-month trends,5,172,34,42,24.42,43.02,36.05,58.72,59.88,2.46,7.59,4.86,107591.25,-39.89,53.03,12.44,7.68,False
+defensive_plus_trend,50% defensive / 50% trend,7,170,24,41,24.12,49.41,35.88,66.47,60.59,3.75,9.32,6.37,109322.47,-25.66,56.3,12.0,6.97,False
+fixed_macro_barbell,Precious / real-assets barbell,7,170,24,40,23.53,38.82,27.65,68.82,56.47,3.98,7.1,3.38,107097.63,-16.03,40.39,12.0,6.97,False
+top5_trend_equal,Top-5 positive 10-month trends,4,173,43,40,23.12,39.31,33.53,53.76,56.07,1.98,5.79,3.4,105790.07,-32.84,46.01,13.15,8.5,False
+equal_weight_core,Equal-weight diversified resources,8,169,21,38,22.49,44.38,31.95,67.46,53.25,4.54,7.57,4.21,107572.53,-17.26,48.51,10.63,5.93,False
+defensive_trend_barbell,Barbell with trend-to-cash filter,11,166,15,37,22.29,51.2,39.76,72.29,52.41,3.5,10.89,4.76,110889.69,-8.91,44.69,7.05,3.51,False
+core_plus_trend,50% macro core / 50% trend,6,171,28,38,22.22,40.35,36.26,68.42,59.06,3.81,7.45,4.53,107445.89,-25.42,50.34,10.21,5.94,False
+equal_weight_core,Equal-weight diversified resources,7,170,24,37,21.76,40.59,28.82,63.53,53.53,3.76,6.87,3.48,106867.62,-15.55,43.88,9.24,5.16,False
+defensive_trend_barbell,Barbell with trend-to-cash filter,10,167,16,36,21.56,48.5,35.33,69.46,52.1,3.16,9.74,4.3,109736.5,-7.9,42.63,6.59,3.29,False
+top5_trend_inverse_vol,"Top-5 trends, inverse volatility",4,173,43,37,21.39,36.42,34.1,57.8,58.38,1.92,6.15,4.47,106153.91,-32.39,42.03,11.42,7.23,False
+equal_weight_core,Equal-weight diversified resources,6,171,28,36,21.05,35.09,25.73,63.74,57.31,3.56,6.09,3.09,106085.93,-15.59,38.24,10.21,5.94,False
+top3_rotation,Top-3 resource momentum rotation,3,174,58,36,20.69,31.03,28.16,52.87,54.6,0.84,3.53,2.02,103533.85,-29.98,55.51,12.25,8.19,False
+fixed_macro_barbell,Precious / real-assets barbell,6,171,28,33,19.3,34.5,26.32,68.42,54.97,3.46,5.45,2.91,105453.74,-15.87,34.63,7.88,4.4,False
+fixed_macro_barbell,Precious / real-assets barbell,5,172,34,32,18.6,31.4,25.0,65.7,54.07,3.01,5.24,2.59,105236.32,-16.79,28.41,8.35,4.86,False
+defensive_plus_trend,50% defensive / 50% trend,6,171,28,30,17.54,40.94,35.09,64.91,60.82,3.41,8.07,4.96,108066.5,-23.52,50.07,7.88,4.4,False
+core_plus_trend,50% macro core / 50% trend,5,172,34,30,17.44,38.95,31.4,65.7,56.4,3.04,6.77,4.49,106768.39,-24.8,40.94,8.35,4.86,False
+equal_weight_core,Equal-weight diversified resources,5,172,34,28,16.28,32.56,23.84,63.37,54.65,2.71,5.47,2.66,105467.38,-17.21,31.71,8.35,4.86,False
+top5_trend_equal,Top-5 positive 10-month trends,3,174,58,28,16.09,32.76,29.31,56.32,55.17,1.31,4.14,2.92,104138.81,-28.84,39.53,8.38,5.31,False
+defensive_trend_barbell,Barbell with trend-to-cash filter,9,168,18,27,16.07,44.05,33.33,68.45,54.17,2.65,8.46,3.81,108464.8,-9.44,42.55,5.84,2.91,False
+top3_rotation,Top-3 resource momentum rotation,2,175,87,28,16.0,25.14,22.86,51.43,52.0,0.18,2.13,0.95,102127.63,-28.98,45.96,9.83,6.76,False
+top5_trend_inverse_vol,"Top-5 trends, inverse volatility",3,174,58,27,15.52,32.18,29.31,57.47,57.47,1.64,4.51,3.03,104506.71,-28.84,41.78,8.38,5.31,False
+equal_weight_core,Equal-weight diversified resources,4,173,43,26,15.03,27.17,21.39,60.69,54.91,2.28,4.55,2.81,104549.16,-18.98,23.73,6.56,3.82,False
+defensive_plus_trend,50% defensive / 50% trend,5,172,34,24,13.95,40.12,30.81,63.37,58.72,2.42,7.16,4.51,107159.18,-23.07,40.83,6.45,3.61,False
+core_plus_trend,50% macro core / 50% trend,4,173,43,24,13.87,33.53,26.59,63.01,57.8,2.71,5.59,3.65,105594.24,-19.77,30.36,6.56,3.82,False
+fixed_macro_barbell,Precious / real-assets barbell,4,173,43,22,12.72,28.32,21.97,63.58,53.18,2.58,3.99,1.86,103987.35,-14.95,22.71,5.07,2.84,False
+top5_trend_equal,Top-5 positive 10-month trends,2,175,87,22,12.57,24.0,22.29,54.29,51.43,0.45,2.56,1.37,102559.08,-28.77,32.12,7.21,4.74,False
+defensive_trend_barbell,Barbell with trend-to-cash filter,7,170,24,21,12.35,36.47,29.41,66.47,53.53,1.8,6.37,2.88,106368.68,-8.74,37.96,4.34,2.17,False
+defensive_plus_trend,50% defensive / 50% trend,4,173,43,21,12.14,31.79,26.01,61.85,58.96,1.84,5.75,4.01,105752.76,-18.04,30.15,5.07,2.84,False
+equal_weight_core,Equal-weight diversified resources,3,174,58,21,12.07,21.84,19.54,57.47,52.87,1.05,3.13,2.03,103129.96,-13.99,21.63,5.97,3.59,False
+top5_trend_inverse_vol,"Top-5 trends, inverse volatility",2,175,87,21,12.0,22.86,20.57,54.29,52.0,0.74,2.88,1.27,102881.53,-28.77,30.0,6.36,4.11,False
+defensive_trend_barbell,Barbell with trend-to-cash filter,8,169,21,19,11.24,40.24,30.18,68.05,53.25,2.3,7.42,4.18,107417.81,-8.74,38.54,2.65,1.22,False
+defensive_trend_barbell,Barbell with trend-to-cash filter,6,171,28,19,11.11,35.09,28.65,64.91,52.05,1.45,5.47,2.8,105467.59,-12.09,33.43,3.71,1.86,False
+fixed_macro_barbell,Precious / real-assets barbell,3,174,58,16,9.2,22.41,19.54,58.05,50.0,1.32,2.48,1.04,102476.21,-12.96,18.39,3.74,2.1,False
+core_plus_trend,50% macro core / 50% trend,3,174,58,15,8.62,25.29,22.41,62.07,57.47,1.89,4.62,2.74,104616.97,-17.24,29.75,3.74,2.1,False
+top3_rotation,Top-3 resource momentum rotation,1,176,176,15,8.52,14.77,12.5,50.0,52.27,0.03,1.05,0.61,101048.73,-17.38,21.45,5.23,3.63,False
+defensive_trend_barbell,Barbell with trend-to-cash filter,5,172,34,14,8.14,31.98,26.16,62.21,55.81,1.25,5.12,2.63,105117.08,-13.17,28.21,3.05,1.53,False
+defensive_plus_trend,50% defensive / 50% trend,3,174,58,14,8.05,26.44,21.84,58.62,58.62,1.38,4.24,2.61,104241.79,-15.62,29.57,3.74,2.1,False
+core_plus_trend,50% macro core / 50% trend,2,175,87,11,6.29,18.86,14.86,60.57,55.43,0.93,2.02,0.97,102020.56,-16.49,21.64,2.48,1.39,False
+top5_trend_equal,Top-5 positive 10-month trends,1,176,176,11,6.25,12.5,10.8,49.43,51.14,0.0,1.03,0.52,101029.18,-17.37,16.5,3.53,2.32,False
+equal_weight_core,Equal-weight diversified resources,2,175,87,10,5.71,18.86,14.86,57.71,50.86,0.89,1.9,0.89,101904.57,-14.77,16.31,2.48,1.39,False
+defensive_plus_trend,50% defensive / 50% trend,2,175,87,10,5.71,18.29,17.14,54.86,53.71,0.42,2.46,1.09,102459.61,-15.58,21.59,2.48,1.39,False
+defensive_trend_barbell,Barbell with trend-to-cash filter,4,173,43,9,5.2,28.32,23.12,61.85,52.02,0.92,3.74,1.37,103744.59,-13.69,19.49,1.28,0.59,False
+fixed_macro_barbell,Precious / real-assets barbell,2,175,87,9,5.14,17.14,14.86,57.71,49.71,0.7,1.67,0.83,101670.1,-12.12,14.25,1.8,0.96,False
+top5_trend_inverse_vol,"Top-5 trends, inverse volatility",1,176,176,9,5.11,10.8,8.52,50.57,54.55,0.12,1.3,0.73,101299.25,-17.37,16.3,2.71,1.72,False
+defensive_trend_barbell,Barbell with trend-to-cash filter,3,174,58,6,3.45,26.44,21.26,55.17,50.57,0.47,3.2,1.34,103203.38,-7.71,18.05,0.95,0.44,False
+defensive_trend_barbell,Barbell with trend-to-cash filter,2,175,87,4,2.29,17.71,15.43,55.43,50.29,0.25,1.67,0.63,101673.96,-8.27,13.94,0.63,0.29,False
+core_plus_trend,50% macro core / 50% trend,1,176,176,3,1.7,7.95,5.68,57.95,52.27,0.45,1.02,0.56,101017.72,-11.3,12.53,0.58,0.29,False
+fixed_macro_barbell,Precious / real-assets barbell,1,176,176,1,0.57,7.95,5.68,56.82,52.27,0.58,0.93,0.58,100927.37,-8.36,10.18,0.1,0.04,False
+equal_weight_core,Equal-weight diversified resources,1,176,176,1,0.57,6.82,5.11,57.39,53.41,0.56,1.08,0.56,101075.51,-11.24,10.32,0.1,0.04,False
+defensive_plus_trend,50% defensive / 50% trend,1,176,176,1,0.57,6.82,5.68,52.84,53.41,0.13,1.03,0.58,101034.82,-10.71,12.35,0.1,0.04,False
+defensive_trend_barbell,Barbell with trend-to-cash filter,1,176,176,0,0.0,6.82,6.25,55.68,50.57,0.19,0.92,0.54,100915.01,-7.76,9.48,0.0,0.0,False

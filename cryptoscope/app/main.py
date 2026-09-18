@@ -16,8 +16,10 @@ from app.api.charts import router as charts_router
 from app.api.crypto_picks import router as crypto_picks_router
 from app.api.data_view import router as data_router
 from app.api.favorites import router as favorites_router
+from app.api.forward_confirmation import router as forward_confirmation_router
 from app.api.health import router as health_router
 from app.api.locale import router as locale_router
+from app.api.long_term import router as long_term_router
 from app.api.market_regime import router as market_regime_router
 from app.api.payments import router as payments_router
 from app.api.portfolio import router as portfolio_router
@@ -212,6 +214,8 @@ app.include_router(ui_router)
 app.include_router(crypto_picks_router)
 app.include_router(market_regime_router)
 app.include_router(short_term_router)
+app.include_router(long_term_router)
+app.include_router(forward_confirmation_router)
 
 
 async def _get_dashboard_context(market: str = "crypto"):

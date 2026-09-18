@@ -1,0 +1,79 @@
+<section class="reversal-shell">
+    <header class="reversal-header">
+        <div>
+            <span class="section-kicker">ADMIN · FORWARD CONFIRMATION · ТОЛЬКО КРИПТА</span>
+            <h2>Подтверждение стратегий</h2>
+            <p>
+                Честная статистика по живым учебным сделкам крипто-стратегий. Каждая сделка —
+                условные $100, результат считается после расходов и фиксируется один раз
+                (задним числом не переписывается). Это проверка на данных, которых не было в
+                момент бэктеста.
+            </p>
+        </div>
+    </header>
+
+    <div class="reversal-forward-metrics">
+        <div><span>Стратегий</span><strong>{{ report.summary.total }}</strong></div>
+        <div><span>С накопленными данными</span><strong>{{ report.summary.with_data }}</strong></div>
+        <div>
+            <span>Подтверждают преимущество</span>
+            <strong class="{{ 'positive' if report.summary.confirmed else 'negative' }}">{{ report.summary.confirmed }}</strong>
+        </div>
+        <div><span>Сформировано</span><strong>{{ report.generated_at }}</strong></div>
+    </div>
+
+    {% for strategy in report.strategies %}
+    <section class="reversal-credibility is-{{ strategy.verdict_tone }}">
+        <header>
+            <div>
+                <span class="section-kicker">{{ strategy.label }}</span>
+                <h4>{{ strategy.verdict }}</h4>
+                <p>{{ strategy.description }}</p>
+                <p>{{ strategy.verdict_detail }}</p>
+                {% if strategy.error %}
+                <p class="negative">Журнал не прочитан: {{ strategy.error }}</p>
+                {% endif %}
+            </div>
+            <strong>{{ strategy.sample }} / {{ strategy.sample_target }} сделок</strong>
+        </header>
+
+        <div class="reversal-confidence-progress"
+             aria-label="Набрано {{ strategy.sample }} из {{ strategy.sample_target }} сделок">
+            <span style="width: {{ '%.1f'|format(strategy.sample_progress) }}%"></span>
+        </div>
+
+        <div class="reversal-credibility-grid">
+            <div>
+                <span>Доля прибыльных</span>
+                <strong>{% if strategy.has_data %}{{ '%.1f'|format(strategy.win_rate) }}%{% else %}—{% endif %}</strong>
+            </div>
+            <div>
+                <span>95% диапазон win rate</span>
+                <strong>{% if strategy.has_data %}{{ '%.0f'|format(strategy.win_rate_low) }}–{{ '%.0f'|format(strategy.win_rate_high) }}%{% else %}—{% endif %}</strong>
+            </div>
+            <div>
+                <span>Profit factor</span>
+                <strong>{% if strategy.has_data %}{{ '%.2f'|format(strategy.profit_factor) }}{% else %}—{% endif %}</strong>
+            </div>
+            <div>
+                <span>Итог всех сделок ($100 каждая)</span>
+                <strong class="{% if strategy.net_cash >= 0 %}positive{% else %}negative{% endif %}">{% if strategy.has_data %}{{ '%+.2f'|format(strategy.net_cash) }} $ {% else %}—{% endif %}</strong>
+            </div>
+            <div>
+                <span>Макс. просадка</span>
+                <strong class="negative">{% if strategy.has_data %}-{{ '%.2f'|format(strategy.max_drawdown) }} $ {% else %}—{% endif %}</strong>
+            </div>
+            <div>
+                <span>LONG / SHORT</span>
+                <strong>{{ strategy.long_trades }} / {{ strategy.short_trades }}</strong>
+            </div>
+        </div>
+    </section>
+    {% endfor %}
+
+    <p class="stl-empty">
+        Исследовательский раздел, не индивидуальная рекомендация. Вердикт «Преимущество
+        подтверждается» появляется только при 30+ закрытых сделках, profit factor ≥ 1.2 и
+        положительном среднем результате после расходов.
+    </p>
+</section>

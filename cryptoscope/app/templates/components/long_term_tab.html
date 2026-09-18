@@ -1,0 +1,242 @@
+<section class="long-term-shell" data-long-term-investment>
+    <header class="long-term-header">
+        <div>
+            <span class="section-kicker">LONG-TERM INVESTMENT · КУПИЛ И ДЕРЖУ</span>
+            <h2>Что можно купить сегодня</h2>
+            <p>Выбери сумму и срок — система оценит вход от текущей цены, как вклад с датой окончания.</p>
+        </div>
+        <span class="long-term-status {{ 'is-ready' if report.qualified_count else 'is-research' }}">
+            {{ report.status_label|default("Нет данных") }}
+        </span>
+    </header>
+
+    {% if not report.is_ready %}
+    <div class="long-term-empty">
+        <i data-lucide="database-zap"></i>
+        <div>
+            <strong>Long-Term Investment пока недоступен</strong>
+            <p>{{ report.error }}</p>
+        </div>
+    </div>
+    {% else %}
+    <section class="long-term-builder">
+        <label>
+            <span>Сколько вложить</span>
+            <div class="long-term-money-input">
+                <b>$</b>
+                <input id="long-term-amount" type="number" min="10" step="10"
+                       value="{{ report.amount_default }}" inputmode="decimal">
+            </div>
+        </label>
+        <label>
+            <span>Срок и минимальный плюс</span>
+            <select id="long-term-plan-select">
+                {% for plan in report.plans %}
+                <option value="{{ plan.key }}" {{ 'selected' if plan.key == report.default_plan_key else '' }}>
+                    {{ plan.label }}
+                </option>
+                {% endfor %}
+            </select>
+        </label>
+        <div class="long-term-freshness">
+            <span>Расчёт по данным</span>
+            <strong>{{ report.data_date }}</strong>
+            <small>следующая оценка {{ report.valid_until }}</small>
+        </div>
+    </section>
+
+    {% for plan in report.plans %}
+    <section class="long-term-plan {{ '' if plan.key == report.default_plan_key else 'is-hidden' }}"
+             data-long-term-plan="{{ plan.key }}">
+        <div class="long-term-plan-summary">
+            <article class="long-term-decision {{ 'is-buy' if plan.decision == 'buy' else 'is-wait' }}">
+                <span>Решение на сегодня</span>
+                <strong>{{ plan.decision_label }}</strong>
+                <small>
+                    {% if plan.decision == 'buy' %}
+                    Найдено вариантов: {{ plan.qualified_count }}
+                    {% else %}
+                    Надёжных вариантов сейчас нет
+                    {% endif %}
+                </small>
+            </article>
+            <article>
+                <span>Сумма сегодня</span>
+                <strong data-lt-amount-multiplier="1">$1 000</strong>
+                <small>спот, без кредитного плеча</small>
+            </article>
+            <article>
+                <span>Минимальная планка</span>
+                <strong data-lt-amount-multiplier="{{ 1 + plan.target_return_pct / 100 }}">—</strong>
+                <small>не меньше +{{ plan.target_return_pct|int }}%; верхней границы нет</small>
+            </article>
+            <article>
+                <span>Дата окончания</span>
+                <strong>{{ plan.maturity_date }}</strong>
+                <small>держать {{ plan.horizon_months }} мес.</small>
+            </article>
+        </div>
+
+        {% if plan.decision != 'buy' %}
+        <div class="long-term-warning">
+            <i data-lucide="pause-circle"></i>
+            <p>
+                Сейчас покупать по этой модели не следует: лучшие доступные условия не дают
+                достаточно надёжной истории.
+                Ниже показаны ближайшие кандидаты только для наблюдения.
+            </p>
+        </div>
+        {% endif %}
+
+        <section class="long-term-board">
+            <header>
+                <div>
+                    <span class="section-kicker">ОЦЕНКА ВХОДА ПО ТЕКУЩЕЙ ЦЕНЕ</span>
+                    <h3>{{ 'Подходящие покупки' if plan.decision == 'buy' else 'Ближайшие кандидаты' }}</h3>
+                </div>
+                <span>{{ plan.label }}</span>
+            </header>
+
+            {% if plan.candidates %}
+            <div class="long-term-candidates">
+                {% for item in plan.candidates %}
+                <article class="long-term-candidate {{ 'is-buy' if item.decision == 'buy' else 'is-wait' }}">
+                    <header>
+                        <div>
+                            <span>{{ item.decision_label }}</span>
+                            <h4>{{ item.symbol }}</h4>
+                            <small>{{ item.strategy_label }}</small>
+                        </div>
+                        <strong>{{ item.current_price_label }}</strong>
+                    </header>
+                    <div class="long-term-candidate-metrics">
+                        <div>
+                            <span>Цель достигалась</span>
+                            <strong>{{ (item.historical_probability_pct / 10)|round|int }} из 10 раз</strong>
+                            <small>по прошлым покупкам</small>
+                        </div>
+                        <div>
+                            <span>Цена планки +{{ plan.target_return_pct|int }}%</span>
+                            <strong>{{ item.target_price_label }}</strong>
+                            <small>это минимум, а не цена продажи</small>
+                        </div>
+                        <div>
+                            <span>Средний исторический итог</span>
+                            <strong data-lt-amount-multiplier="{{ item.median_multiplier }}">—</strong>
+                            <small>это не прогноз</small>
+                        </div>
+                        <div>
+                            <span>Слабый сценарий</span>
+                            <strong data-lt-amount-multiplier="{{ item.downside_multiplier }}">—</strong>
+                            <small>так тоже бывало</small>
+                        </div>
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="long-term-empty">
+                <i data-lucide="calendar-clock"></i>
+                <div>
+                    <strong>Условия входа не сформированы</strong>
+                    <p>На последней завершённой неделе ни одна стратегия не выбрала актив.</p>
+                </div>
+            </div>
+            {% endif %}
+        </section>
+    </section>
+    {% endfor %}
+
+    {% if report.resource_portfolio %}
+    {% set resource = report.resource_portfolio %}
+    <section class="resource-portfolio-section">
+        <header class="resource-portfolio-heading">
+            <div>
+                <span class="section-kicker">ПОРТФЕЛЬ БЕЗ НЕФТИ И БЕНЗИНА</span>
+                <h3>Как разложить 100 000 ₽</h3>
+                <p>Один понятный вариант вместо десятков цифр.</p>
+            </div>
+            <span class="long-term-status is-research">Гарантии нет</span>
+        </header>
+
+        {% for card in resource.cards %}
+        {% if card.portfolio == 'core_plus_trend' %}
+        <article class="resource-simple-card">
+            <div class="resource-simple-verdict">
+                <span>РЕШЕНИЕ ПО РИСК-ФИЛЬТРУ</span>
+                <strong>{{ card.risk_label }}</strong>
+                <p>Полную сумму не вкладываем: история портфеля пока недостаточно надёжна.</p>
+            </div>
+            <div class="resource-simple-examples">
+                <div>
+                    <span>Средний год, если курс доллара не менялся</span>
+                    <strong>100 000 ₽ → {{ '{:,.0f}'.format(card.example_year_end_rub).replace(',', ' ') }} ₽</strong>
+                </div>
+                <div class="is-risk">
+                    <span>В плохой момент могло временно стать</span>
+                    <strong>100 000 ₽ → {{ '{:,.0f}'.format(card.example_drawdown_value_rub).replace(',', ' ') }} ₽</strong>
+                </div>
+            </div>
+            <p class="resource-currency-note">Курс рубля может сильно изменить итог.</p>
+
+            <div class="resource-simple-allocation">
+                <h4>Из 100 000 ₽: {{ '{:,.0f}'.format(card.portfolio_budget_rub).replace(',', ' ') }} ₽ в портфель, {{ '{:,.0f}'.format(card.reserve_rub).replace(',', ' ') }} ₽ оставить в резерве</h4>
+                {% for item in card.allocations %}
+                {% if item.suggested_amount_rub > 0 %}
+                <div>
+                    <span><b>{{ item.ticker }}</b> · {{ item.asset_label }}</span>
+                    <strong>{{ '{:,.0f}'.format(item.suggested_amount_rub).replace(',', ' ') }} ₽</strong>
+                </div>
+                {% endif %}
+                {% endfor %}
+                {% if card.reserve_rub > 0 %}
+                <div>
+                    <span><b>РЕЗЕРВ</b> · вклад или деньги</span>
+                    <strong>{{ '{:,.0f}'.format(card.reserve_rub).replace(',', ' ') }} ₽</strong>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="resource-simple-truth">
+                <i data-lucide="info"></i>
+                <p>Смысл такой: если портфель упадёт, большая часть денег останется нетронутой. Если условия улучшатся, система разрешит увеличить долю.</p>
+            </div>
+        </article>
+        {% endif %}
+        {% endfor %}
+
+        <details class="resource-portfolio-details">
+            <summary>Показать другие варианты и цифры</summary>
+            {% for card in resource.cards %}
+            <div class="resource-detail-line">
+                <span>{{ 'Сбалансированный' if card.portfolio == 'core_plus_trend' else ('Защитный' if card.portfolio == 'defensive_trend_barbell' else 'Агрессивный') }}</span>
+                <span>{{ card.risk_label }}</span>
+                <span>Цель +10%: {{ '%.0f'|format(card.target_years_pct) }}% периодов</span>
+            </div>
+            {% endfor %}
+            <p>Зелёный статус: плюс не реже 7 из 10, цель +10% не реже 55 из 100, просадка не глубже 25 из 100 и миним 20 независимых периодов.</p>
+        </details>
+    </section>
+    {% endif %}
+
+    <details class="long-term-details">
+        <summary>
+            <span><i data-lucide="list-checks"></i> Как принимается решение</span>
+            <i data-lucide="chevron-down"></i>
+        </summary>
+        <ol>
+            <li>Каждую завершённую неделю система заново отвечает на вопрос: «покупать сегодня или ждать».</li>
+            <li>Для каждого срока проверяются все 30 неизменяемых стратегий на семилетней истории.</li>
+            <li>Исторический вход считается со следующего дневного закрытия, расходы 0,4% вычитаются.</li>
+            <li>Успех — итог не ниже выбранной планки. Например, при минимуме +10% результаты +15% и +40% тоже считаются успехом.</li>
+            <li>«Купить сейчас» появляется только когда сходятся доходность, риск просадки и достаточная история.</li>
+            <li>Все суммы и сроки считаются от текущей цены; старые модельные позиции не переносятся.</li>
+        </ol>
+        <p>Версия {{ report.product_version }} · недельная проверка · данные до {{ report.data_date }}.</p>
+    </details>
+
+    <div class="long-term-disclaimer">
+        Это аналог вклада только по механике «вложил и держишь до даты». Доход и возврат капитала не гарантированы.
+    </div>
+    {% endif %}
+</section>

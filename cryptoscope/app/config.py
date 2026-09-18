@@ -9,6 +9,16 @@ class Settings(BaseSettings):
     csv_path: str = "/opt/seed/all_markets_3yr.csv"
     ru_csv_path: str = "/opt/seed/tinkoff_ru_2yr.csv"
     hourly_path: str = "/opt/seed/hourly_6coins_2yr.csv"
+    long_term_data_path: str = (
+        "/opt/seed/long_term_7y/binance_top_daily.csv"
+        if os.name != "nt"
+        else "data/long_term_7y/binance_top_daily.csv"
+    )
+    long_term_report_path: str = (
+        "/opt/seed/long_term_7y/long_term_report.json"
+        if os.name != "nt"
+        else "data/long_term_7y/long_term_report.json"
+    )
     port: int = 3000
     host: str = "0.0.0.0"
 

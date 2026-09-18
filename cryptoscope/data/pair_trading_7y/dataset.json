@@ -1,0 +1,60 @@
+{
+  "source": "Binance",
+  "interval": "4h",
+  "start_date": "2019-09-11",
+  "end_date": "2026-09-11",
+  "rows": 153470,
+  "assets": [
+    {
+      "ticker": "BTC/USD",
+      "binance_symbol": "BTCUSDT",
+      "rows": 15347
+    },
+    {
+      "ticker": "ETH/USD",
+      "binance_symbol": "ETHUSDT",
+      "rows": 15347
+    },
+    {
+      "ticker": "BNB/USD",
+      "binance_symbol": "BNBUSDT",
+      "rows": 15347
+    },
+    {
+      "ticker": "XRP/USD",
+      "binance_symbol": "XRPUSDT",
+      "rows": 15347
+    },
+    {
+      "ticker": "TRX/USD",
+      "binance_symbol": "TRXUSDT",
+      "rows": 15347
+    },
+    {
+      "ticker": "ZEC/USD",
+      "binance_symbol": "ZECUSDT",
+      "rows": 15347
+    },
+    {
+      "ticker": "DOGE/USD",
+      "binance_symbol": "DOGEUSDT",
+      "rows": 15347
+    },
+    {
+      "ticker": "LINK/USD",
+      "binance_symbol": "LINKUSDT",
+      "rows": 15347
+    },
+    {
+      "ticker": "ADA/USD",
+      "binance_symbol": "ADAUSDT",
+      "rows": 15347
+    },
+    {
+      "ticker": "XLM/USD",
+      "binance_symbol": "XLMUSDT",
+      "rows": 15347
+    }
+  ],
+  "output": "data\\pair_trading_7y\\binance_top_4h.csv"
+}

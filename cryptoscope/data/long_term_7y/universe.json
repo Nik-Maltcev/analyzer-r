@@ -1,0 +1,97 @@
+{
+  "version": "long-term-universe-v1",
+  "frozen_on": "2026-09-11",
+  "assets": [
+    {
+      "coin_id": "bitcoin",
+      "name": "Bitcoin",
+      "base_asset": "BTC",
+      "binance_symbol": "BTCUSDT",
+      "market_cap_rank": 1,
+      "market_cap_usd": 1552870572423.0,
+      "rows": 2558
+    },
+    {
+      "coin_id": "ethereum",
+      "name": "Ethereum",
+      "base_asset": "ETH",
+      "binance_symbol": "ETHUSDT",
+      "market_cap_rank": 2,
+      "market_cap_usd": 308732350989.0,
+      "rows": 2558
+    },
+    {
+      "coin_id": "binancecoin",
+      "name": "BNB",
+      "base_asset": "BNB",
+      "binance_symbol": "BNBUSDT",
+      "market_cap_rank": 4,
+      "market_cap_usd": 97809831113.0,
+      "rows": 2558
+    },
+    {
+      "coin_id": "ripple",
+      "name": "XRP",
+      "base_asset": "XRP",
+      "binance_symbol": "XRPUSDT",
+      "market_cap_rank": 5,
+      "market_cap_usd": 86108412988.0,
+      "rows": 2558
+    },
+    {
+      "coin_id": "tron",
+      "name": "TRON",
+      "base_asset": "TRX",
+      "binance_symbol": "TRXUSDT",
+      "market_cap_rank": 8,
+      "market_cap_usd": 32233253460.0,
+      "rows": 2558
+    },
+    {
+      "coin_id": "zcash",
+      "name": "Zcash",
+      "base_asset": "ZEC",
+      "binance_symbol": "ZECUSDT",
+      "market_cap_rank": 10,
+      "market_cap_usd": 19475074244.0,
+      "rows": 2558
+    },
+    {
+      "coin_id": "dogecoin",
+      "name": "Dogecoin",
+      "base_asset": "DOGE",
+      "binance_symbol": "DOGEUSDT",
+      "market_cap_rank": 12,
+      "market_cap_usd": 13234365845.0,
+      "rows": 2558
+    },
+    {
+      "coin_id": "chainlink",
+      "name": "Chainlink",
+      "base_asset": "LINK",
+      "binance_symbol": "LINKUSDT",
+      "market_cap_rank": 17,
+      "market_cap_usd": 8643101841.0,
+      "rows": 2558
+    },
+    {
+      "coin_id": "cardano",
+      "name": "Cardano",
+      "base_asset": "ADA",
+      "binance_symbol": "ADAUSDT",
+      "market_cap_rank": 19,
+      "market_cap_usd": 7827225298.0,
+      "rows": 2558
+    },
+    {
+      "coin_id": "stellar",
+      "name": "Stellar",
+      "base_asset": "XLM",
+      "binance_symbol": "XLMUSDT",
+      "market_cap_rank": 20,
+      "market_cap_usd": 6307953953.0,
+      "rows": 2558
+    }
+  ],
+  "policy": "fixed_until_explicit_refresh"
+}

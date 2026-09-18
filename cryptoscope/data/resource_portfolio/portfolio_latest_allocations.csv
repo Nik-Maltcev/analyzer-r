@@ -1,0 +1,43 @@
+as_of,portfolio,portfolio_label,ticker,asset,weight_pct
+2026-09-11,equal_weight_core,Equal-weight diversified resources,DBA,Agricultural commodities,11.11
+2026-09-11,equal_weight_core,Equal-weight diversified resources,DBB,Base metals,11.11
+2026-09-11,equal_weight_core,Equal-weight diversified resources,GLD,Gold,11.11
+2026-09-11,equal_weight_core,Equal-weight diversified resources,NLR,Nuclear-energy chain,11.11
+2026-09-11,equal_weight_core,Equal-weight diversified resources,PALL,Palladium,11.11
+2026-09-11,equal_weight_core,Equal-weight diversified resources,PHO,Water infrastructure,11.11
+2026-09-11,equal_weight_core,Equal-weight diversified resources,PPLT,Platinum,11.11
+2026-09-11,equal_weight_core,Equal-weight diversified resources,SLV,Silver,11.11
+2026-09-11,equal_weight_core,Equal-weight diversified resources,WOOD,Timber and forestry,11.11
+2026-09-11,fixed_macro_barbell,Precious / real-assets barbell,GLD,Gold,30.0
+2026-09-11,fixed_macro_barbell,Precious / real-assets barbell,DBA,Agricultural commodities,15.0
+2026-09-11,fixed_macro_barbell,Precious / real-assets barbell,DBB,Base metals,15.0
+2026-09-11,fixed_macro_barbell,Precious / real-assets barbell,NLR,Nuclear-energy chain,15.0
+2026-09-11,fixed_macro_barbell,Precious / real-assets barbell,PHO,Water infrastructure,15.0
+2026-09-11,fixed_macro_barbell,Precious / real-assets barbell,SLV,Silver,10.0
+2026-09-11,top5_trend_equal,Top-5 positive 10-month trends,CPER,Copper,25.0
+2026-09-11,top5_trend_equal,Top-5 positive 10-month trends,DBA,Agricultural commodities,25.0
+2026-09-11,top5_trend_equal,Top-5 positive 10-month trends,DBB,Base metals,25.0
+2026-09-11,top5_trend_equal,Top-5 positive 10-month trends,SLX,Steel producers,25.0
+2026-09-11,top5_trend_inverse_vol,"Top-5 trends, inverse volatility",DBA,Agricultural commodities,30.0
+2026-09-11,top5_trend_inverse_vol,"Top-5 trends, inverse volatility",CPER,Copper,28.88
+2026-09-11,top5_trend_inverse_vol,"Top-5 trends, inverse volatility",DBB,Base metals,25.1
+2026-09-11,top5_trend_inverse_vol,"Top-5 trends, inverse volatility",SLX,Steel producers,16.02
+2026-09-11,top3_rotation,Top-3 resource momentum rotation,CPER,Copper,33.33
+2026-09-11,top3_rotation,Top-3 resource momentum rotation,DBB,Base metals,33.33
+2026-09-11,top3_rotation,Top-3 resource momentum rotation,SLX,Steel producers,33.33
+2026-09-11,defensive_trend_barbell,Barbell with trend-to-cash filter,DBA,Agricultural commodities,15.0
+2026-09-11,defensive_trend_barbell,Barbell with trend-to-cash filter,DBB,Base metals,15.0
+2026-09-11,defensive_trend_barbell,Barbell with trend-to-cash filter,USD_CASH,USD cash reserve,70.0
+2026-09-11,core_plus_trend,50% macro core / 50% trend,DBA,Agricultural commodities,22.5
+2026-09-11,core_plus_trend,50% macro core / 50% trend,DBB,Base metals,20.05
+2026-09-11,core_plus_trend,50% macro core / 50% trend,GLD,Gold,15.0
+2026-09-11,core_plus_trend,50% macro core / 50% trend,CPER,Copper,14.44
+2026-09-11,core_plus_trend,50% macro core / 50% trend,SLX,Steel producers,8.01
+2026-09-11,core_plus_trend,50% macro core / 50% trend,NLR,Nuclear-energy chain,7.5
+2026-09-11,core_plus_trend,50% macro core / 50% trend,PHO,Water infrastructure,7.5
+2026-09-11,core_plus_trend,50% macro core / 50% trend,SLV,Silver,5.0
+2026-09-11,defensive_plus_trend,50% defensive / 50% trend,DBA,Agricultural commodities,22.5
+2026-09-11,defensive_plus_trend,50% defensive / 50% trend,DBB,Base metals,20.05
+2026-09-11,defensive_plus_trend,50% defensive / 50% trend,CPER,Copper,14.44
+2026-09-11,defensive_plus_trend,50% defensive / 50% trend,SLX,Steel producers,8.01
+2026-09-11,defensive_plus_trend,50% defensive / 50% trend,USD_CASH,USD cash reserve,35.0

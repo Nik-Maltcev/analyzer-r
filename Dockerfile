@@ -19,6 +19,7 @@ RUN mkdir -p /scripts /data /opt/seed
 COPY cryptoscope/data/all_markets_3yr.csv /opt/seed/all_markets_3yr.csv
 COPY cryptoscope/data/hourly_6coins_2yr.csv /opt/seed/hourly_6coins_2yr.csv
 COPY cryptoscope/data/tinkoff_ru_2yr.csv /opt/seed/tinkoff_ru_2yr.csv
+COPY cryptoscope/data/long_term_7y/ /opt/seed/long_term_7y/
 
 COPY cryptoscope/scripts/ /scripts/
 RUN chmod +x /scripts/*.py

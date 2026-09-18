@@ -1,0 +1,325 @@
+{
+  "method": "fixed-rules-quarterly-walk-forward-v1",
+  "source": "Binance daily closes",
+  "data_start": "2019-09-11",
+  "data_end": "2026-09-11",
+  "assets": [
+    "ADA/USD",
+    "BNB/USD",
+    "BTC/USD",
+    "DOGE/USD",
+    "ETH/USD",
+    "LINK/USD",
+    "TRX/USD",
+    "XLM/USD",
+    "XRP/USD",
+    "ZEC/USD"
+  ],
+  "possible_pairs": 45,
+  "formation_days": 365,
+  "trading_days": 90,
+  "bars_per_day": 6,
+  "rules": {
+    "entry_z": 2.0,
+    "exit_z": 0.5,
+    "stop_z": 3.5,
+    "maximum_cointegration_p_value": 0.01,
+    "minimum_return_correlation": 0.5,
+    "half_life_days": [
+      2,
+      60
+    ],
+    "taker_fee_pct_per_operation": 0.02,
+    "conservative_funding_8h_pct": 0.01
+  },
+  "windows": 25,
+  "windows_with_pair": 1,
+  "windows_with_trade": 1,
+  "portfolio_one_pair_at_a_time": {
+    "fee_only": {
+      "trades": 2,
+      "wins": 1,
+      "win_rate_pct": 50.0,
+      "average_trade_pct": 0.46,
+      "median_trade_pct": 0.46,
+      "best_trade_pct": 6.131,
+      "worst_trade_pct": -5.212,
+      "average_holding_days": 3.3,
+      "total_return_pct": 0.6,
+      "ending_capital": 1006.0,
+      "max_closed_trade_drawdown_pct": -5.21
+    },
+    "conservative_funding": {
+      "trades": 2,
+      "wins": 1,
+      "win_rate_pct": 50.0,
+      "average_trade_pct": 0.36,
+      "median_trade_pct": 0.36,
+      "best_trade_pct": 5.941,
+      "worst_trade_pct": -5.222,
+      "average_holding_days": 3.3,
+      "total_return_pct": 0.41,
+      "ending_capital": 1004.09,
+      "max_closed_trade_drawdown_pct": -5.22
+    }
+  },
+  "all_eligible_pair_opportunities": {
+    "fee_only": {
+      "trades": 2,
+      "wins": 1,
+      "win_rate_pct": 50.0,
+      "average_trade_pct": 0.46,
+      "median_trade_pct": 0.46,
+      "best_trade_pct": 6.131,
+      "worst_trade_pct": -5.212,
+      "average_holding_days": 3.3,
+      "total_return_pct": 0.6,
+      "ending_capital": 1006.0,
+      "max_closed_trade_drawdown_pct": -5.21
+    },
+    "conservative_funding": {
+      "trades": 2,
+      "wins": 1,
+      "win_rate_pct": 50.0,
+      "average_trade_pct": 0.36,
+      "median_trade_pct": 0.36,
+      "best_trade_pct": 5.941,
+      "worst_trade_pct": -5.222,
+      "average_holding_days": 3.3,
+      "total_return_pct": 0.41,
+      "ending_capital": 1004.09,
+      "max_closed_trade_drawdown_pct": -5.22
+    },
+    "note": "Each pooled trade is a separate $1000 opportunity; total return is not a deployable portfolio result."
+  },
+  "selected_windows": [
+    {
+      "window": 0,
+      "formation_end": "2020-09-10",
+      "trading_start": "2020-09-10",
+      "trading_end": "2020-12-09",
+      "eligible_pairs": 1,
+      "selected_pair": "DOGE/USD_XLM/USD",
+      "p_value": 7.249498329329097e-08,
+      "correlation": 0.5763006826677621,
+      "half_life_days": 3.67,
+      "trades": 2
+    },
+    {
+      "window": 1,
+      "formation_end": "2020-12-09",
+      "trading_start": "2020-12-09",
+      "trading_end": "2021-03-09",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 2,
+      "formation_end": "2021-03-09",
+      "trading_start": "2021-03-09",
+      "trading_end": "2021-06-07",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 3,
+      "formation_end": "2021-06-07",
+      "trading_start": "2021-06-07",
+      "trading_end": "2021-09-05",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 4,
+      "formation_end": "2021-09-05",
+      "trading_start": "2021-09-05",
+      "trading_end": "2021-12-04",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 5,
+      "formation_end": "2021-12-04",
+      "trading_start": "2021-12-04",
+      "trading_end": "2022-03-04",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 6,
+      "formation_end": "2022-03-04",
+      "trading_start": "2022-03-04",
+      "trading_end": "2022-06-02",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 7,
+      "formation_end": "2022-06-02",
+      "trading_start": "2022-06-02",
+      "trading_end": "2022-08-31",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 8,
+      "formation_end": "2022-08-31",
+      "trading_start": "2022-08-31",
+      "trading_end": "2022-11-29",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 9,
+      "formation_end": "2022-11-29",
+      "trading_start": "2022-11-29",
+      "trading_end": "2023-02-27",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 10,
+      "formation_end": "2023-02-27",
+      "trading_start": "2023-02-27",
+      "trading_end": "2023-05-28",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 11,
+      "formation_end": "2023-05-28",
+      "trading_start": "2023-05-28",
+      "trading_end": "2023-08-26",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 12,
+      "formation_end": "2023-08-26",
+      "trading_start": "2023-08-26",
+      "trading_end": "2023-11-24",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 13,
+      "formation_end": "2023-11-24",
+      "trading_start": "2023-11-24",
+      "trading_end": "2024-02-22",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 14,
+      "formation_end": "2024-02-22",
+      "trading_start": "2024-02-22",
+      "trading_end": "2024-05-22",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 15,
+      "formation_end": "2024-05-22",
+      "trading_start": "2024-05-22",
+      "trading_end": "2024-08-20",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 16,
+      "formation_end": "2024-08-20",
+      "trading_start": "2024-08-20",
+      "trading_end": "2024-11-18",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 17,
+      "formation_end": "2024-11-18",
+      "trading_start": "2024-11-18",
+      "trading_end": "2025-02-16",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 18,
+      "formation_end": "2025-02-16",
+      "trading_start": "2025-02-16",
+      "trading_end": "2025-05-17",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 19,
+      "formation_end": "2025-05-17",
+      "trading_start": "2025-05-17",
+      "trading_end": "2025-08-15",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 20,
+      "formation_end": "2025-08-15",
+      "trading_start": "2025-08-15",
+      "trading_end": "2025-11-13",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 21,
+      "formation_end": "2025-11-13",
+      "trading_start": "2025-11-13",
+      "trading_end": "2026-02-11",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 22,
+      "formation_end": "2026-02-11",
+      "trading_start": "2026-02-11",
+      "trading_end": "2026-05-12",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 23,
+      "formation_end": "2026-05-12",
+      "trading_start": "2026-05-12",
+      "trading_end": "2026-08-10",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    },
+    {
+      "window": 24,
+      "formation_end": "2026-08-10",
+      "trading_start": "2026-08-10",
+      "trading_end": "2026-09-11",
+      "eligible_pairs": 0,
+      "selected_pair": null,
+      "trades": 0
+    }
+  ]
+}

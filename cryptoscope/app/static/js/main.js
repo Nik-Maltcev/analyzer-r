@@ -196,6 +196,7 @@ function appLoadingMessage(source, target) {
         const tab = source?.dataset?.tab;
         if (tab === 'crypto') return 'Открываем раздел «Крипта»';
         if (tab === 'short-term') return 'Проверяем краткосрочные стратегии';
+        if (tab === 'long-term') return 'Проверяем долгосрочные сделки';
         if (tab === 'alpha') return 'Определяем режим крипторынка';
         if (tab === 'favorites') return 'Открываем портфель';
         if (tab === 'data') return 'Открываем данные';
@@ -1125,4 +1126,39 @@ function loadTickerLogos() {
 
 document.body.addEventListener('htmx:afterSwap', function() {
     loadTickerLogos();
+});
+
+function initLongTermInvestment(root = document) {
+    const shell = root.querySelector?.('[data-long-term-investment]');
+    if (!shell || shell.dataset.initialized === '1') return;
+    shell.dataset.initialized = '1';
+
+    const amountInput = shell.querySelector('#long-term-amount');
+    const planSelect = shell.querySelector('#long-term-plan-select');
+    const money = new Intl.NumberFormat('ru-RU', {
+        style: 'currency',
+        currency: 'USD',
+        maximumFractionDigits: 0,
+    });
+
+    const render = () => {
+        const amount = Math.max(Number(amountInput?.value) || 0, 0);
+        shell.querySelectorAll('[data-lt-amount-multiplier]').forEach(element => {
+            const multiplier = Number(element.dataset.ltAmountMultiplier) || 0;
+            element.textContent = money.format(amount * multiplier);
+        });
+        const selected = planSelect?.value;
+        shell.querySelectorAll('[data-long-term-plan]').forEach(element => {
+            element.classList.toggle('is-hidden', element.dataset.longTermPlan !== selected);
+        });
+    };
+
+    amountInput?.addEventListener('input', render);
+    planSelect?.addEventListener('change', render);
+    render();
+}
+
+document.addEventListener('DOMContentLoaded', () => initLongTermInvestment());
+document.body.addEventListener('htmx:afterSwap', event => {
+    initLongTermInvestment(event.target || document);
 });
