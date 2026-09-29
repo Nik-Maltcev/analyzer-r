@@ -21,6 +21,7 @@ from app.api.health import router as health_router
 from app.api.locale import router as locale_router
 from app.api.long_term import router as long_term_router
 from app.api.market_regime import router as market_regime_router
+from app.api.new_strategies import router as new_strategies_router
 from app.api.payments import router as payments_router
 from app.api.portfolio import router as portfolio_router
 from app.api.public_content import router as public_content_router
@@ -216,6 +217,7 @@ app.include_router(market_regime_router)
 app.include_router(short_term_router)
 app.include_router(long_term_router)
 app.include_router(forward_confirmation_router)
+app.include_router(new_strategies_router)
 
 
 async def _get_dashboard_context(market: str = "crypto"):

@@ -81,6 +81,11 @@
                 <i class="tab-icon" data-lucide="shield-check"></i><span>Подтверждение</span>
             </a>
             {% endif %}
+            {% if is_admin %}
+            <a href="#" class="nav-tab" data-tab="new-strategies" hx-get="/tab/new-strategies" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-sync="#main-content:replace">
+                <i class="tab-icon" data-lucide="sparkles"></i><span>Новые стратегии</span>
+            </a>
+            {% endif %}
             {# Long Term скрыт из навигации (2026-09-15); роутер и код не тронуты
             <a href="#" class="nav-tab" data-tab="long-term" hx-get="/tab/long-term" hx-trigger="click" hx-target="#main-content" hx-swap="innerHTML" hx-sync="#main-content:replace">
                 <i class="tab-icon" data-lucide="calendar-range"></i><span>Long Term</span>
