@@ -8,10 +8,10 @@ import pytest
 
 from app.core.forward_confirmation import (
     ALPHA_CALCULATION_VERSION,
-    SHORT_TERM_VERSION,
     _build_report,
     _credibility,
 )
+from app.core.short_term_lab import CALCULATION_VERSION as SHORT_TERM_VERSION
 from app.db.schema import (
     CREATE_ALPHA_TRADE_JOURNAL,
     CREATE_CRYPTO_STRATEGY_TRADES,
@@ -160,28 +160,23 @@ def test_build_report_empty_db():
     conn = _memory()
     _create_all(conn)
     report = _build_report(conn)
-    assert report["summary"] == {"total": 3, "with_data": 0, "confirmed": 0}
+    assert report["summary"] == {"total": 2, "with_data": 0, "confirmed": 0}
     for strategy in report["strategies"]:
         assert strategy["sample"] == 0
         assert strategy["error"] is None
         assert strategy["verdict_tone"] == "neutral"
 
 
-def test_build_report_short_term_positive():
+def test_build_report_hides_short_term_card():
     conn = _memory()
     _create_all(conn)
     _insert_short_term(conn, wins=24, losses=6)
     report = _build_report(conn)
     by_key = {strategy["key"]: strategy for strategy in report["strategies"]}
-    short_term = by_key["short_term"]
-    assert short_term["sample"] == 30
-    assert short_term["win_rate"] == pytest.approx(80.0)
-    assert short_term["profit_factor"] == pytest.approx(8.0)
-    assert short_term["net_cash"] == pytest.approx(21.0)
-    assert short_term["max_drawdown"] == pytest.approx(3.0)
-    assert short_term["verdict_tone"] == "positive"
-    assert report["summary"]["with_data"] == 1
-    assert report["summary"]["confirmed"] == 1
+    # Карточка Short-Term (крипта) скрыта из панели подтверждения.
+    assert "short_term" not in by_key
+    assert report["summary"]["with_data"] == 0
+    assert report["summary"]["confirmed"] == 0
 
 
 def test_build_report_alpha_and_momentum_loaders():
@@ -225,13 +220,12 @@ def test_build_report_alpha_and_momentum_loaders():
 
 def test_build_report_tolerates_missing_tables():
     conn = _memory()
-    conn.execute(CREATE_SHORT_TERM_FORWARD_TRADES)  # только эта таблица
-    _insert_short_term(conn, wins=24, losses=6)
+    conn.execute(CREATE_ALPHA_TRADE_JOURNAL)  # только эта таблица
+    _insert_alpha(conn, wins=5)
     report = _build_report(conn)
     by_key = {strategy["key"]: strategy for strategy in report["strategies"]}
-    assert by_key["short_term"]["sample"] == 30
-    assert by_key["short_term"]["error"] is None
-    assert by_key["alpha"]["error"] is not None
-    assert by_key["alpha"]["sample"] == 0
+    assert "short_term" not in by_key
+    assert by_key["alpha"]["error"] is None
+    assert by_key["alpha"]["sample"] == 5
     assert by_key["momentum"]["error"] is not None
     assert by_key["momentum"]["sample"] == 0

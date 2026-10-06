@@ -23,7 +23,6 @@ import numpy as np
 
 from app.core.long_term import wilson_interval
 from app.core.market_regime import CALCULATION_VERSION as ALPHA_CALCULATION_VERSION
-from app.core.short_term_lab import CALCULATION_VERSION as SHORT_TERM_VERSION
 
 STAKE_USD = 100.0
 SAMPLE_TARGET = 30
@@ -102,27 +101,6 @@ def _credibility(trades: list[dict]) -> dict:
     }
 
 
-def _short_term_trades(conn: sqlite3.Connection) -> list[dict]:
-    """Крипто Short-Term Lab: живой журнал, обновляется каждые 15 минут."""
-    rows = conn.execute(
-        """
-        SELECT direction, cash_result, net_return_pct
-        FROM short_term_forward_trades
-        WHERE calculation_version = ? AND status = 'closed'
-        ORDER BY exit_time, id
-        """,
-        (SHORT_TERM_VERSION,),
-    ).fetchall()
-    return [
-        {
-            "direction": row["direction"],
-            "cash_result": float(row["cash_result"] or 0.0),
-            "net_return_pct": float(row["net_return_pct"] or 0.0),
-        }
-        for row in rows
-    ]
-
-
 def _alpha_trades(conn: sqlite3.Connection) -> list[dict]:
     """Market Regime Alpha (крипта): ежедневный журнал alpha_trade_journal."""
     rows = conn.execute(
@@ -167,12 +145,6 @@ def _momentum_trades(conn: sqlite3.Connection) -> list[dict]:
 
 
 _SOURCES = (
-    {
-        "key": "short_term",
-        "label": "Short-Term (крипта)",
-        "description": "Короткие внутридневные сделки. Журнал обновляется каждые 15 минут.",
-        "loader": _short_term_trades,
-    },
     {
         "key": "alpha",
         "label": "Market Regime Alpha (крипта)",
