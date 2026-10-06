@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.api.public_extension import refresh_extension_feed_snapshots
 from app.core.market_regime import sync_market_regime_snapshots
 from app.core.scanner_history import sync_all_scanner_states
+from app.core.ts_momentum import sync_ts_momentum_forward
 from app.config import get_settings
 from app.data.brazil import fetch_brazil_prices, upsert_brazil_prices
 from app.data.indonesia import fetch_indonesia_prices, upsert_indonesia_prices
@@ -300,6 +301,13 @@ def main() -> int:
         except Exception as exc:
             print(f"Market regime snapshot update failed: {exc}")
             return 1
+
+        if os.getenv("TS_MOMENTUM_FORWARD_ENABLED", "true").lower() == "true":
+            try:
+                ts_result = asyncio.run(sync_ts_momentum_forward(DB_PATH))
+                print(f"TS-momentum forward journal: {ts_result}")
+            except Exception as exc:
+                print(f"TS-momentum forward journal failed: {exc}")
 
     # Recompute even when providers returned no new rows. This verifies the
     # existing dataset instead of reporting success with stale/broken pairs.

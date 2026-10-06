@@ -621,6 +621,41 @@ CREATE TABLE IF NOT EXISTS alpha_trade_journal (
 )
 """
 
+CREATE_TS_MOMENTUM_FORWARD_JOURNAL = """
+CREATE TABLE IF NOT EXISTS ts_momentum_forward_journal (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    calculation_version TEXT NOT NULL,
+    rebalance_date TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    weight REAL NOT NULL,
+    entry_price REAL NOT NULL,
+    btc_ticker TEXT NOT NULL,
+    btc_entry_price REAL NOT NULL,
+    own_return_pct REAL,
+    closed_on TEXT,
+    exit_price REAL,
+    btc_exit_price REAL,
+    return_pct REAL,
+    cash_result REAL,
+    stake REAL NOT NULL DEFAULT 100.0,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
+CREATE_TS_MOMENTUM_FORWARD_INDICES = [
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ts_momentum_forward_unique
+    ON ts_momentum_forward_journal(calculation_version, rebalance_date, ticker)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ts_momentum_forward_active
+    ON ts_momentum_forward_journal(calculation_version, status)
+    """,
+]
+
 CREATE_REVERSAL_CANDLES = """
 CREATE TABLE IF NOT EXISTS reversal_candles (
     ticker       TEXT NOT NULL,
