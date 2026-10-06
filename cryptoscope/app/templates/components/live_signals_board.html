@@ -1,0 +1,73 @@
+{# Live-сигналы: доска LONG/SHORT (partial, обновляется HTMX every 30s). #}
+{% if report.status == "ok" %}
+<div class="reversal-forward-metrics">
+    <div><span>Сигнал от</span><strong>{{ report.as_of }}</strong></div>
+    <div><span>Lookback</span><strong>{{ report.lookback }}д</strong></div>
+    <div><span>Юниверс</span><strong>{{ report.universe }}</strong></div>
+    <div><span>Нога на сторону</span><strong>{{ report.legs_per_side }}</strong></div>
+    <div><span>Ребаланс ~</span><strong>{{ report.next_rebalance }}</strong></div>
+    <div><span>Цены на</span><strong>{{ report.marked_at or "—" }}</strong></div>
+</div>
+
+<div class="ls-board">
+    <div class="ls-col">
+        <p class="section-kicker">LONG · топ-{{ report.legs_per_side }} по моментуму · avg {{ report.avg_long_momentum }}%</p>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr><th>#</th><th>Монета</th><th>{{ report.lookback }}д</th><th>Цена (live)</th><th>Интродень</th><th>Вес</th></tr>
+                </thead>
+                <tbody>
+                    {% for leg in report.long_legs %}
+                    <tr>
+                        <td>{{ leg.rank }}</td>
+                        <td><strong>{{ leg.ticker }}</strong></td>
+                        <td class="positive">{{ leg.momentum_display }}</td>
+                        <td>{{ leg.live_price_display }}</td>
+                        <td class="{{ 'positive' if leg.intraday_pct >= 0 else 'negative' }}">{{ leg.intraday_display }}</td>
+                        <td>{{ leg.weight_display }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="ls-col">
+        <p class="section-kicker">SHORT · дно-{{ report.legs_per_side }} по моментуму · avg {{ report.avg_short_momentum }}%</p>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr><th>#</th><th>Монета</th><th>{{ report.lookback }}д</th><th>Цена (live)</th><th>Интродень</th><th>Вес</th></tr>
+                </thead>
+                <tbody>
+                    {% for leg in report.short_legs %}
+                    <tr>
+                        <td>{{ leg.rank }}</td>
+                        <td><strong>{{ leg.ticker }}</strong></td>
+                        <td class="negative">{{ leg.momentum_display }}</td>
+                        <td>{{ leg.live_price_display }}</td>
+                        <td class="{{ 'positive' if leg.intraday_pct >= 0 else 'negative' }}">{{ leg.intraday_display }}</td>
+                        <td>{{ leg.weight_display }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<p class="ls-mark">
+    Отмечено живых цен: {{ report.live_marked_legs or 0 }} /
+    {{ (report.long_legs | length) + (report.short_legs | length) }}.
+    Дельта-нейтрально: половина капитала в long, половина в short, равные веса.
+</p>
+{% elif report.status == "no_data" %}
+<p class="ls-empty">Нет крипто-данных в БД. Загрузите рынок (daily update), чтобы построить сигналы.</p>
+{% elif report.status == "insufficient_history" %}
+<p class="ls-empty">Недостаточно истории ({{ report.rows or 0 }} строк; нужно ≥ {{ report.lookback | default(14) + 1 }} дней).</p>
+{% elif report.status == "insufficient_universe" %}
+<p class="ls-empty">Слишком узкий юниверс ({{ report.universe or 0 }} монет; нужно ≥ 6) для дельта-нейтральной книги.</p>
+{% else %}
+<p class="ls-empty">Сигналы недоступны.</p>
+{% endif %}

@@ -1,0 +1,82 @@
+<section class="reversal-shell">
+    <header class="reversal-header">
+        <div>
+            <span class="section-kicker">ADMIN · LIVE-СИГНАЛЫ · ТОЛЬКО КРИПТА · CROSS-SECTIONAL MOMENTUM</span>
+            <h2>Live-сигналы: кросс-секционный моментум</h2>
+            <p>
+                Дневная дельта-нейтральная корзина: лонгуем монеты из верхнего квантиля по доходности
+                за {{ lookback }}д, шортим из нижнего. Живые цены MEXC обновляются каждые 30с —
+                чтобы ловить точку входа внутри дня. Сформировано {{ report.generated_at }}.
+            </p>
+        </div>
+        <div class="ls-lookback">
+            {% for lb in report.lookback_options %}
+            <button type="button"
+                    class="ls-lb-btn {{ 'is-active' if lb == lookback else '' }}"
+                    hx-get="/tab/live-signals?lookback={{ lb }}"
+                    hx-target="#main-content" hx-swap="innerHTML"
+                    hx-sync="#main-content:replace">{{ lb }}д</button>
+            {% endfor %}
+        </div>
+    </header>
+
+    <div class="ls-callout">
+        <strong>Честно:</strong> валидированный edge — это дневная L/S корзина с удержанием ~7 дней.
+        Быстрый вход «интрадей по алерту» edge НЕ добавляет — дневной сигнал не становится точнее
+        от ловли момента внутри дня. Живые цены нужны для тайминга входа, сам тайминг дискреционный.
+    </div>
+
+    <div id="ls-board"
+         hx-get="/tab/live-signals/board?lookback={{ lookback }}"
+         hx-trigger="every 30s"
+         hx-swap="innerHTML">
+        {% include "components/live_signals_board.html" %}
+    </div>
+
+    <section class="reversal-credibility is-positive">
+        <header>
+            <div>
+                <span class="section-kicker">BACKTEST КОНТЕКСТ · {{ report.strategy_note.backtest_period }}</span>
+                <h4>Почему эта стратегия, а не другая</h4>
+                <p>{{ report.strategy_note.universe_note }}</p>
+            </div>
+        </header>
+        <div class="reversal-credibility-grid">
+            {% for label, value in report.strategy_note.metrics %}
+            <div><span>{{ label }}</span><strong>{{ value }}</strong></div>
+            {% endfor %}
+        </div>
+        <ul class="ls-caveats">
+            {% for note in report.strategy_note.caveats %}
+            <li>{{ note }}</li>
+            {% endfor %}
+        </ul>
+    </section>
+
+    <p class="ls-disclaimer">
+        Исследовательский раздел, не индивидуальная инвестиционная рекомендация. Бэктест после
+        комиссий, но без слиппеджа шорт-ноги и без гарантии повторения. Прошлая доходность не
+        гарантирует будущую. Плечо выше 1x на исторической выборке ведёт к ликвидации счёта.
+    </p>
+</section>
+
+<style>
+    .ls-lookback { display: flex; gap: 6px; align-items: center; }
+    .ls-lb-btn {
+        border: 1px solid var(--border, #333); background: transparent; color: inherit;
+        padding: 4px 12px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px;
+    }
+    .ls-lb-btn.is-active { background: var(--accent, #4f8cff); color: #fff; border-color: transparent; }
+    .ls-callout {
+        margin: 12px 0; padding: 10px 14px; border-left: 3px solid var(--accent, #4f8cff);
+        background: rgba(79, 140, 255, 0.07); border-radius: 4px; font-size: 13px; line-height: 1.5;
+    }
+    .ls-board { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 900px) { .ls-board { grid-template-columns: 1fr; } }
+    .ls-col .section-kicker { display: block; margin-bottom: 6px; }
+    .ls-mark { margin-top: 10px; font-size: 12px; opacity: 0.75; }
+    .ls-empty { padding: 24px; text-align: center; opacity: 0.7; border: 1px dashed var(--border, #333); border-radius: 8px; }
+    .ls-caveats { margin: 12px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.6; }
+    .ls-caveats li { margin-bottom: 6px; }
+    .ls-disclaimer { margin-top: 16px; font-size: 12px; opacity: 0.65; line-height: 1.5; }
+</style>
