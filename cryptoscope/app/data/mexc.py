@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 import sqlite3
 import time
 from datetime import UTC, date, datetime, timedelta
@@ -25,6 +26,10 @@ MEXC_HISTORY_START = date(2023, 1, 1)
 MEXC_KLINE_LIMIT = 1000
 DAY_MS = 86_400_000
 MEXC_REQUEST_INTERVAL_SECONDS = 0.15
+# Thin MEXC spot markets (e.g. EGLD, ONE, ZIL) print closes far from the broad
+# market. When a MEXC daily close deviates from Binance by more than this
+# fraction we trust Binance instead, so illiquid prints cannot poison signals.
+BINANCE_RECONCILE_THRESHOLD = 0.03
 
 
 class _RequestPacer:
@@ -327,6 +332,79 @@ async def fetch_mexc_daily_prices(
     return frame, mapping, sorted(set(unsupported + failed))
 
 
+async def reconcile_mexc_with_binance(
+    prices: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict]:
+    """Replace MEXC closes that diverge from Binance spot by > threshold.
+
+    Fail-safe by design: any Binance problem leaves the frame untouched so the
+    daily refresh never breaks because the cross-check source is unavailable.
+    """
+    report = {"checked": 0, "corrected": 0, "skipped_tickers": 0}
+    if prices is None or prices.empty:
+        return prices, report
+
+    from app.data.binance_history import fetch_binance_daily_klines
+
+    frame = prices.copy()
+    binance_close: dict[tuple[str, str], float] = {}
+    semaphore = asyncio.Semaphore(5)
+    timeout = httpx.Timeout(30, connect=15)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async def load_ticker(ticker: str) -> None:
+            symbol = normalize_mexc_symbol(ticker)
+            if not symbol:
+                report["skipped_tickers"] += 1
+                return
+            sub = frame[frame["ticker"] == ticker]
+            dates = sorted({str(d)[:10] for d in sub["date"]})
+            if not dates:
+                return
+            try:
+                async with semaphore:
+                    bdf = await fetch_binance_daily_klines(
+                        client,
+                        symbol,
+                        date.fromisoformat(dates[0]),
+                        date.fromisoformat(dates[-1]),
+                    )
+            except Exception:
+                report["skipped_tickers"] += 1
+                return
+            if bdf is None or bdf.empty:
+                report["skipped_tickers"] += 1
+                return
+            for row in bdf.itertuples(index=False):
+                try:
+                    close = float(row.close)
+                except (TypeError, ValueError):
+                    continue
+                if close > 0:
+                    binance_close[(ticker, str(row.date)[:10])] = close
+
+        tickers = [str(t) for t in frame["ticker"].dropna().unique().tolist()]
+        await asyncio.gather(*(load_ticker(t) for t in tickers))
+
+    for index, row in frame.iterrows():
+        key = (str(row.ticker), str(row.date)[:10])
+        reference = binance_close.get(key)
+        if reference is None:
+            continue
+        try:
+            mexc_close = float(row.close)
+        except (TypeError, ValueError):
+            continue
+        if mexc_close <= 0:
+            continue
+        report["checked"] += 1
+        if abs(mexc_close / reference - 1.0) > BINANCE_RECONCILE_THRESHOLD:
+            frame.at[index, "close"] = reference
+            report["corrected"] += 1
+
+    return frame, report
+
+
 def upsert_mexc_price_versions(
     conn: sqlite3.Connection,
     prices: pd.DataFrame,
@@ -581,6 +659,12 @@ async def refresh_mexc_crypto_market(
         selected,
         start_dates,
     )
+    if os.getenv("BINANCE_RECONCILE_ENABLED", "true").lower() == "true":
+        try:
+            prices, reconcile_report = await reconcile_mexc_with_binance(prices)
+            print(f"[MEXC] Binance reconcile: {reconcile_report}")
+        except Exception as exc:
+            print(f"[MEXC] Binance reconcile skipped, keeping MEXC: {exc}")
     fetched_tickers = (
         int(prices["ticker"].nunique())
         if not prices.empty
